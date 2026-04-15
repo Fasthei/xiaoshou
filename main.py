@@ -1,17 +1,35 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import allocation, auth, customer, resource, usage
 from app.auth.dependencies import require_auth
 from app.config import get_settings
+from app.database import Base, engine
+from app import models  # noqa: F401  — registers all tables on Base.metadata
 
 settings = get_settings()
+logger = logging.getLogger("xiaoshou")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("DB tables ensured via metadata.create_all")
+    except Exception as e:
+        logger.error("DB init failed: %s", e)
+    yield
+
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="销售系统 API",
     debug=settings.DEBUG,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
