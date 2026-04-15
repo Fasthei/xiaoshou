@@ -65,22 +65,36 @@ uvicorn main:app --reload
 
 ```
 xiaoshou/
-├── app/
-│   ├── api/                 # FastAPI 路由
+├── app/                     # FastAPI 后端
+│   ├── api/                 # 路由
 │   ├── auth/                # Casdoor JWT 校验 & 依赖
 │   ├── models/              # SQLAlchemy 模型
 │   ├── schemas/             # Pydantic 模型
 │   ├── config.py
 │   └── database.py
+├── frontend/                # React + Vite + Antd SPA
+│   ├── src/
+│   │   ├── api/             # axios + interceptor
+│   │   ├── components/      # 布局 / 路由守卫
+│   │   ├── contexts/        # AuthContext
+│   │   ├── config/          # Casdoor 配置
+│   │   ├── pages/           # Login / Callback / Customers / Resources / Allocations / Usage
+│   │   └── types/
+│   └── staticwebapp.config.json
 ├── infra/                   # Bicep IaC
-├── docs/                    # 部署 / 认证文档
+├── docs/                    # 部署 / 认证 / SSO / 角色 / 测试
 ├── tests/                   # pytest
-├── .github/workflows/       # CI + CD
+├── .github/workflows/       # ci.yml (后端测试) + deploy.yml (后端 Container App) + frontend-deploy.yml (SWA)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── main.py
 └── requirements.txt
 ```
+
+## 在线地址
+
+- 后端 API：https://xiaoshou-api.braveglacier-e1a32a70.eastasia.azurecontainerapps.io/docs
+- 前端 SPA：https://purple-rock-072562e00.7.azurestaticapps.net
 
 ## 开发计划
 
