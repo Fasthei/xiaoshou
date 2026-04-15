@@ -4,6 +4,7 @@ import os
 from fastapi.testclient import TestClient
 
 from app.auth import casdoor as casdoor_mod
+from app.auth import dependencies as deps_mod
 from main import app
 
 client = TestClient(app)
@@ -37,7 +38,9 @@ def test_me_with_mocked_verify(monkeypatch):
             "roles": [{"name": "sales"}, {"name": "admin"}],
         }
 
+    # patch both module bindings: the original module and the local re-export in dependencies
     monkeypatch.setattr(casdoor_mod, "verify_jwt", fake_verify)
+    monkeypatch.setattr(deps_mod, "verify_jwt", fake_verify)
 
     r = client.get("/api/auth/me", headers={"Authorization": "Bearer good-token"})
     assert r.status_code == 200, r.text
@@ -53,7 +56,9 @@ def test_bad_token_returns_401(monkeypatch):
         from app.auth.casdoor import CasdoorAuthError
         raise CasdoorAuthError("expired")
 
+    # patch both module bindings: the original module and the local re-export in dependencies
     monkeypatch.setattr(casdoor_mod, "verify_jwt", fake_verify)
+    monkeypatch.setattr(deps_mod, "verify_jwt", fake_verify)
     r = client.get("/api/auth/me", headers={"Authorization": "Bearer bad"})
     assert r.status_code == 401
 

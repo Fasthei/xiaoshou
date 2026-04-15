@@ -8,7 +8,7 @@ on:
 env:
   RESOURCE_GROUP: sales-rg
   CONTAINER_APP:  xiaoshou-api
-  ACR_NAME:       REPLACE_ME_AFTER_FIRST_INFRA_DEPLOY   # 取自 bicep 输出 acrName
+  ACR_NAME:       xiaoshouacrebncjhxbwh4c2
   IMAGE_NAME:     xiaoshou
   IMAGE_TAG:      ${{ github.sha }}
 
