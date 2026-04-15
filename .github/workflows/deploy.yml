@@ -46,7 +46,23 @@ jobs:
             -n $CONTAINER_APP \
             --image $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
 
-      - name: Show FQDN
+      - name: Wait for new revision to be ready
         run: |
-          az containerapp show -g $RESOURCE_GROUP -n $CONTAINER_APP \
-            --query properties.configuration.ingress.fqdn -o tsv
+          for i in {1..30}; do
+            state=$(az containerapp revision list -g $RESOURCE_GROUP -n $CONTAINER_APP \
+              --query "[?properties.active].properties.runningState" -o tsv | head -1)
+            echo "revision state: $state"
+            [[ "$state" == "Running" ]] && break
+            sleep 10
+          done
+
+      - name: Show FQDN
+        id: fqdn
+        run: |
+          FQDN=$(az containerapp show -g $RESOURCE_GROUP -n $CONTAINER_APP \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "fqdn=$FQDN" >> $GITHUB_OUTPUT
+          echo "URL: https://$FQDN"
+
+      - name: Post-deploy smoke test
+        run: BASE_URL=https://${{ steps.fqdn.outputs.fqdn }} bash scripts/smoke-test.sh

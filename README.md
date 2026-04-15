@@ -44,6 +44,7 @@ uvicorn main:app --reload
 - [`docs/AUTH.md`](docs/AUTH.md) — 本系统 Casdoor 接入细节
 - [`docs/SSO.md`](docs/SSO.md) — **跨系统（销售/工单/运营中心/云管）统一认证架构**
 - [`docs/ROLES.md`](docs/ROLES.md) — **共享角色定义**
+- [`docs/TEST.md`](docs/TEST.md) — **测试方案（单元 / 集成 / 部署后冒烟 / 认证 E2E）**
 - [`infra/README.md`](infra/README.md) — Bicep 资源清单 + 月成本估算
 
 ## API 路由
