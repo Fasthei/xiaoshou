@@ -12,6 +12,7 @@ import { api } from '../api/axios';
 import type { Customer } from '../types';
 import HealthRadar from './HealthRadar';
 import CustomerInsightPanel from './CustomerInsightPanel';
+import CustomerProfileTab from './CustomerProfileTab';
 
 const { Text } = Typography;
 
@@ -260,6 +261,11 @@ export default function CustomerDetailDrawer({
                   </Card>
                 </Space>
               ),
+            },
+            {
+              key: 'profile',
+              label: <Space>📋 档案 / 跟进</Space>,
+              children: <CustomerProfileTab customerId={customer.id} />,
             },
             {
               key: 'insight',
