@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     allocation, auth, customer, resource, usage, sync, customer_resources,
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
+    customer_insight_agent,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -63,6 +64,7 @@ app.include_router(briefing.router, dependencies=protected_deps)
 app.include_router(health_score.router, dependencies=protected_deps)
 app.include_router(customer_timeline.router, dependencies=protected_deps)
 app.include_router(trend.router, dependencies=protected_deps)
+app.include_router(customer_insight_agent.router, dependencies=protected_deps)
 
 
 @app.get("/")
