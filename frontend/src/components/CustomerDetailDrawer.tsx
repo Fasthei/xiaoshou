@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Drawer, Tabs, Descriptions, Tag, Space, Typography, List, Avatar, Empty,
-  Skeleton, Button, Card,
+  Skeleton, Button, Card, Timeline,
 } from 'antd';
 import { CloudServerOutlined, SyncOutlined, LinkOutlined } from '@ant-design/icons';
 import { api } from '../api/axios';
@@ -35,6 +35,7 @@ export default function CustomerDetailDrawer({
   const [resources, setResources] = useState<CloudCostResource[]>([]);
   const [matchField, setMatchField] = useState('');
   const [health, setHealth] = useState<any>(null);
+  const [timeline, setTimeline] = useState<any[]>([]);
 
   const loadResources = async () => {
     if (!customer) return;
@@ -54,6 +55,7 @@ export default function CustomerDetailDrawer({
     if (open && customer) {
       loadResources();
       api.get(`/api/customers/${customer.id}/health`).then(({ data }) => setHealth(data)).catch(() => setHealth(null));
+      api.get(`/api/customers/${customer.id}/timeline`).then(({ data }) => setTimeline(data)).catch(() => setTimeline([]));
     }
   }, [open, customer?.id]);
 
@@ -100,6 +102,28 @@ export default function CustomerDetailDrawer({
                   <Descriptions.Item label="当月消耗">{customer.current_month_consumption ?? 0}</Descriptions.Item>
                   <Descriptions.Item label="创建时间">{customer.created_at || '-'}</Descriptions.Item>
                 </Descriptions>
+              ),
+            },
+            {
+              key: 'timeline',
+              label: (<Space>时间线 <Tag color="cyan">{timeline.length}</Tag></Space>),
+              children: timeline.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无事件" />
+              ) : (
+                <Timeline
+                  items={timeline.map((e) => ({
+                    color: e.color || 'blue',
+                    children: (
+                      <Space direction="vertical" size={2}>
+                        <Text strong>{e.title}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {new Date(e.at).toLocaleString()} · {e.kind}
+                        </Text>
+                        {e.detail ? <Text>{e.detail}</Text> : null}
+                      </Space>
+                    ),
+                  }))}
+                />
               ),
             },
             {

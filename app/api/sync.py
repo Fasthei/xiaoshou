@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 from app.auth import CurrentUser, require_auth
 from app.config import get_settings
 from app.database import get_db
-from app.integrations import GongdanClient
+from app.integrations import CloudCostClient, GongdanClient
 from app.models.customer import Customer
+from app.models.resource import Resource
 from app.models.sync_log import SyncLog
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,85 @@ def sync_customers_from_ticket(
         "updated": updated,
         "skipped": skipped,
         "errors": errors,
+        "sync_log_id": log.id,
+    }
+
+
+@router.post("/resources/from-cloudcost", summary="从云管镜像货源到本地 resource 表")
+def sync_resources_from_cloudcost(
+    dry_run: bool = Query(False),
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    s = get_settings()
+    if not s.CLOUDCOST_ENDPOINT:
+        raise HTTPException(400, "CLOUDCOST_ENDPOINT not configured")
+
+    log = SyncLog(
+        source_system="cloudcost", sync_type="resources",
+        triggered_by=f"{user.sub}:{user.name}", status="running",
+    )
+    db.add(log); db.commit(); db.refresh(log)
+
+    client = CloudCostClient(s.CLOUDCOST_ENDPOINT)
+    created = updated = skipped = errors = 0
+    try:
+        accounts = client.list_service_accounts(page=1, page_size=500)
+        log.pulled_count = len(accounts)
+        for a in accounts:
+            try:
+                code = f"cc-{a.id}"          # stable canonical 货源编号
+                existing = db.query(Resource).filter(
+                    Resource.resource_code == code, Resource.is_deleted == False,  # noqa: E712
+                ).first()
+                payload = dict(
+                    resource_code=code,
+                    resource_type="cloud",
+                    cloud_provider=(a.provider or "").upper() or None,
+                    account_name=a.name,
+                    definition_name=a.supplier_name,
+                    identifier_field=a.external_project_id,
+                    resource_status="AVAILABLE" if (a.status or "active") == "active" else (a.status or "UNKNOWN").upper(),
+                    source_system="cloudcost",
+                    source_id=str(a.id),
+                    last_sync_time=datetime.utcnow(),
+                )
+                if existing:
+                    changed = False
+                    for k, v in payload.items():
+                        if getattr(existing, k, None) != v:
+                            setattr(existing, k, v); changed = True
+                    if changed:
+                        updated += 1
+                        if not dry_run: db.add(existing)
+                    else:
+                        skipped += 1
+                else:
+                    created += 1
+                    if not dry_run: db.add(Resource(**payload))
+            except Exception as e:
+                logger.exception("sync resource %s failed: %s", a.id, e)
+                errors += 1
+
+        if not dry_run:
+            db.commit()
+
+        log.created_count = created
+        log.updated_count = updated
+        log.skipped_count = skipped
+        log.error_count = errors
+        log.status = "success" if errors == 0 else "failed"
+        log.finished_at = datetime.utcnow()
+        db.add(log); db.commit()
+    except Exception as e:
+        log.status = "failed"; log.last_error = str(e)[:2000]
+        log.finished_at = datetime.utcnow()
+        db.add(log); db.commit()
+        raise HTTPException(502, f"云管同步失败: {e}")
+
+    return {
+        "dry_run": dry_run, "pulled": log.pulled_count,
+        "created": created, "updated": updated, "skipped": skipped, "errors": errors,
         "sync_log_id": log.id,
     }
 

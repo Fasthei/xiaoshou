@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Input, Select, Space, Table, Tag, Typography } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Card, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { CloudDownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Pagination, Resource } from '../types';
 
@@ -19,6 +19,7 @@ export default function Resources() {
   const [keyword, setKeyword] = useState('');
   const [provider, setProvider] = useState<string | undefined>();
   const [availOnly, setAvailOnly] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -82,6 +83,17 @@ export default function Resources() {
             options={[{ value: 'all', label: '全部货源' }, { value: 'avail', label: '仅可分配' }]}
           />
           <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+          <Button
+            icon={<CloudDownloadOutlined />} loading={syncing}
+            onClick={async () => {
+              setSyncing(true);
+              try {
+                const { data } = await api.post('/api/sync/resources/from-cloudcost');
+                message.success(`从云管镜像：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`);
+                load();
+              } finally { setSyncing(false); }
+            }}
+          >从云管同步</Button>
         </Space>
       </Space>
       <Table<Resource>

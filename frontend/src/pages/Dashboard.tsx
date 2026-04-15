@@ -49,20 +49,25 @@ export default function Dashboard() {
   const [allocCount, setAllocCount] = useState<number | null>(null);
   const [syncs, setSyncs] = useState<SyncRow[]>([]);
   const [syncing, setSyncing] = useState(false);
+  const [trend, setTrend] = useState<number[]>([]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [c, r, a, s] = await Promise.allSettled([
+      const [c, r, a, s, t] = await Promise.allSettled([
         api.get('/api/customers?page_size=1'),
         api.get('/api/resources?page_size=1'),
         api.get('/api/allocations?page_size=1'),
         api.get('/api/sync/logs?limit=5'),
+        api.get('/api/trend/daily?days=14'),
       ]);
       if (c.status === 'fulfilled') setCustomerCount(c.value.data.total);
       if (r.status === 'fulfilled') setResourceCount(r.value.data.total);
       if (a.status === 'fulfilled') setAllocCount(a.value.data.total);
       if (s.status === 'fulfilled') setSyncs(s.value.data);
+      if (t.status === 'fulfilled') {
+        setTrend((t.value.data || []).map((p: any) => Number(p.cost || 0)));
+      }
     } finally {
       setLoading(false);
     }
@@ -80,8 +85,8 @@ export default function Dashboard() {
   };
 
   const spark = useMemo(
-    () => Array.from({ length: 14 }, () => Math.round(20 + Math.random() * 80)),
-    [],
+    () => (trend.length ? trend : Array.from({ length: 14 }, () => Math.round(20 + Math.random() * 80))),
+    [trend],
   );
 
   return (
