@@ -12,6 +12,7 @@ import Customers from './pages/Customers';
 import Resources from './pages/Resources';
 import Allocations from './pages/Allocations';
 import Usage from './pages/Usage';
+import Leads from './pages/Leads';
 
 function Shell() {
   const { mode } = useThemeMode();
@@ -35,6 +36,7 @@ function Shell() {
               <Route path="/resources" element={<Resources />} />
               <Route path="/allocations" element={<Allocations />} />
               <Route path="/usage" element={<Usage />} />
+              <Route path="/leads" element={<Leads />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

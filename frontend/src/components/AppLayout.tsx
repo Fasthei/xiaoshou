@@ -5,7 +5,7 @@ import {
 import {
   TeamOutlined, InboxOutlined, AppstoreOutlined, DashboardOutlined,
   LineChartOutlined, LogoutOutlined, UserOutlined,
-  SearchOutlined, BulbOutlined, BulbFilled,
+  SearchOutlined, BulbOutlined, BulbFilled, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,6 +20,7 @@ const menuItems = [
   { key: '/resources',   icon: <InboxOutlined />,      label: <Link to="/resources">货源管理</Link> },
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">分配管理</Link> },
   { key: '/usage',       icon: <LineChartOutlined />,  label: <Link to="/usage">用量查询</Link> },
+  { key: '/leads',       icon: <ThunderboltOutlined />,label: <Link to="/leads">商机挖掘</Link> },
 ];
 
 export default function AppLayout() {

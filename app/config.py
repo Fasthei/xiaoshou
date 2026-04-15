@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     # Fallback static key for cloudcost before it joins Casdoor
     XIAOSHOU_INTERNAL_API_KEY: str = ""
 
+    # Jina (search + reader) — 商机/客户补全
+    JINA_API_KEY: str = ""
+
+    # LinkedIn via RapidAPI — 深度企业数据
+    RAPIDAPI_KEY: str = ""
+    LINKEDIN_API_HOST: str = "fresh-linkedin-profile-data.p.rapidapi.com"
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
