@@ -23,9 +23,12 @@ check() {
   local name="$1"; shift
   local expected_status="$1"; shift
   local url="$1"; shift
-  local extra=("$@")
   local code
-  code=$(curl -s -o /tmp/smoke.body -w '%{http_code}' "${extra[@]}" "$url" || true)
+  if [[ $# -gt 0 ]]; then
+    code=$(curl -s -o /tmp/smoke.body -w '%{http_code}' "$@" "$url" || true)
+  else
+    code=$(curl -s -o /tmp/smoke.body -w '%{http_code}' "$url" || true)
+  fi
   if [[ "$code" == "$expected_status" ]]; then
     green "  ✓ $name  → $code"
     PASS=$((PASS+1))
