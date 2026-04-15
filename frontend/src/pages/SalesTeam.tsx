@@ -6,7 +6,7 @@ import {
 import {
   PlusOutlined, ThunderboltOutlined, UserOutlined, ApartmentOutlined,
   EditOutlined, DeleteOutlined, ReloadOutlined, ClockCircleOutlined,
-  RetweetOutlined,
+  RetweetOutlined, CloudDownloadOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 
@@ -19,6 +19,7 @@ interface SalesUser {
   phone?: string | null;
   regions?: string[] | null;
   industries?: string[] | null;
+  max_customers?: number | null;
   is_active: boolean;
   note?: string | null;
   created_at: string;
@@ -70,6 +71,8 @@ export default function SalesTeam() {
   const [recycleResult, setRecycleResult] = useState<{ total_scanned: number; total_recycled: number; stale_days: number; dry_run: boolean; items: RecycleItem[] } | null>(null);
   const [recycleLoading, setRecycleLoading] = useState(false);
   const [ruleMode, setRuleMode] = useState<'single' | 'roundrobin'>('single');
+  const [casdoorLoading, setCasdoorLoading] = useState(false);
+  const [casdoorResult, setCasdoorResult] = useState<any>(null);
 
   const loadAll = async () => {
     setLoading(true);
@@ -172,6 +175,24 @@ export default function SalesTeam() {
     }
   };
 
+  const syncFromCasdoor = async (dry: boolean) => {
+    setCasdoorLoading(true);
+    try {
+      const { data } = await api.post('/api/sales/users/sync-from-casdoor', { dry_run: dry });
+      setCasdoorResult(data);
+      if (!dry) {
+        antdMessage.success(
+          `同步完成: 新增 ${data.created} · 更新 ${data.updated} · 不变 ${data.unchanged} · 跳过 ${data.skipped}`
+        );
+        loadAll();
+      }
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '同步失败');
+    } finally {
+      setCasdoorLoading(false);
+    }
+  };
+
   const runRecycle = async (dry: boolean) => {
     setRecycleLoading(true);
     try {
@@ -220,9 +241,28 @@ export default function SalesTeam() {
                 bordered={false}
                 extra={<Space>
                   <Button icon={<ReloadOutlined />} onClick={loadAll}>刷新</Button>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={openNewUser}>新增销售</Button>
+                  <Button icon={<CloudDownloadOutlined />} loading={casdoorLoading}
+                          onClick={() => syncFromCasdoor(true)}>
+                    Casdoor 干跑
+                  </Button>
+                  <Button type="primary" icon={<CloudDownloadOutlined />} loading={casdoorLoading}
+                          onClick={() => syncFromCasdoor(false)}>
+                    从 Casdoor 同步
+                  </Button>
+                  <Button icon={<PlusOutlined />} onClick={openNewUser}>手动新增 (应急)</Button>
                 </Space>}
               >
+                {casdoorResult && (
+                  <Alert
+                    type={casdoorResult.dry_run ? 'info' : 'success'} closable
+                    style={{ marginBottom: 12 }}
+                    message={`Casdoor 同步 (${casdoorResult.dry_run ? 'dry-run' : '已落库'}): 抓取 ${casdoorResult.total_fetched} 人 | 新增 ${casdoorResult.created} · 更新 ${casdoorResult.updated} · 不变 ${casdoorResult.unchanged} · 跳过 ${casdoorResult.skipped}`}
+                  />
+                )}
+                <Alert
+                  type="warning" showIcon style={{ marginBottom: 12 }}
+                  message="建议: 不要手动建销售, 用 '从 Casdoor 同步' 拉统一认证里的用户, 这样 casdoor_user_id 能对得上, 登录/退出会自动联动."
+                />
                 <Table<SalesUser>
                   rowKey="id" loading={loading} dataSource={users} pagination={{ pageSize: 20 }}
                   columns={[
@@ -234,6 +274,8 @@ export default function SalesTeam() {
                     { title: '电话', dataIndex: 'phone' },
                     { title: '区域', dataIndex: 'regions', render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="blue">{x}</Tag>) },
                     { title: '行业', dataIndex: 'industries', render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="purple">{x}</Tag>) },
+                    { title: '容量', dataIndex: 'max_customers', width: 80,
+                      render: (v: number | null) => v ? <Tag color="orange">{v} 上限</Tag> : <Tag>不限</Tag> },
                     { title: '备注', dataIndex: 'note', ellipsis: true },
                     { title: '操作', width: 160, render: (_, r) => (
                       <Space>
@@ -415,6 +457,9 @@ export default function SalesTeam() {
           </Form.Item>
           <Form.Item name="industries" label="擅长行业" tooltip="用英文逗号分隔">
             <Input placeholder="能源,AI" />
+          </Form.Item>
+          <Form.Item name="max_customers" label="容量上限" tooltip="同时承接客户数, 留空=不限制">
+            <InputNumber min={1} max={9999} style={{ width: 160 }} placeholder="空=无限" />
           </Form.Item>
           <Form.Item name="is_active" label="启用" valuePropName="checked">
             <Switch />

@@ -22,11 +22,13 @@ from app.database import get_db
 from app.models.customer import Customer
 from app.models.sales import LeadAssignmentLog, LeadAssignmentRule, SalesUser
 from app.schemas.sales import (
+    ActivityItem,
     AssignBody, AssignmentLogOut, AutoAssignBody, AutoAssignItem, AutoAssignResult,
     RecycleBody, RecycleItem, RecycleResult,
     RuleCreate, RuleOut, RuleUpdate,
-    SalesUserCreate, SalesUserOut, SalesUserUpdate,
+    SalesLoadItem, SalesUserCreate, SalesUserOut, SalesUserUpdate,
 )
+from sqlalchemy import func as _sql_func
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sales", tags=["销售团队 / 分配"])
@@ -75,6 +77,37 @@ def update_user(
         setattr(user, k, v)
     db.add(user); db.commit(); db.refresh(user)
     return user
+
+
+@router.get("/users/load", response_model=List[SalesLoadItem],
+            summary="销售负载: 每人当前客户数 / 容量 / 占比")
+def sales_load(
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    users = db.query(SalesUser).order_by(SalesUser.id.asc()).all()
+    # Aggregate customer counts per sales_user_id
+    rows = (
+        db.query(Customer.sales_user_id, _sql_func.count(Customer.id))
+        .filter(Customer.is_deleted == False)  # noqa: E712
+        .filter(Customer.sales_user_id.isnot(None))
+        .group_by(Customer.sales_user_id)
+        .all()
+    )
+    counts = {uid: n for uid, n in rows}
+    out: List[SalesLoadItem] = []
+    for u in users:
+        current = counts.get(u.id, 0)
+        if u.max_customers:
+            pct = min(100, round(current * 100 / u.max_customers))
+        else:
+            pct = -1
+        out.append(SalesLoadItem(
+            id=u.id, name=u.name,
+            current_count=current, max_customers=u.max_customers,
+            load_pct=pct, is_active=u.is_active,
+        ))
+    return out
 
 
 @router.delete("/users/{user_id}", summary="停用销售 (软删)")
@@ -187,19 +220,40 @@ def _match_rule(customer: Customer, rules: List[LeadAssignmentRule]) -> Optional
     return None
 
 
-def _pick_target_user(rule: LeadAssignmentRule) -> Optional[int]:
+def _pick_target_user(
+    rule: LeadAssignmentRule,
+    capacity: Optional[dict] = None,
+) -> Optional[int]:
     """Given a matched rule, pick the sales_user_id to assign to.
-    If round-robin (sales_user_ids non-empty), use cursor and increment it.
-    Otherwise fall back to rule.sales_user_id.
+    If round-robin (sales_user_ids non-empty), use cursor and increment it,
+    skipping any user at/over capacity (if capacity map given).
+    Otherwise fall back to rule.sales_user_id (returns None if over capacity).
     Caller is responsible for committing the cursor mutation.
     """
     ids = rule.sales_user_ids or []
     if isinstance(ids, list) and len(ids) > 0:
-        idx = (rule.cursor or 0) % len(ids)
-        uid = ids[idx]
-        rule.cursor = (rule.cursor or 0) + 1
-        return uid
-    return rule.sales_user_id
+        # Try up to len(ids) slots, skipping over-capacity users
+        for _try in range(len(ids)):
+            idx = (rule.cursor or 0) % len(ids)
+            uid = ids[idx]
+            rule.cursor = (rule.cursor or 0) + 1
+            if capacity is None or not _over_capacity(uid, capacity):
+                return uid
+        return None  # all users at capacity
+    uid = rule.sales_user_id
+    if uid and capacity is not None and _over_capacity(uid, capacity):
+        return None
+    return uid
+
+
+def _over_capacity(uid: int, capacity: dict) -> bool:
+    entry = capacity.get(uid)
+    if not entry:
+        return False
+    max_c = entry.get("max")
+    if not max_c:
+        return False
+    return entry.get("current", 0) >= max_c
 
 
 # ---------- customer-scoped endpoints ----------
@@ -274,6 +328,20 @@ def auto_assign(
         q = q.filter(Customer.sales_user_id.is_(None))
     customers = q.all()
 
+    # Build capacity map: {uid: {current, max}} for all sales users
+    users = db.query(SalesUser).filter(SalesUser.is_active == True).all()  # noqa: E712
+    count_rows = (
+        db.query(Customer.sales_user_id, _sql_func.count(Customer.id))
+        .filter(Customer.is_deleted == False)  # noqa: E712
+        .filter(Customer.sales_user_id.isnot(None))
+        .group_by(Customer.sales_user_id).all()
+    )
+    current_counts = {uid: n for uid, n in count_rows}
+    capacity = {
+        u.id: {"current": current_counts.get(u.id, 0), "max": u.max_customers}
+        for u in users
+    }
+
     results: List[AutoAssignItem] = []
     assigned_count = 0
     operator = getattr(user, "sub", None) if user else None
@@ -289,22 +357,39 @@ def auto_assign(
             continue
 
         if body.dry_run:
-            # For dry-run, peek at the next assignee WITHOUT advancing the cursor
+            # For dry-run, peek the next assignee WITHOUT advancing the cursor;
+            # also check capacity so the preview matches real behavior.
             ids = matched.sales_user_ids or []
+            peek = None
+            mode_note = ""
             if isinstance(ids, list) and ids:
-                peek = ids[(matched.cursor or 0) % len(ids)]
-                mode = f"轮询候选[{len(ids)}] cursor={matched.cursor}"
+                # peek first available non-capped from cursor position
+                for off in range(len(ids)):
+                    candidate = ids[((matched.cursor or 0) + off) % len(ids)]
+                    if not _over_capacity(candidate, capacity):
+                        peek = candidate; break
+                mode_note = f"轮询[{len(ids)}]" + ("" if peek else " 全部超限")
             else:
                 peek = matched.sales_user_id
-                mode = "单人"
+                if peek and _over_capacity(peek, capacity):
+                    mode_note = "单人超限"; peek = None
+                else:
+                    mode_note = "单人"
             results.append(AutoAssignItem(
                 customer_id=c.id, customer_code=c.customer_code,
                 matched_rule_id=matched.id, sales_user_id=peek,
-                reason=f"(dry-run) via '{matched.name}' [{mode}]",
+                reason=f"(dry-run) via '{matched.name}' [{mode_note}]",
             ))
             continue
 
-        target_uid = _pick_target_user(matched)
+        target_uid = _pick_target_user(matched, capacity=capacity)
+        if target_uid is None:
+            results.append(AutoAssignItem(
+                customer_id=c.id, customer_code=c.customer_code,
+                matched_rule_id=matched.id, sales_user_id=None,
+                reason=f"matched '{matched.name}' but all候选超容量",
+            ))
+            continue
         from_uid = c.sales_user_id
         c.sales_user_id = target_uid
         db.add(c); db.add(matched)  # matched may have mutated cursor
@@ -314,6 +399,9 @@ def auto_assign(
             rule_id=matched.id, operator_casdoor_id=operator,
         ))
         assigned_count += 1
+        # Update capacity map so next iteration sees this assignment
+        if target_uid in capacity:
+            capacity[target_uid]["current"] = capacity[target_uid].get("current", 0) + 1
         results.append(AutoAssignItem(
             customer_id=c.id, customer_code=c.customer_code,
             matched_rule_id=matched.id, sales_user_id=target_uid,
@@ -386,3 +474,236 @@ def auto_recycle(
         total_scanned=len(candidates), total_recycled=recycled,
         stale_days=body.stale_days, dry_run=body.dry_run, items=items,
     )
+
+
+# ---------- casdoor sync ----------
+
+from pydantic import BaseModel as _BM
+
+
+class CasdoorSyncBody(_BM):
+    dry_run: bool = False
+
+
+class CasdoorSyncItem(_BM):
+    casdoor_user_id: str
+    name: str
+    email: Optional[str] = None
+    action: str  # created | updated | unchanged | skipped
+
+
+class CasdoorSyncResp(_BM):
+    total_fetched: int
+    created: int
+    updated: int
+    unchanged: int
+    skipped: int
+    items: List[CasdoorSyncItem]
+    dry_run: bool
+
+
+def _fetch_casdoor_users() -> List[dict]:
+    """Pull members of the `sales` role from Casdoor and return their full user objects.
+
+    Flow:
+      1) GET /api/get-role?id={ORG}/sales  → role.users = ["built-in/admin", ...]
+      2) For each "owner/name" ref, GET /api/get-user?id=owner/name  → full user dict
+
+    Using client_credentials (basic auth with clientId + clientSecret).
+    This scopes who becomes a SalesUser to exactly those assigned the sales
+    role in Casdoor — rather than pulling everyone in an org.
+    """
+    import httpx
+    from app.config import get_settings as _get
+    s = _get()
+    if not s.CASDOOR_ENDPOINT or not s.CASDOOR_CLIENT_ID or not s.CASDOOR_CLIENT_SECRET:
+        raise HTTPException(400, "Casdoor 未配置完整 (endpoint/client_id/secret)")
+    org = s.CASDOOR_ORG or "built-in"
+    role_id = f"{org}/sales"
+
+    with httpx.Client(timeout=30.0, auth=(s.CASDOOR_CLIENT_ID, s.CASDOOR_CLIENT_SECRET)) as c:
+        rr = c.get(f"{s.CASDOOR_ENDPOINT}/api/get-role", params={"id": role_id})
+        if rr.status_code >= 400:
+            raise HTTPException(502, f"Casdoor get-role {rr.status_code}: {rr.text[:200]}")
+        role_body = rr.json()
+        role = role_body.get("data") if isinstance(role_body, dict) else role_body
+        if not role or not isinstance(role, dict):
+            raise HTTPException(400, f"Casdoor 没有 role {role_id}, 请先建角色 + 给用户 assign")
+        user_refs = role.get("users") or []
+        if not user_refs:
+            return []
+
+        users: List[dict] = []
+        for ref in user_refs:
+            # ref is "owner/name"
+            ur = c.get(f"{s.CASDOOR_ENDPOINT}/api/get-user", params={"id": ref})
+            if ur.status_code >= 400:
+                logger.warning("Casdoor get-user %s failed: %s", ref, ur.status_code)
+                continue
+            ud = ur.json()
+            u = ud.get("data") if isinstance(ud, dict) else ud
+            if isinstance(u, dict) and u:
+                users.append(u)
+        return users
+
+
+@router.post("/users/sync-from-casdoor", response_model=CasdoorSyncResp,
+             summary="从 Casdoor 拉取用户并 upsert 成销售成员")
+def sync_users_from_casdoor(
+    body: CasdoorSyncBody,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    """对每个 Casdoor 用户: 以 casdoor_user_id 匹配:
+       - 不存在 → 创建 (name/email 来自 Casdoor, 其他字段空, is_active=True)
+       - 存在 → 更新 name/email, 保留手工字段 (regions, industries, max_customers, note)
+       本地已存在的 SalesUser (casdoor_user_id 非空) 但 Casdoor 已没这个用户 → 停用。
+    """
+    fetched = _fetch_casdoor_users()
+    items: List[CasdoorSyncItem] = []
+    created = updated = unchanged = skipped = 0
+    seen_ids: set[str] = set()
+
+    for u in fetched:
+        # Casdoor user object fields
+        uid = (u.get("id") or "").strip()
+        name = (u.get("displayName") or u.get("name") or "").strip()
+        email = (u.get("email") or "").strip() or None
+        is_admin = bool(u.get("isAdmin") or u.get("isGlobalAdmin"))
+        is_forbidden = bool(u.get("isForbidden") or u.get("isDeleted"))
+
+        if not uid or not name:
+            skipped += 1
+            items.append(CasdoorSyncItem(
+                casdoor_user_id=uid or "-", name=name or "-",
+                email=email, action="skipped",
+            ))
+            continue
+
+        if is_forbidden:
+            skipped += 1
+            items.append(CasdoorSyncItem(
+                casdoor_user_id=uid, name=name, email=email, action="skipped",
+            ))
+            continue
+
+        seen_ids.add(uid)
+        existing = db.query(SalesUser).filter(SalesUser.casdoor_user_id == uid).first()
+        if existing:
+            changed = False
+            if existing.name != name:
+                existing.name = name; changed = True
+            if (existing.email or None) != email:
+                existing.email = email; changed = True
+            if not existing.is_active:
+                existing.is_active = True; changed = True
+            if changed:
+                if not body.dry_run:
+                    db.add(existing)
+                updated += 1
+                items.append(CasdoorSyncItem(
+                    casdoor_user_id=uid, name=name, email=email, action="updated",
+                ))
+            else:
+                unchanged += 1
+                items.append(CasdoorSyncItem(
+                    casdoor_user_id=uid, name=name, email=email, action="unchanged",
+                ))
+        else:
+            if not body.dry_run:
+                db.add(SalesUser(
+                    name=name, email=email, casdoor_user_id=uid,
+                    is_active=True,
+                    note=("(来自 Casdoor, admin=true)" if is_admin else "(来自 Casdoor)"),
+                ))
+            created += 1
+            items.append(CasdoorSyncItem(
+                casdoor_user_id=uid, name=name, email=email, action="created",
+            ))
+
+    # Deactivate local Casdoor-linked users who disappeared from Casdoor
+    if seen_ids and not body.dry_run:
+        locals_ = db.query(SalesUser).filter(
+            SalesUser.casdoor_user_id.isnot(None),
+            SalesUser.is_active == True,  # noqa: E712
+        ).all()
+        for u in locals_:
+            if u.casdoor_user_id not in seen_ids:
+                u.is_active = False
+                db.add(u)
+                items.append(CasdoorSyncItem(
+                    casdoor_user_id=u.casdoor_user_id, name=u.name, email=u.email,
+                    action="skipped",  # treated like skipped since gone upstream
+                ))
+                skipped += 1
+
+    if not body.dry_run:
+        db.commit()
+
+    return CasdoorSyncResp(
+        total_fetched=len(fetched),
+        created=created, updated=updated, unchanged=unchanged, skipped=skipped,
+        items=items, dry_run=body.dry_run,
+    )
+
+
+# ---------- recent activity stream ----------
+
+@router.get("/activity/recent", response_model=List[ActivityItem],
+            summary="最近活动流: 跟进 + 分配 + AI 洞察 混合时序")
+def recent_activity(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    """Aggregate last N events across follow-ups, assignment logs, and insight
+    runs. Simple server-side union + in-memory sort; cheap enough for a
+    dashboard widget. For high traffic we'd move to a materialized view.
+    """
+    from app.models.customer_insight import CustomerInsightRun
+    from app.models.follow_up import CustomerFollowUp
+
+    fus = (
+        db.query(CustomerFollowUp, Customer.customer_name)
+        .join(Customer, Customer.id == CustomerFollowUp.customer_id)
+        .order_by(CustomerFollowUp.id.desc()).limit(limit).all()
+    )
+    logs = (
+        db.query(LeadAssignmentLog, Customer.customer_name)
+        .join(Customer, Customer.id == LeadAssignmentLog.customer_id)
+        .order_by(LeadAssignmentLog.id.desc()).limit(limit).all()
+    )
+    runs = (
+        db.query(CustomerInsightRun, Customer.customer_name)
+        .join(Customer, Customer.id == CustomerInsightRun.customer_id)
+        .order_by(CustomerInsightRun.id.desc()).limit(limit).all()
+    )
+
+    merged: List[ActivityItem] = []
+    for fu, cname in fus:
+        merged.append(ActivityItem(
+            kind="follow_up",
+            at=(fu.created_at.isoformat() if fu.created_at else ""),
+            customer_id=fu.customer_id, customer_name=cname,
+            title=f"[{fu.kind}] {fu.title}",
+            detail=(fu.content or "")[:200] if fu.content else None,
+        ))
+    for log, cname in logs:
+        merged.append(ActivityItem(
+            kind="assignment",
+            at=(log.at.isoformat() if log.at else ""),
+            customer_id=log.customer_id, customer_name=cname,
+            title=f"{log.trigger}: {log.from_user_id or '-'} → {log.to_user_id or '退池'}",
+            detail=log.reason,
+        ))
+    for run, cname in runs:
+        merged.append(ActivityItem(
+            kind="insight_run",
+            at=(run.started_at.isoformat() if run.started_at else ""),
+            customer_id=run.customer_id, customer_name=cname,
+            title=f"AI 洞察运行 #{run.id} ({run.status}) 步数 {run.steps_done}/{run.steps_total}",
+            detail=(run.summary or "")[:200] if run.summary else None,
+        ))
+
+    merged.sort(key=lambda x: x.at, reverse=True)
+    return merged[:limit]

@@ -176,6 +176,83 @@ def test_auto_recycle_pulls_stale_assignments(client, db_session):
     assert logs[0]["to_user_id"] is None
 
 
+# ---------- capacity limit ----------
+
+def test_capacity_limit_skips_full_user_in_round_robin(client, seed_ai_customers, db_session):
+    """U1 is full (max=1 and already has 1 customer), U2 has room — round-robin
+    should direct all new assignments to U2 for this rule."""
+    u1 = client.post("/api/sales/users", json={"name": "U1", "max_customers": 1}).json()
+    u2 = client.post("/api/sales/users", json={"name": "U2", "max_customers": 100}).json()
+
+    # Pre-fill U1 to capacity by directly assigning one customer
+    client.patch(f"/api/customers/1/assign", json={"sales_user_id": u1["id"]})
+
+    client.post("/api/sales/rules", json={
+        "name": "AI 轮询带容量", "industry": "AI",
+        "sales_user_ids": [u1["id"], u2["id"]], "priority": 10,
+    })
+
+    # remaining 5 AI customers → all should go to U2 (U1 is capped)
+    resp = client.post("/api/sales/auto-assign", json={"dry_run": False}).json()
+    assert resp["total_assigned"] == 5
+
+    db_session.expire_all()
+    counts = {}
+    for c in db_session.query(Customer).filter(Customer.sales_user_id.isnot(None)).all():
+        counts[c.sales_user_id] = counts.get(c.sales_user_id, 0) + 1
+    # U1 stays at 1 (full), U2 gets all 5
+    assert counts[u1["id"]] == 1
+    assert counts[u2["id"]] == 5
+
+
+def test_capacity_limit_single_user_mode_skips_entirely(client, seed_ai_customers, db_session):
+    """Single-user rule whose target is at capacity: every customer reports
+    'matched but all候选超容量' and nothing is assigned."""
+    u1 = client.post("/api/sales/users", json={"name": "U1", "max_customers": 1}).json()
+    client.patch("/api/customers/1/assign", json={"sales_user_id": u1["id"]})
+
+    client.post("/api/sales/rules", json={
+        "name": "AI → U1 单人", "industry": "AI",
+        "sales_user_id": u1["id"], "priority": 10,
+    })
+
+    resp = client.post("/api/sales/auto-assign", json={"dry_run": False}).json()
+    assert resp["total_assigned"] == 0  # all 5 remaining AI 客户 blocked by capacity
+    assert all("超容量" in it["reason"] for it in resp["items"]
+               if it["matched_rule_id"] is not None)
+
+
+def test_sales_load_endpoint(client, seed_ai_customers, db_session):
+    u1 = client.post("/api/sales/users", json={"name": "满额", "max_customers": 2}).json()
+    u2 = client.post("/api/sales/users", json={"name": "无限", "max_customers": None}).json()
+    client.patch("/api/customers/1/assign", json={"sales_user_id": u1["id"]})
+    client.patch("/api/customers/2/assign", json={"sales_user_id": u1["id"]})
+    client.patch("/api/customers/3/assign", json={"sales_user_id": u2["id"]})
+
+    r = client.get("/api/sales/users/load").json()
+    by_id = {x["id"]: x for x in r}
+    assert by_id[u1["id"]]["current_count"] == 2
+    assert by_id[u1["id"]]["max_customers"] == 2
+    assert by_id[u1["id"]]["load_pct"] == 100
+    assert by_id[u2["id"]]["current_count"] == 1
+    assert by_id[u2["id"]]["load_pct"] == -1  # no cap
+
+
+def test_activity_recent_merges_sources(client, seed_ai_customers, db_session):
+    # Create a follow-up and an assignment to populate two activity sources
+    client.post("/api/customers/1/follow-ups", json={"kind": "call", "title": "首电"})
+    u = client.post("/api/sales/users", json={"name": "U"}).json()
+    client.patch("/api/customers/1/assign", json={"sales_user_id": u["id"]})
+
+    r = client.get("/api/sales/activity/recent?limit=10").json()
+    kinds = {x["kind"] for x in r}
+    assert "follow_up" in kinds
+    assert "assignment" in kinds
+    # Sorted descending by `at`
+    times = [x["at"] for x in r]
+    assert times == sorted(times, reverse=True)
+
+
 # ---------- external API auth ----------
 
 def test_external_ping_no_auth(client):

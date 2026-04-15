@@ -13,6 +13,7 @@ class SalesUserBase(BaseModel):
     casdoor_user_id: Optional[str] = None
     regions: Optional[List[str]] = None
     industries: Optional[List[str]] = None
+    max_customers: Optional[int] = Field(None, ge=1, description="容量上限, 空=不限")
     is_active: bool = True
     note: Optional[str] = None
 
@@ -28,8 +29,27 @@ class SalesUserUpdate(BaseModel):
     casdoor_user_id: Optional[str] = None
     regions: Optional[List[str]] = None
     industries: Optional[List[str]] = None
+    max_customers: Optional[int] = None
     is_active: Optional[bool] = None
     note: Optional[str] = None
+
+
+class SalesLoadItem(BaseModel):
+    id: int
+    name: str
+    current_count: int
+    max_customers: Optional[int] = None
+    load_pct: int = Field(..., description="0-100, -1 if no cap set")
+    is_active: bool
+
+
+class ActivityItem(BaseModel):
+    kind: str = Field(..., description="follow_up | assignment | insight_run")
+    at: str
+    customer_id: Optional[int] = None
+    customer_name: Optional[str] = None
+    title: str
+    detail: Optional[str] = None
 
 
 class SalesUserOut(SalesUserBase):

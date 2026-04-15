@@ -23,6 +23,8 @@ class SalesUser(Base):
     casdoor_user_id = Column(String(100), nullable=True, comment="Casdoor 用户ID, 可空")
     regions = Column(JSON, nullable=True, comment="负责区域 JSON 数组, 例: ['华东','华北']")
     industries = Column(JSON, nullable=True, comment="擅长行业 JSON 数组")
+    max_customers = Column(Integer, nullable=True,
+                           comment="容量上限: 同时承接客户数, 空=无限制")
     is_active = Column(Boolean, default=True, nullable=False)
     note = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

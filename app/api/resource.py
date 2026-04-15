@@ -25,14 +25,41 @@ def create_resource(resource: ResourceCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="货源编号已存在")
 
     db_resource = Resource(**resource.model_dump())
-    # 计算可分配数量
-    if db_resource.total_quantity:
+    # 计算可分配数量 (allocated_quantity 的 default=0 只在 flush 时生效, Python
+    # 侧新建对象时为 None, 先显式归零再减)
+    if db_resource.allocated_quantity is None:
+        db_resource.allocated_quantity = 0
+    if db_resource.total_quantity is not None:
         db_resource.available_quantity = db_resource.total_quantity - db_resource.allocated_quantity
 
     db.add(db_resource)
     db.commit()
     db.refresh(db_resource)
     return db_resource
+
+
+@router.get("/available", response_model=ResourceListResponse, summary="查询可分配货源")
+def _get_available_resources_early(
+    resource_type: Optional[str] = Query(None, description="货源类型"),
+    cloud_provider: Optional[str] = Query(None, description="云厂商"),
+    min_quantity: int = Query(1, description="最小可分配数量"),
+    db: Session = Depends(get_db),
+):
+    """Must be registered BEFORE /{resource_id} so FastAPI does not try to
+    parse 'available' as an int resource_id. (Old duplicate at bottom of file
+    was unreachable for this reason — kept there as dead code for diff clarity.)
+    """
+    query = db.query(Resource).filter(
+        Resource.is_deleted == False,
+        Resource.resource_status == "AVAILABLE",
+        Resource.available_quantity >= min_quantity,
+    )
+    if resource_type:
+        query = query.filter(Resource.resource_type == resource_type)
+    if cloud_provider:
+        query = query.filter(Resource.cloud_provider == cloud_provider)
+    items = query.all()
+    return {"total": len(items), "items": items}
 
 
 @router.get("/{resource_id}", response_model=ResourceResponse, summary="查询货源详情")
