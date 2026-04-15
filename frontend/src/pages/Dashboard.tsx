@@ -1,12 +1,36 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Col, Row, Statistic, Skeleton, Tag, Space, Typography, Button, Empty, List, Avatar } from 'antd';
+import {
+  Card, Col, Row, Statistic, Skeleton, Tag, Space, Typography, Button, Empty,
+  List, Avatar, Progress, Timeline,
+} from 'antd';
 import {
   TeamOutlined, InboxOutlined, AppstoreOutlined, RiseOutlined,
-  SyncOutlined, CloudServerOutlined, RocketOutlined,
+  SyncOutlined, CloudServerOutlined, RocketOutlined, UserOutlined,
+  HistoryOutlined, PhoneOutlined, BulbOutlined, UserSwitchOutlined,
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { api } from '../api/axios';
 import BriefingBanner from '../components/BriefingBanner';
+
+interface SalesLoad {
+  id: number; name: string; current_count: number;
+  max_customers: number | null; load_pct: number; is_active: boolean;
+}
+
+interface Activity {
+  kind: 'follow_up' | 'assignment' | 'insight_run';
+  at: string;
+  customer_id: number | null;
+  customer_name: string | null;
+  title: string;
+  detail: string | null;
+}
+
+const ACTIVITY_META: Record<string, { icon: any; color: string }> = {
+  follow_up:   { icon: <PhoneOutlined />,       color: 'blue' },
+  assignment:  { icon: <UserSwitchOutlined />,  color: 'geekblue' },
+  insight_run: { icon: <BulbOutlined />,        color: 'gold' },
+};
 
 const { Title, Text } = Typography;
 
@@ -50,16 +74,20 @@ export default function Dashboard() {
   const [syncs, setSyncs] = useState<SyncRow[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [trend, setTrend] = useState<number[]>([]);
+  const [salesLoad, setSalesLoad] = useState<SalesLoad[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [c, r, a, s, t] = await Promise.allSettled([
+      const [c, r, a, s, t, sl, act] = await Promise.allSettled([
         api.get('/api/customers?page_size=1'),
         api.get('/api/resources?page_size=1'),
         api.get('/api/allocations?page_size=1'),
         api.get('/api/sync/logs?limit=5'),
         api.get('/api/trend/daily?days=14'),
+        api.get<SalesLoad[]>('/api/sales/users/load'),
+        api.get<Activity[]>('/api/sales/activity/recent?limit=15'),
       ]);
       if (c.status === 'fulfilled') setCustomerCount(c.value.data.total);
       if (r.status === 'fulfilled') setResourceCount(r.value.data.total);
@@ -68,6 +96,8 @@ export default function Dashboard() {
       if (t.status === 'fulfilled') {
         setTrend((t.value.data || []).map((p: any) => Number(p.cost || 0)));
       }
+      if (sl.status === 'fulfilled') setSalesLoad(sl.value.data.filter((u: SalesLoad) => u.is_active));
+      if (act.status === 'fulfilled') setActivities(act.value.data);
     } finally {
       setLoading(false);
     }
@@ -178,6 +208,79 @@ export default function Dashboard() {
               <Avatar size={42} style={{ background: '#dcfce7', color: '#16a34a' }} icon={<RocketOutlined />} />
             </Space>
             <Sparkline values={spark} color="#16a34a" />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} lg={12}>
+          <Card
+            title={<Space><UserOutlined />销售负载 <Tag>{salesLoad.length}</Tag></Space>}
+            extra={<Link to="/sales-team"><Button size="small">管理</Button></Link>}
+            bordered={false} style={{ borderRadius: 12 }}
+          >
+            {salesLoad.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有销售, 去 '销售团队' 页新增" />
+            ) : (
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                {salesLoad.map((u) => {
+                  const color = u.load_pct === -1 ? '#9ca3af'
+                    : u.load_pct >= 90 ? '#ef4444'
+                    : u.load_pct >= 70 ? '#f59e0b' : '#10b981';
+                  return (
+                    <div key={u.id}>
+                      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                        <Text strong>{u.name}</Text>
+                        <Text style={{ fontSize: 12 }}>
+                          {u.current_count}
+                          {u.max_customers ? <Text type="secondary"> / {u.max_customers}</Text> : <Text type="secondary"> · 不限</Text>}
+                        </Text>
+                      </Space>
+                      <Progress
+                        percent={u.load_pct === -1 ? 0 : u.load_pct}
+                        strokeColor={color} showInfo={false} size="small"
+                      />
+                    </div>
+                  );
+                })}
+              </Space>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} lg={12}>
+          <Card
+            title={<Space><HistoryOutlined />最近活动 <Tag>{activities.length}</Tag></Space>}
+            bordered={false} style={{ borderRadius: 12 }}
+            bodyStyle={{ maxHeight: 380, overflowY: 'auto' }}
+          >
+            {activities.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无活动" />
+            ) : (
+              <Timeline
+                items={activities.map((a) => {
+                  const m = ACTIVITY_META[a.kind] || ACTIVITY_META.follow_up;
+                  return {
+                    dot: m.icon, color: m.color,
+                    children: (
+                      <Space direction="vertical" size={2}>
+                        <Space wrap>
+                          <Text strong>{a.customer_name || `#${a.customer_id}`}</Text>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {new Date(a.at).toLocaleString()}
+                          </Text>
+                        </Space>
+                        <Text style={{ fontSize: 13 }}>{a.title}</Text>
+                        {a.detail && (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {a.detail.length > 80 ? a.detail.slice(0, 80) + '…' : a.detail}
+                          </Text>
+                        )}
+                      </Space>
+                    ),
+                  };
+                })}
+              />
+            )}
           </Card>
         </Col>
       </Row>
