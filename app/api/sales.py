@@ -110,7 +110,7 @@ def sales_load(
     return out
 
 
-@router.delete("/users/{user_id}", summary="停用销售 (软删)")
+@router.delete("/users/{user_id}", summary="停用销售 (软删, is_active=false)")
 def deactivate_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -122,6 +122,81 @@ def deactivate_user(
     user.is_active = False
     db.add(user); db.commit()
     return {"ok": True, "id": user_id}
+
+
+@router.delete("/users/{user_id}/hard", summary="硬删销售 (仅应急手工建的, Casdoor 同步的禁止)")
+def hard_delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    """彻底删除 sales_user 行。约束:
+    1. casdoor_user_id 非空 → 拒绝 (Casdoor 同步的销售走'取消角色'而不是本地删)
+    2. 若该销售名下还有客户 → 先退池 (sales_user_id=null, 写 recycle log)
+    3. 若规则引用了 ta (单人模式 sales_user_id / 轮询模式 sales_user_ids) → 剔除引用
+    4. LeadAssignmentLog 保留 (历史审计), from/to_user_id 可能悬空 (目标已删)
+    """
+    su = db.query(SalesUser).filter(SalesUser.id == user_id).first()
+    if not su:
+        raise HTTPException(404, "销售不存在")
+    if su.casdoor_user_id:
+        raise HTTPException(
+            400,
+            f"该销售来自 Casdoor (casdoor_user_id={su.casdoor_user_id}), 不允许硬删。"
+            " 请在 Casdoor 里把用户从 sales 角色移除, 然后点'从 Casdoor 同步'自动停用。",
+        )
+
+    operator = getattr(user, "sub", None) if user else None
+
+    # 1) 把名下客户退池 (只对 is_deleted=false 的客户)
+    customers = (
+        db.query(Customer)
+        .filter(Customer.sales_user_id == user_id, Customer.is_deleted == False)  # noqa: E712
+        .all()
+    )
+    recycled = 0
+    for c in customers:
+        db.add(LeadAssignmentLog(
+            customer_id=c.id, from_user_id=user_id, to_user_id=None,
+            reason=f"销售 #{user_id} ({su.name}) 被硬删, 客户自动退池",
+            trigger="recycle", operator_casdoor_id=operator,
+        ))
+        c.sales_user_id = None
+        db.add(c)
+        recycled += 1
+
+    # 2) 清理规则引用
+    rules_touched = 0
+    all_rules = db.query(LeadAssignmentRule).all()
+    for r in all_rules:
+        changed = False
+        if r.sales_user_id == user_id:
+            r.sales_user_id = None
+            r.is_active = False  # 单人规则目标没了, 整条停用
+            changed = True
+        ids = r.sales_user_ids or []
+        if isinstance(ids, list) and user_id in ids:
+            new_ids = [i for i in ids if i != user_id]
+            r.sales_user_ids = new_ids if new_ids else None
+            if not new_ids and not r.sales_user_id:
+                r.is_active = False  # 轮询池空了且无单人兜底 → 停用
+            r.cursor = 0  # 候选改了, 重置游标避免越界
+            changed = True
+        if changed:
+            db.add(r)
+            rules_touched += 1
+
+    # 3) 删 sales_user
+    name = su.name
+    db.delete(su)
+    db.commit()
+    return {
+        "ok": True,
+        "deleted_user_id": user_id,
+        "deleted_name": name,
+        "customers_recycled": recycled,
+        "rules_touched": rules_touched,
+    }
 
 
 # ---------- rules CRUD ----------

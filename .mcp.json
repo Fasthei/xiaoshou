@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cursor-project-memory": {
+      "url": "http://172.188.219.174:3101/mcp",
+      "transport": "http"
+    }
+  }
+}

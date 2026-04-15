@@ -17,6 +17,7 @@ interface SalesUser {
   name: string;
   email?: string | null;
   phone?: string | null;
+  casdoor_user_id?: string | null;
   regions?: string[] | null;
   industries?: string[] | null;
   max_customers?: number | null;
@@ -125,6 +126,18 @@ export default function SalesTeam() {
     await api.delete(`/api/sales/users/${u.id}`);
     antdMessage.success('已停用');
     loadAll();
+  };
+
+  const hardDeleteUser = async (u: SalesUser) => {
+    try {
+      const { data } = await api.delete(`/api/sales/users/${u.id}/hard`);
+      antdMessage.success(
+        `已彻底删除 ${data.deleted_name} · 客户退池 ${data.customers_recycled} · 规则清理 ${data.rules_touched}`
+      );
+      loadAll();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '删除失败');
+    }
   };
 
   const openNewRule = () => {
@@ -277,13 +290,29 @@ export default function SalesTeam() {
                     { title: '容量', dataIndex: 'max_customers', width: 80,
                       render: (v: number | null) => v ? <Tag color="orange">{v} 上限</Tag> : <Tag>不限</Tag> },
                     { title: '备注', dataIndex: 'note', ellipsis: true },
-                    { title: '操作', width: 160, render: (_, r) => (
-                      <Space>
+                    { title: '操作', width: 240, render: (_, r) => (
+                      <Space size={4}>
                         <Button size="small" icon={<EditOutlined />} onClick={() => openEditUser(r)}>编辑</Button>
                         {r.is_active && (
-                          <Popconfirm title="停用该销售？" onConfirm={() => deactivateUser(r)}>
-                            <Button size="small" danger icon={<DeleteOutlined />}>停用</Button>
+                          <Popconfirm title="停用该销售？" description="软删, 保留档案和历史, 可再启用" onConfirm={() => deactivateUser(r)}>
+                            <Button size="small" icon={<DeleteOutlined />}>停用</Button>
                           </Popconfirm>
+                        )}
+                        {!r.casdoor_user_id ? (
+                          <Popconfirm
+                            title="彻底删除该销售？"
+                            description={
+                              <div style={{ maxWidth: 280 }}>
+                                名下客户会退回商机池, 相关规则会被清理或停用。仅适用于手工建的应急成员, 无法撤销。
+                              </div>
+                            }
+                            okText="确认删除" okButtonProps={{ danger: true }}
+                            onConfirm={() => hardDeleteUser(r)}
+                          >
+                            <Button size="small" danger icon={<DeleteOutlined />}>彻底删除</Button>
+                          </Popconfirm>
+                        ) : (
+                          <Tag color="cyan" style={{ fontSize: 11 }}>Casdoor 同步, 不可本地删</Tag>
                         )}
                       </Space>
                     )},
