@@ -72,3 +72,22 @@ async def require_auth(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+def require_roles(*required_roles: str):
+    """FastAPI dependency factory — 403 unless the user has any of the roles.
+
+    Usage:
+        @router.post("", dependencies=[Depends(require_roles("sales", "admin"))])
+        def create_customer(...): ...
+    """
+
+    async def _dep(user: CurrentUser = Depends(require_auth)) -> CurrentUser:
+        if not any(user.has_role(r) for r in required_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"requires one of roles: {list(required_roles)}",
+            )
+        return user
+
+    return _dep

@@ -1,3 +1,13 @@
-from app.auth.dependencies import get_current_user, require_auth, CurrentUser
+from app.auth.dependencies import (
+    CurrentUser,
+    get_current_user,
+    require_auth,
+    require_roles,
+)
 
-__all__ = ["get_current_user", "require_auth", "CurrentUser"]
+__all__ = [
+    "CurrentUser",
+    "get_current_user",
+    "require_auth",
+    "require_roles",
+]

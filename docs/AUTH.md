@@ -2,6 +2,8 @@
 
 本项目使用 [Casdoor](https://casdoor.org) 作为统一认证中心，走 OAuth2 Authorization Code + OIDC，后端以 JWT（RS256）做 API 保护。
 
+> **跨系统复用说明**：销售 / 工单 / 超级运营中心 / 云管**共用同一套 Casdoor 账号与角色**，详见 [SSO.md](./SSO.md) 与 [ROLES.md](./ROLES.md)。本文仅描述本系统（xiaoshou）如何接入。
+
 现有 Casdoor 实例：
 ```
 https://casdoor.ashyglacier-8207efd2.eastasia.azurecontainerapps.io

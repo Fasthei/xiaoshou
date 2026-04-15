@@ -41,7 +41,9 @@ uvicorn main:app --reload
 
 详见：
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) — 资源开通、CI/CD OIDC、发布流程
-- [`docs/AUTH.md`](docs/AUTH.md) — Casdoor 应用配置、JWT 校验原理
+- [`docs/AUTH.md`](docs/AUTH.md) — 本系统 Casdoor 接入细节
+- [`docs/SSO.md`](docs/SSO.md) — **跨系统（销售/工单/运营中心/云管）统一认证架构**
+- [`docs/ROLES.md`](docs/ROLES.md) — **共享角色定义**
 - [`infra/README.md`](infra/README.md) — Bicep 资源清单 + 月成本估算
 
 ## API 路由
