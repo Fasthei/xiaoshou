@@ -1,6 +1,6 @@
-# 销售系统 API
+# 销售系统 API (xiaoshou)
 
-基于 FastAPI 开发的销售系统后端服务，提供客户管理、货源管理、分配管理和用量查询等核心功能。
+基于 FastAPI 开发的销售系统后端，部署到 **Azure Container Apps**，认证由 **Casdoor** 统一承担。
 
 ## 功能模块
 
@@ -11,166 +11,83 @@
 
 ## 技术栈
 
-- **框架**：FastAPI 0.109.0
-- **数据库**：PostgreSQL + SQLAlchemy
-- **缓存**：Redis
-- **Python**：3.10+
+- **框架**：FastAPI 0.109
+- **数据库**：PostgreSQL 16 + SQLAlchemy 2
+- **缓存**：Redis 7
+- **认证**：Casdoor OAuth2 / OIDC (RS256 JWT)
+- **容器**：Docker → Azure Container Apps
+- **CI/CD**：GitHub Actions (OIDC 到 Azure)
+- **IaC**：Bicep (`infra/main.bicep`)
 
-## 快速开始
-
-### 1. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 配置环境变量
-
-复制 `.env.example` 为 `.env` 并修改配置：
+## 快速开始（本地）
 
 ```bash
 cp .env.example .env
+# 编辑 .env：填 Casdoor client_id / secret；或临时 AUTH_ENABLED=false 跳过认证
+
+docker compose up --build
+# 访问 http://localhost:8000/docs
 ```
 
-编辑 `.env` 文件，配置数据库连接等信息。
-
-### 3. 初始化数据库
+不用 Docker：
 
 ```bash
-# 创建数据库
-createdb sales_system
-
-# 运行数据库迁移（需要先安装 alembic）
-alembic init alembic
-alembic revision --autogenerate -m "Initial migration"
+pip install -r requirements.txt
 alembic upgrade head
+uvicorn main:app --reload
 ```
 
-### 4. 启动服务
+## 部署到 Azure
 
-```bash
-# 开发模式
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+详见：
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — 资源开通、CI/CD OIDC、发布流程
+- [`docs/AUTH.md`](docs/AUTH.md) — Casdoor 应用配置、JWT 校验原理
+- [`infra/README.md`](infra/README.md) — Bicep 资源清单 + 月成本估算
 
-# 或者直接运行
-python main.py
-```
+## API 路由
 
-### 5. 访问 API 文档
-
-启动后访问：
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-## API 接口
-
-### 客户管理
-
-- `POST /api/customers` - 创建客户
-- `GET /api/customers/{id}` - 查询客户详情
-- `PUT /api/customers/{id}` - 更新客户信息
-- `GET /api/customers` - 客户列表查询
-- `POST /api/customers/{id}/contacts` - 添加客户联系人
-
-### 货源管理
-
-- `POST /api/resources` - 创建货源
-- `GET /api/resources/{id}` - 查询货源详情
-- `PUT /api/resources/{id}` - 更新货源信息
-- `GET /api/resources` - 货源列表查询
-- `GET /api/resources/available` - 查询可分配货源
-
-### 分配管理
-
-- `POST /api/allocations` - 创建分配
-- `GET /api/allocations/{id}` - 查询分配详情
-- `PUT /api/allocations/{id}` - 更新分配信息
-- `GET /api/allocations` - 分配列表查询
-- `GET /api/allocations/{id}/profit` - 查询分配毛利
-
-### 用量查询
-
-- `GET /api/usage/customer/{id}` - 查询客户用量
-- `GET /api/usage/resource/{id}` - 查询货源用量
-- `GET /api/usage/customer/{id}/summary` - 客户用量汇总
-- `GET /api/usage/customer/{id}/trend` - 客户用量趋势
+| 路由 | 认证 | 说明 |
+|---|---|---|
+| `GET /` | 公开 | 欢迎信息 |
+| `GET /health` | 公开 | 健康检查 |
+| `GET /api/auth/login` | 公开 | 跳转 Casdoor 登录 |
+| `GET /api/auth/callback` | 公开 | OAuth2 回调，换 token |
+| `GET /api/auth/me` | **需 JWT** | 当前用户信息 |
+| `/api/customers/*` | **需 JWT** | 客户管理 |
+| `/api/resources/*` | **需 JWT** | 货源管理 |
+| `/api/allocations/*` | **需 JWT** | 分配管理 |
+| `/api/usage/*` | **需 JWT** | 用量查询 |
 
 ## 项目结构
 
 ```
 xiaoshou/
 ├── app/
-│   ├── api/              # API 路由
-│   │   ├── customer.py
-│   │   ├── resource.py
-│   │   ├── allocation.py
-│   │   └── usage.py
-│   ├── models/           # 数据库模型
-│   │   ├── customer.py
-│   │   ├── resource.py
-│   │   ├── allocation.py
-│   │   └── usage.py
-│   ├── schemas/          # Pydantic 模型
-│   │   ├── customer.py
-│   │   ├── resource.py
-│   │   ├── allocation.py
-│   │   └── usage.py
-│   ├── config.py         # 配置管理
-│   └── database.py       # 数据库连接
-├── main.py               # 应用入口
-├── requirements.txt      # 依赖列表
-├── .env.example          # 环境变量示例
-└── README.md             # 项目说明
+│   ├── api/                 # FastAPI 路由
+│   ├── auth/                # Casdoor JWT 校验 & 依赖
+│   ├── models/              # SQLAlchemy 模型
+│   ├── schemas/             # Pydantic 模型
+│   ├── config.py
+│   └── database.py
+├── infra/                   # Bicep IaC
+├── docs/                    # 部署 / 认证文档
+├── tests/                   # pytest
+├── .github/workflows/       # CI + CD
+├── Dockerfile
+├── docker-compose.yml
+├── main.py
+└── requirements.txt
 ```
 
-## 开发说明
+## 开发计划
 
-### 数据库模型
+- [x] 基础 CRUD（客户 / 货源 / 分配 / 用量）
+- [x] Casdoor 认证接入
+- [x] Azure 部署 (Bicep + Container Apps)
+- [x] GitHub Actions CI/CD
+- [ ] 角色细粒度授权
+- [ ] 预警、CRM 商机、账单、Agent 分析
 
-所有模型都继承自 `Base`，使用 SQLAlchemy ORM。
-
-### API 响应格式
-
-成功响应：
-```json
-{
-  "id": 1,
-  "customer_name": "测试客户",
-  ...
-}
-```
-
-错误响应：
-```json
-{
-  "detail": "错误信息"
-}
-```
-
-### 分页查询
-
-列表接口支持分页，参数：
-- `page`: 页码（从1开始）
-- `page_size`: 每页数量（默认20，最大100）
-
-响应格式：
-```json
-{
-  "total": 100,
-  "items": [...]
-}
-```
-
-## 后续开发计划
-
-- [ ] 用户认证与权限管理
-- [ ] 预警功能
-- [ ] CRM 商机管理
-- [ ] 账单生成
-- [ ] Agent 智能分析
-- [ ] 数据同步功能
-- [ ] 报表与看板
-
-## 许可证
+## License
 
 MIT

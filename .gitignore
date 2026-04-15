@@ -43,3 +43,11 @@ logs/
 .coverage
 htmlcov/
 .tox/
+
+# OMC / autopilot artifacts
+.omc/
+
+# Terraform/Bicep state (if any)
+*.tfstate
+*.tfstate.backup
+.terraform/
