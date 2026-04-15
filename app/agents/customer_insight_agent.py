@@ -446,6 +446,37 @@ def run_customer_insight_agent(
         if time.monotonic() - t0 > 120:
             logger.warning("step exceeded 120s wall clock, continuing")
 
+    # If we exhausted MAX_ITERS without the model calling `finish`, force one
+    # final call locked to finish so the user gets a markdown summary. This
+    # matters because UX depends on a human-readable digest per run.
+    if not final_summary:
+        emitter("forcing_summary", {"reason": "max_iters_without_finish"})
+        try:
+            force_resp = client.chat.completions.create(
+                model=deployment_name(),
+                messages=messages + [{
+                    "role": "user",
+                    "content": "请立即调用 finish 工具, 用 markdown 总结已发现的事实。不要再调用其它工具。",
+                }],  # type: ignore[arg-type]
+                tools=[t for t in TOOLS if t["function"]["name"] == "finish"],
+                tool_choice={"type": "function", "function": {"name": "finish"}},
+                max_completion_tokens=900,
+            )
+            fc = force_resp.choices[0].message
+            tc_list = getattr(fc, "tool_calls", None) or []
+            if tc_list:
+                try:
+                    args = json.loads(tc_list[0].function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                final_summary = (args.get("summary_markdown") or "").strip() or None
+            if force_resp.usage:
+                token_usage["prompt"] += force_resp.usage.prompt_tokens or 0
+                token_usage["completion"] += force_resp.usage.completion_tokens or 0
+                token_usage["total"] += force_resp.usage.total_tokens or 0
+        except Exception as e:  # noqa: BLE001
+            logger.warning("forced finish call failed: %s", e)
+
     # Persist final state on the run row
     run.steps_done = min(step, MAX_ITERS)
     run.summary = final_summary
