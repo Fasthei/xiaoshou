@@ -134,16 +134,17 @@ app/auth/
 - 通过 `CASDOOR_APP_NAME` 区分系统，`aud` 校验只认本系统的 `client_id` → 防止 token 挪用
 - `roles` 从 JWT 读取，**不写死在代码里**，4 个系统用同一份 `roles.py` 常量定义
 
-### 5.2 其他语言移植清单
+### 5.2 其他语言已提供模板
 
-若其他系统不是 Python：
+**直接复制 `docs/sso-templates/<语言>/` 到对应系统仓库即可**：
 
-| 语言 | 推荐库 |
-|---|---|
-| Go | `github.com/casdoor/casdoor-go-sdk` + `github.com/golang-jwt/jwt/v5` |
-| Java / Spring Boot | `spring-boot-starter-oauth2-resource-server` + `nimbus-jose-jwt` |
-| Node.js | `casdoor-nodejs-sdk` 或 `jose` + `openid-client` |
-| .NET | `Microsoft.AspNetCore.Authentication.JwtBearer` + issuer metadata |
+| 语言 | 模板位置 | 适用系统 |
+|---|---|---|
+| TypeScript (jose + axios) | [`sso-templates/typescript/`](./sso-templates/typescript/) | 工单 `gongdan`、运营中心 |
+| Go (golang-jwt/v5) | [`sso-templates/go/`](./sso-templates/go/) | 云管 |
+| Python (python-jose) | 本仓库 `app/auth/` | 销售（本仓库）|
+
+其他语言可参考模板自行实现，约定见 [`sso-templates/README.md`](./sso-templates/README.md)。
 
 所有语言都遵循同样的约定：
 - 向 `{CASDOOR}/api/get-cert?id=xingyun/<app-name>` 拿公钥
