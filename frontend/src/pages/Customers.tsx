@@ -25,6 +25,7 @@ export default function Customers() {
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState<string | undefined>();
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<Customer>();
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -37,8 +38,9 @@ export default function Customers() {
       const { data } = await api.get<Pagination<Customer>>('/api/customers', {
         params: { page, page_size: pageSize, keyword: keyword || undefined, customer_status: status },
       });
-      setData(data.items);
-      setTotal(data.total);
+      const items = onlyUnassigned ? data.items.filter((c) => c.sales_user_id == null) : data.items;
+      setData(items);
+      setTotal(onlyUnassigned ? items.length : data.total);
     } finally {
       setLoading(false);
     }
@@ -136,6 +138,12 @@ export default function Customers() {
               onChange={(v) => { setStatus(v); setPage(1); load(); }}
               options={['active', 'inactive', 'frozen', 'prospect'].map((v) => ({ value: v, label: v }))}
             />
+            <Button
+              type={onlyUnassigned ? 'primary' : 'default'}
+              onClick={() => { setOnlyUnassigned(!onlyUnassigned); setPage(1); setTimeout(load, 0); }}
+            >
+              {onlyUnassigned ? '✓ 只看未分配' : '只看未分配'}
+            </Button>
             <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
             <Button icon={<SyncOutlined spin={syncing} />} onClick={syncFromTicket} loading={syncing}>
               从工单同步

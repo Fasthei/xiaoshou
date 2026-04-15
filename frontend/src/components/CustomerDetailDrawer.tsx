@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
   Drawer, Tabs, Descriptions, Tag, Space, Typography, List, Avatar, Empty,
-  Skeleton, Button, Card, Timeline,
+  Skeleton, Button, Card, Timeline, Select, Input, Modal, Form,
+  message as antdMessage,
 } from 'antd';
-import { CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined } from '@ant-design/icons';
+import {
+  CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined,
+  UserSwitchOutlined, HistoryOutlined,
+} from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Customer } from '../types';
 import HealthRadar from './HealthRadar';
@@ -37,6 +41,10 @@ export default function CustomerDetailDrawer({
   const [matchField, setMatchField] = useState('');
   const [health, setHealth] = useState<any>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
+  const [salesUsers, setSalesUsers] = useState<any[]>([]);
+  const [assignLog, setAssignLog] = useState<any[]>([]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignForm] = Form.useForm<{ sales_user_id?: number | null; reason?: string }>();
 
   const loadResources = async () => {
     if (!customer) return;
@@ -52,13 +60,43 @@ export default function CustomerDetailDrawer({
     }
   };
 
+  const loadAssign = async () => {
+    if (!customer) return;
+    const [s, l] = await Promise.all([
+      api.get('/api/sales/users').then((r) => r.data).catch(() => []),
+      api.get(`/api/customers/${customer.id}/assignment-log`).then((r) => r.data).catch(() => []),
+    ]);
+    setSalesUsers(s);
+    setAssignLog(l);
+  };
+
   useEffect(() => {
     if (open && customer) {
       loadResources();
       api.get(`/api/customers/${customer.id}/health`).then(({ data }) => setHealth(data)).catch(() => setHealth(null));
       api.get(`/api/customers/${customer.id}/timeline`).then(({ data }) => setTimeline(data)).catch(() => setTimeline([]));
+      loadAssign();
     }
+    // eslint-disable-next-line
   }, [open, customer?.id]);
+
+  const openAssignModal = () => {
+    assignForm.resetFields();
+    assignForm.setFieldsValue({ sales_user_id: customer?.sales_user_id ?? null });
+    setAssignOpen(true);
+  };
+
+  const submitAssign = async () => {
+    if (!customer) return;
+    const v = await assignForm.validateFields();
+    await api.patch(`/api/customers/${customer.id}/assign`, v);
+    antdMessage.success('分配已更新');
+    setAssignOpen(false);
+    loadAssign();
+  };
+
+  const salesUserById = (id?: number | null) => salesUsers.find((u) => u.id === id);
+  const currentSalesUser = salesUserById(customer?.sales_user_id);
 
   const tierBadge = (tier?: string) => {
     const map: Record<string, string> = { KEY: '#ec4899', EXCLUSIVE: '#f59e0b', NORMAL: '#4f46e5' };
@@ -160,6 +198,70 @@ export default function CustomerDetailDrawer({
               ) : <Skeleton active />,
             },
             {
+              key: 'assign',
+              label: (
+                <Space><UserSwitchOutlined />分配 {currentSalesUser ? <Tag color="geekblue">{currentSalesUser.name}</Tag> : <Tag>未分配</Tag>}</Space>
+              ),
+              children: (
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Card size="small">
+                    <Descriptions column={1} size="small">
+                      <Descriptions.Item label="当前销售">
+                        {currentSalesUser ? (
+                          <Space>
+                            <Avatar size="small" style={{ background: '#6366f1' }}>{currentSalesUser.name[0]}</Avatar>
+                            <Text strong>{currentSalesUser.name}</Text>
+                            {currentSalesUser.email ? <Text type="secondary">· {currentSalesUser.email}</Text> : null}
+                          </Space>
+                        ) : <Tag>未分配</Tag>}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="来源系统">{customer.source_system || '—'}</Descriptions.Item>
+                      <Descriptions.Item label="来源 ID / URL">
+                        {customer.source_id ? (
+                          customer.source_id.startsWith('http') ? (
+                            <a href={customer.source_id} target="_blank" rel="noreferrer">{customer.source_id}</a>
+                          ) : customer.source_id
+                        ) : '—'}
+                      </Descriptions.Item>
+                    </Descriptions>
+                    <div style={{ marginTop: 12 }}>
+                      <Button type="primary" icon={<UserSwitchOutlined />} onClick={openAssignModal}>
+                        {currentSalesUser ? '再分配 / 修改' : '分配销售'}
+                      </Button>
+                    </div>
+                  </Card>
+
+                  <Card size="small" title={<Space><HistoryOutlined />分配历史 <Tag>{assignLog.length}</Tag></Space>}>
+                    {assignLog.length === 0 ? (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无分配记录" />
+                    ) : (
+                      <Timeline
+                        items={assignLog.map((l: any) => {
+                          const from = salesUserById(l.from_user_id)?.name || (l.from_user_id ? `#${l.from_user_id}` : '—');
+                          const to = salesUserById(l.to_user_id)?.name || (l.to_user_id ? `#${l.to_user_id}` : '取消分配');
+                          const triggerColor = l.trigger === 'auto' ? 'green' : 'blue';
+                          return {
+                            color: triggerColor,
+                            children: (
+                              <Space direction="vertical" size={2}>
+                                <Space>
+                                  <Text>{from}</Text><Text type="secondary">→</Text><Text strong>{to}</Text>
+                                  <Tag color={triggerColor}>{l.trigger}</Tag>
+                                  {l.rule_id ? <Tag color="gold">规则#{l.rule_id}</Tag> : null}
+                                </Space>
+                                <Text type="secondary" style={{ fontSize: 12 }}>{new Date(l.at).toLocaleString()}</Text>
+                                {l.reason ? <Text>{l.reason}</Text> : null}
+                              </Space>
+                            ),
+                          };
+                        })}
+                      />
+                    )}
+                  </Card>
+                </Space>
+              ),
+            },
+            {
               key: 'insight',
               label: (
                 <Space><BulbOutlined style={{ color: '#f59e0b' }} />AI 洞察</Space>
@@ -244,6 +346,26 @@ export default function CustomerDetailDrawer({
           ]}
         />
       )}
+      <Modal
+        title={currentSalesUser ? '再分配销售' : '分配销售'}
+        open={assignOpen} onOk={submitAssign} onCancel={() => setAssignOpen(false)} destroyOnClose
+      >
+        <Form form={assignForm} layout="vertical">
+          <Form.Item name="sales_user_id" label="分配给">
+            <Select
+              allowClear placeholder="留空=取消分配 / 退回商机池"
+              showSearch optionFilterProp="label"
+              options={salesUsers.filter((u: any) => u.is_active).map((u: any) => ({
+                value: u.id,
+                label: `${u.name}${u.email ? ' · ' + u.email : ''}`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="reason" label="原因 (可选)">
+            <Input.TextArea rows={2} placeholder="例：张三休假，临时转李四" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Drawer>
   );
 }

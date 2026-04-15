@@ -17,6 +17,8 @@ export interface Customer {
   current_resource_count?: number;
   current_month_consumption?: string | number;
   next_month_forecast?: string | number | null;
+  source_system?: string | null;
+  source_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }
