@@ -347,14 +347,26 @@ def run_customer_insight_agent(
         emitter("step_progress", {"done": step - 1, "total": MAX_ITERS})
         t0 = time.monotonic()
         try:
-            resp = client.chat.completions.create(
-                model=deployment_name(),
-                messages=messages,  # type: ignore[arg-type]
-                tools=TOOLS,
-                tool_choice="auto",
-                temperature=0.4,
-                max_tokens=1400,
-            )
+            # gpt-5.4 (reasoning-capable) rejects `max_tokens`; the newer API
+            # requires `max_completion_tokens`. Fall back for older deployments.
+            create_kwargs = {
+                "model": deployment_name(),
+                "messages": messages,
+                "tools": TOOLS,
+                "tool_choice": "auto",
+                "temperature": 0.4,
+                "max_completion_tokens": 1400,
+            }
+            try:
+                resp = client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
+            except Exception as e:  # noqa: BLE001
+                err = str(e)
+                if "max_completion_tokens" in err and "unsupported" in err.lower():
+                    create_kwargs.pop("max_completion_tokens", None)
+                    create_kwargs["max_tokens"] = 1400
+                    resp = client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
+                else:
+                    raise
         except Exception as e:  # noqa: BLE001
             logger.exception("LLM call failed")
             emitter("error", {"phase": "llm", "message": str(e)})
