@@ -2,14 +2,20 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "namePrefix":        { "value": "xiaoshou" },
-    "location":          { "value": "eastasia" },
-    "pgAdminUser":       { "value": "sales_admin" },
-    "pgAdminPassword":   { "value": "REPLACE_WITH_STRONG_PASSWORD" },
-    "casdoorEndpoint":   { "value": "https://casdoor.ashyglacier-8207efd2.eastasia.azurecontainerapps.io" },
-    "casdoorClientId":   { "value": "REPLACE_WITH_CASDOOR_CLIENT_ID" },
-    "casdoorClientSecret": { "value": "REPLACE_WITH_CASDOOR_CLIENT_SECRET" },
-    "casdoorOrg":        { "value": "built-in" },
-    "casdoorAppName":    { "value": "xiaoshou" }
+    "namePrefix":           { "value": "xiaoshou" },
+    "location":             { "value": "eastasia" },
+    "sharedResourceGroup":  { "value": "AuthData" },
+    "sharedPgServerName":   { "value": "dataope" },
+    "sharedPgAdminUser":    { "value": "dataope" },
+    "pgDatabaseName":       { "value": "sales_system" },
+    "sharedRedisName":      { "value": "oper" },
+    "redisDbIndex":         { "value": 1 },
+    "sharedKeyVaultName":   { "value": "authoper" },
+    "kvSecretPgPassword":   { "value": "xiaoshou-pg-password" },
+    "kvSecretCasdoorClientSecret": { "value": "xiaoshou-casdoor-client-secret" },
+    "casdoorEndpoint":      { "value": "https://casdoor.ashyglacier-8207efd2.eastasia.azurecontainerapps.io" },
+    "casdoorOrg":           { "value": "xingyun" },
+    "casdoorAppName":       { "value": "xiaoshou-app" },
+    "casdoorClientId":      { "value": "REPLACE_WITH_CASDOOR_CLIENT_ID" }
   }
 }

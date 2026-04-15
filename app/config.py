@@ -9,11 +9,25 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
-    # 数据库
-    DATABASE_URL: str
+    # 数据库：优先用完整 DATABASE_URL，否则用 PG_* 各部分组装
+    # (Azure Container Apps 不支持 env 值里插值 secretRef，所以在 sales-rg 模式下
+    #  我们传的是 PG_USER / PG_PASSWORD / PG_HOST / PG_DB 四件套。)
+    DATABASE_URL: str = ""
+    PG_USER: str = ""
+    PG_PASSWORD: str = ""
+    PG_HOST: str = ""
+    PG_DB: str = ""
+    PG_PORT: int = 5432
+    PG_SSLMODE: str = "require"
 
-    # Redis
-    REDIS_URL: str
+    # Redis：优先用完整 REDIS_URL，否则用 REDIS_* 组装
+    REDIS_HOST: str = ""
+    REDIS_PASSWORD: str = ""
+    REDIS_PORT: int = 6380
+    REDIS_DB: int = 0
+    REDIS_TLS: bool = True
+
+    REDIS_URL: str = ""
 
     # 本地 JWT（开发/退化）
     SECRET_KEY: str
@@ -36,6 +50,29 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def effective_database_url(self) -> str:
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+        if self.PG_HOST and self.PG_USER and self.PG_DB:
+            from urllib.parse import quote_plus
+            pw = quote_plus(self.PG_PASSWORD)
+            return (
+                f"postgresql://{self.PG_USER}:{pw}@{self.PG_HOST}:{self.PG_PORT}"
+                f"/{self.PG_DB}?sslmode={self.PG_SSLMODE}"
+            )
+        raise RuntimeError("No DATABASE_URL and no PG_* parts configured")
+
+    @property
+    def effective_redis_url(self) -> str:
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        if self.REDIS_HOST:
+            scheme = "rediss" if self.REDIS_TLS else "redis"
+            auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
+            return f"{scheme}://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        raise RuntimeError("No REDIS_URL and no REDIS_* parts configured")
 
     class Config:
         env_file = ".env"
