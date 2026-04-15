@@ -5,8 +5,10 @@ import {
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined, SyncOutlined,
-  EyeOutlined, EditOutlined,
+  EyeOutlined, EditOutlined, DownloadOutlined, UploadOutlined,
 } from '@ant-design/icons';
+import { Upload } from 'antd';
+import type { UploadProps } from 'antd';
 import { api } from '../api/axios';
 import type { Customer, Pagination } from '../types';
 import CustomerDetailDrawer from '../components/CustomerDetailDrawer';
@@ -145,6 +147,43 @@ export default function Customers() {
               {onlyUnassigned ? '✓ 只看未分配' : '只看未分配'}
             </Button>
             <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+            <Button icon={<DownloadOutlined />} onClick={async () => {
+              const resp = await fetch('/api/customers/bulk/export.csv', {
+                headers: {
+                  Authorization: `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token') || ''}`,
+                },
+              });
+              if (!resp.ok) { antdMessage.error('导出失败'); return; }
+              const blob = await resp.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}>导出CSV</Button>
+            <Upload
+              accept=".csv"
+              showUploadList={false}
+              beforeUpload={async (file) => {
+                const fd = new FormData();
+                fd.append('file', file);
+                try {
+                  const { data } = await api.post('/api/customers/bulk/import.csv', fd, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                  });
+                  antdMessage.success(
+                    `导入完成: 新增 ${data.created} · 更新 ${data.updated} · 跳过 ${data.skipped}`
+                  );
+                  load();
+                } catch (e: any) {
+                  antdMessage.error(e?.response?.data?.detail || '导入失败');
+                }
+                return false; // prevent default upload
+              }}
+            >
+              <Button icon={<UploadOutlined />}>导入CSV</Button>
+            </Upload>
             <Button icon={<SyncOutlined spin={syncing} />} onClick={syncFromTicket} loading={syncing}>
               从工单同步
             </Button>

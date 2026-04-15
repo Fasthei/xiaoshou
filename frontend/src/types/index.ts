@@ -19,6 +19,14 @@ export interface Customer {
   next_month_forecast?: string | number | null;
   source_system?: string | null;
   source_id?: string | null;
+  employee_size?: number | null;
+  annual_revenue?: string | number | null;
+  last_meeting_at?: string | null;
+  last_follow_time?: string | null;
+  trade_count?: number | null;
+  website?: string | null;
+  linkedin_url?: string | null;
+  note?: string | null;
   created_at?: string;
   updated_at?: string;
 }

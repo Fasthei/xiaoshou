@@ -36,6 +36,13 @@ class CustomerBase(BaseModel):
     customer_status: str = Field(..., description="客户状态")
     sales_user_id: Optional[int] = Field(None, description="所属销售")
     operation_user_id: Optional[int] = Field(None, description="所属运营")
+    employee_size: Optional[int] = None
+    annual_revenue: Optional[Decimal] = None
+    last_meeting_at: Optional[datetime] = None
+    trade_count: Optional[int] = None
+    website: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    note: Optional[str] = None
 
 
 class CustomerCreate(CustomerBase):
@@ -51,6 +58,13 @@ class CustomerUpdate(BaseModel):
     customer_status: Optional[str] = None
     sales_user_id: Optional[int] = None
     operation_user_id: Optional[int] = None
+    employee_size: Optional[int] = None
+    annual_revenue: Optional[Decimal] = None
+    last_meeting_at: Optional[datetime] = None
+    trade_count: Optional[int] = None
+    website: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    note: Optional[str] = None
 
 
 class CustomerResponse(CustomerBase):
