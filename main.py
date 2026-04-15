@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import allocation, auth, customer, resource, usage, sync, customer_resources, internal, enrich
+from app.api import (
+    allocation, auth, customer, resource, usage, sync, customer_resources,
+    internal, enrich, bridge, briefing, health_score,
+)
 from app.auth.dependencies import require_auth
 from app.config import get_settings
 from app.database import Base, engine
@@ -55,6 +58,9 @@ app.include_router(allocation.router, dependencies=protected_deps)
 app.include_router(usage.router, dependencies=protected_deps)
 app.include_router(sync.router, dependencies=protected_deps)
 app.include_router(enrich.router, dependencies=protected_deps)
+app.include_router(bridge.router, dependencies=protected_deps)
+app.include_router(briefing.router, dependencies=protected_deps)
+app.include_router(health_score.router, dependencies=protected_deps)
 
 
 @app.get("/")

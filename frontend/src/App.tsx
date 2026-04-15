@@ -13,6 +13,8 @@ import Resources from './pages/Resources';
 import Allocations from './pages/Allocations';
 import Usage from './pages/Usage';
 import Leads from './pages/Leads';
+import Alerts from './pages/Alerts';
+import Bills from './pages/Bills';
 
 function Shell() {
   const { mode } = useThemeMode();
@@ -37,6 +39,8 @@ function Shell() {
               <Route path="/allocations" element={<Allocations />} />
               <Route path="/usage" element={<Usage />} />
               <Route path="/leads" element={<Leads />} />
+              <Route path="/alerts" element={<Alerts />} />
+              <Route path="/bills" element={<Bills />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

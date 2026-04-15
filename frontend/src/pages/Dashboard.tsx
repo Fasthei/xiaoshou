@@ -6,6 +6,7 @@ import {
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { api } from '../api/axios';
+import BriefingBanner from '../components/BriefingBanner';
 
 const { Title, Text } = Typography;
 
@@ -85,6 +86,7 @@ export default function Dashboard() {
 
   return (
     <div className="page-fade">
+      <BriefingBanner />
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col span={24}>
           <Card

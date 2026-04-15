@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   Drawer, Tabs, Descriptions, Tag, Space, Typography, List, Avatar, Empty,
-  Skeleton, Button, message,
+  Skeleton, Button, Card,
 } from 'antd';
 import { CloudServerOutlined, SyncOutlined, LinkOutlined } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Customer } from '../types';
+import HealthRadar from './HealthRadar';
 
 const { Text } = Typography;
 
@@ -33,6 +34,7 @@ export default function CustomerDetailDrawer({
   const [loading, setLoading] = useState(false);
   const [resources, setResources] = useState<CloudCostResource[]>([]);
   const [matchField, setMatchField] = useState('');
+  const [health, setHealth] = useState<any>(null);
 
   const loadResources = async () => {
     if (!customer) return;
@@ -51,6 +53,7 @@ export default function CustomerDetailDrawer({
   useEffect(() => {
     if (open && customer) {
       loadResources();
+      api.get(`/api/customers/${customer.id}/health`).then(({ data }) => setHealth(data)).catch(() => setHealth(null));
     }
   }, [open, customer?.id]);
 
@@ -98,6 +101,38 @@ export default function CustomerDetailDrawer({
                   <Descriptions.Item label="创建时间">{customer.created_at || '-'}</Descriptions.Item>
                 </Descriptions>
               ),
+            },
+            {
+              key: 'health',
+              label: '健康分',
+              children: health ? (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Space style={{ width: '100%', justifyContent: 'center' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{
+                        fontSize: 56, fontWeight: 700,
+                        color: health.tier === 'green' ? '#16a34a' : health.tier === 'yellow' ? '#f59e0b' : '#ef4444',
+                      }}>{health.score}</div>
+                      <Tag color={health.tier === 'green' ? 'green' : health.tier === 'yellow' ? 'orange' : 'red'}>
+                        {health.tier === 'green' ? '健康' : health.tier === 'yellow' ? '关注' : '预警'}
+                      </Tag>
+                    </div>
+                  </Space>
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <HealthRadar
+                      values={[health.radar.consumption, health.radar.activity, health.radar.engagement, health.radar.completeness]}
+                      labels={['消耗', '活跃', '粘性', '完整度']}
+                    />
+                  </div>
+                  {health.tips?.filter(Boolean).length ? (
+                    <Card size="small" title="建议">
+                      {health.tips.filter(Boolean).map((t: string, i: number) => (
+                        <div key={i}>• {t}</div>
+                      ))}
+                    </Card>
+                  ) : null}
+                </Space>
+              ) : <Skeleton active />,
             },
             {
               key: 'resources',

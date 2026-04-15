@@ -80,6 +80,40 @@ class CloudCostClient:
                 for item in r.json()
             ]
 
+    # ---------- Alerts / Bills / Dashboard ----------
+    def alerts_rule_status(self, month: Optional[str] = None) -> list:
+        params = {"month": month} if month else None
+        with self._client() as c:
+            r = c.get(f"{self.base}/api/alerts/rule-status", params=params)
+            r.raise_for_status()
+            return r.json()
+
+    def bills(self, month: Optional[str] = None, status: Optional[str] = None,
+              page: int = 1, page_size: int = 50) -> list:
+        params = {"page": page, "page_size": page_size}
+        if month: params["month"] = month
+        if status: params["status"] = status
+        with self._client() as c:
+            r = c.get(f"{self.base}/api/bills/", params=params)
+            r.raise_for_status()
+            return r.json()
+
+    def dashboard_bundle(self, month: str, granularity: str = "daily", service_limit: int = 10) -> dict:
+        with self._client() as c:
+            r = c.get(f"{self.base}/api/dashboard/bundle",
+                      params={"month": month, "granularity": granularity, "service_limit": service_limit})
+            r.raise_for_status()
+            return r.json()
+
+    def sync_last(self) -> Optional[str]:
+        try:
+            with self._client() as c:
+                r = c.get(f"{self.base}/api/sync/last")
+                r.raise_for_status()
+                return (r.json() or {}).get("last_sync")
+        except Exception:
+            return None
+
     def resources_for_customer(self, customer_code: str) -> List[ServiceAccount]:
         """Return 货源 entries whose `match_field` equals the given customer_code.
 

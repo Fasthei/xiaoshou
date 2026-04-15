@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, Space, Table, Tag, Typography } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Allocation, Pagination } from '../types';
+import AllocationCreateModal from '../components/AllocationCreateModal';
 
 const { Title } = Typography;
 
@@ -16,6 +17,7 @@ export default function Allocations() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -54,8 +56,16 @@ export default function Allocations() {
     <Card>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
         <Title level={4} style={{ margin: 0 }}>分配管理</Title>
-        <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            新建分配
+          </Button>
+        </Space>
       </Space>
+      <AllocationCreateModal
+        open={createOpen} onClose={() => setCreateOpen(false)} onCreated={load}
+      />
       <Table<Allocation>
         rowKey="id" loading={loading} columns={columns} dataSource={rows}
         scroll={{ x: 1200 }}
