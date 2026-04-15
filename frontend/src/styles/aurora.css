@@ -1,0 +1,55 @@
+/* Animated aurora background — pure CSS, no deps. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: #0b1020;
+}
+.aurora::before,
+.aurora::after {
+  content: '';
+  position: absolute;
+  inset: -20% -20% -20% -20%;
+  background:
+    radial-gradient(40% 40% at 20% 30%, rgba(79, 70, 229, 0.55), transparent 60%),
+    radial-gradient(40% 40% at 80% 20%, rgba(236, 72, 153, 0.45), transparent 60%),
+    radial-gradient(40% 40% at 50% 80%, rgba(14, 165, 233, 0.50), transparent 60%);
+  filter: blur(60px);
+  animation: aurora-spin 22s linear infinite;
+}
+.aurora::after {
+  animation-duration: 34s;
+  animation-direction: reverse;
+  mix-blend-mode: screen;
+  opacity: 0.65;
+}
+@keyframes aurora-spin {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%  { transform: translate3d(2%, -2%, 0) rotate(180deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(360deg); }
+}
+
+/* Glass panel */
+.glass {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* Fade-in page transition */
+.page-fade {
+  animation: fade-in 0.32s ease-out;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Number ticker glow */
+.stat-glow { text-shadow: 0 0 24px rgba(79, 70, 229, 0.45); }
+
+/* Hide scrollbar for command palette list */
+.cmd-list::-webkit-scrollbar { width: 6px; }
+.cmd-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
