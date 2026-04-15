@@ -3,10 +3,11 @@ import {
   Drawer, Tabs, Descriptions, Tag, Space, Typography, List, Avatar, Empty,
   Skeleton, Button, Card, Timeline,
 } from 'antd';
-import { CloudServerOutlined, SyncOutlined, LinkOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Customer } from '../types';
 import HealthRadar from './HealthRadar';
+import CustomerInsightPanel from './CustomerInsightPanel';
 
 const { Text } = Typography;
 
@@ -157,6 +158,13 @@ export default function CustomerDetailDrawer({
                   ) : null}
                 </Space>
               ) : <Skeleton active />,
+            },
+            {
+              key: 'insight',
+              label: (
+                <Space><BulbOutlined style={{ color: '#f59e0b' }} />AI 洞察</Space>
+              ),
+              children: <CustomerInsightPanel customerId={customer.id} />,
             },
             {
               key: 'resources',

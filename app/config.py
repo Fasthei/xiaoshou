@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     RAPIDAPI_KEY: str = ""
     LINKEDIN_API_HOST: str = "fresh-linkedin-profile-data.p.rapidapi.com"
 
+    # Azure OpenAI — 用于客户洞察 agent (gpt-5.4 + function calling)
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_API_KEY: str = ""
+    AZURE_OPENAI_API_VERSION: str = "2025-04-01-preview"
+    AZURE_OPENAI_DEPLOYMENT: str = "gpt-5.4"
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
