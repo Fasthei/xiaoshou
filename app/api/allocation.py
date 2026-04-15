@@ -3,8 +3,10 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
+from app.auth import CurrentUser, require_auth
 from app.database import get_db
 from app.models.allocation import Allocation
+from app.models.allocation_history import AllocationHistory
 from app.models.customer import Customer
 from app.models.resource import Resource
 from app.schemas.allocation import (
@@ -14,6 +16,8 @@ from app.schemas.allocation import (
     AllocationListResponse,
     AllocationProfitResponse
 )
+from app.schemas.allocation_history import AllocationHistoryOut, CancelAllocationBody
+from typing import List as _List
 
 router = APIRouter(prefix="/api/allocations", tags=["分配管理"])
 
@@ -130,12 +134,69 @@ def update_allocation(
         profit_data = calculate_profit(allocation.unit_cost, unit_price, quantity)
         update_data.update(profit_data)
 
+    # Log each changed field to allocation_history
     for field, value in update_data.items():
+        old_val = getattr(allocation, field, None)
+        if old_val != value:
+            db.add(AllocationHistory(
+                allocation_id=allocation.id, field=field,
+                old_value=str(old_val) if old_val is not None else None,
+                new_value=str(value) if value is not None else None,
+            ))
         setattr(allocation, field, value)
 
     db.commit()
     db.refresh(allocation)
     return allocation
+
+
+@router.post("/{allocation_id}/cancel", response_model=AllocationResponse, summary="取消分配 (软)")
+def cancel_allocation(
+    allocation_id: int,
+    body: CancelAllocationBody,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    allocation = db.query(Allocation).filter(
+        Allocation.id == allocation_id, Allocation.is_deleted == False,  # noqa: E712
+    ).first()
+    if not allocation:
+        raise HTTPException(404, "分配记录不存在")
+    if allocation.allocation_status == "CANCELLED":
+        raise HTTPException(400, "该分配已取消")
+
+    old_status = allocation.allocation_status
+    allocation.allocation_status = "CANCELLED"
+    # Return resource back to the pool
+    resource = db.query(Resource).filter(Resource.id == allocation.resource_id).first()
+    if resource:
+        resource.allocated_quantity = max(0, (resource.allocated_quantity or 0) - allocation.allocated_quantity)
+        if resource.total_quantity is not None:
+            resource.available_quantity = resource.total_quantity - resource.allocated_quantity
+        db.add(resource)
+    db.add(AllocationHistory(
+        allocation_id=allocation.id, field="cancel",
+        old_value=old_status, new_value="CANCELLED",
+        reason=body.reason,
+        operator_casdoor_id=getattr(user, "sub", None) if user else None,
+    ))
+    db.commit()
+    db.refresh(allocation)
+    return allocation
+
+
+@router.get("/{allocation_id}/history", response_model=_List[AllocationHistoryOut],
+            summary="单个分配的变更流水")
+def get_allocation_history(
+    allocation_id: int,
+    db: Session = Depends(get_db),
+):
+    return (
+        db.query(AllocationHistory)
+        .filter(AllocationHistory.allocation_id == allocation_id)
+        .order_by(AllocationHistory.id.desc())
+        .all()
+    )
 
 
 @router.get("", response_model=AllocationListResponse, summary="分配列表查询")

@@ -5,7 +5,8 @@ import {
 } from 'antd';
 import {
   PlusOutlined, ThunderboltOutlined, UserOutlined, ApartmentOutlined,
-  EditOutlined, DeleteOutlined, ReloadOutlined,
+  EditOutlined, DeleteOutlined, ReloadOutlined, ClockCircleOutlined,
+  RetweetOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 
@@ -29,10 +30,20 @@ interface Rule {
   industry?: string | null;
   region?: string | null;
   customer_level?: string | null;
-  sales_user_id: number;
+  sales_user_id?: number | null;
+  sales_user_ids?: number[] | null;
+  cursor?: number;
   priority: number;
   is_active: boolean;
   created_at: string;
+}
+
+interface RecycleItem {
+  customer_id: number;
+  customer_code: string;
+  from_user_id: number | null;
+  last_follow_time: string | null;
+  reason: string;
 }
 
 interface AutoAssignItem {
@@ -52,9 +63,13 @@ export default function SalesTeam() {
   const [userForm] = Form.useForm<SalesUser & { regions?: string[] | string; industries?: string[] | string }>();
   const [ruleOpen, setRuleOpen] = useState(false);
   const [ruleEditing, setRuleEditing] = useState<Rule | null>(null);
-  const [ruleForm] = Form.useForm<Rule>();
+  const [ruleForm] = Form.useForm<any>();
   const [autoResult, setAutoResult] = useState<{ total_scanned: number; total_assigned: number; items: AutoAssignItem[]; dry_run: boolean } | null>(null);
   const [autoLoading, setAutoLoading] = useState(false);
+  const [staleDays, setStaleDays] = useState(30);
+  const [recycleResult, setRecycleResult] = useState<{ total_scanned: number; total_recycled: number; stale_days: number; dry_run: boolean; items: RecycleItem[] } | null>(null);
+  const [recycleLoading, setRecycleLoading] = useState(false);
+  const [ruleMode, setRuleMode] = useState<'single' | 'roundrobin'>('single');
 
   const loadAll = async () => {
     setLoading(true);
@@ -119,13 +134,21 @@ export default function SalesTeam() {
   const openEditRule = (r: Rule) => {
     setRuleEditing(r);
     ruleForm.setFieldsValue(r);
+    setRuleMode(r.sales_user_ids && r.sales_user_ids.length > 0 ? 'roundrobin' : 'single');
     setRuleOpen(true);
   };
 
   const submitRule = async () => {
     const v = await ruleForm.validateFields();
-    if (ruleEditing) await api.patch(`/api/sales/rules/${ruleEditing.id}`, v);
-    else await api.post('/api/sales/rules', v);
+    // Clear the non-selected target mode to avoid mixed state
+    const body: any = { ...v };
+    if (ruleMode === 'single') {
+      body.sales_user_ids = null;
+    } else {
+      body.sales_user_id = null;
+    }
+    if (ruleEditing) await api.patch(`/api/sales/rules/${ruleEditing.id}`, body);
+    else await api.post('/api/sales/rules', body);
     antdMessage.success(ruleEditing ? '已更新' : '已创建');
     setRuleOpen(false);
     loadAll();
@@ -146,6 +169,20 @@ export default function SalesTeam() {
       else if (!dry) antdMessage.info('没有可分配的客户');
     } finally {
       setAutoLoading(false);
+    }
+  };
+
+  const runRecycle = async (dry: boolean) => {
+    setRecycleLoading(true);
+    try {
+      const { data } = await api.post('/api/sales/auto-recycle', { stale_days: staleDays, dry_run: dry });
+      setRecycleResult(data);
+      if (!dry && data.total_recycled > 0) antdMessage.success(`已回收 ${data.total_recycled} 个客户到商机池`);
+      else if (!dry) antdMessage.info(`扫描 ${data.total_scanned} 个, 无客户超过 ${staleDays} 天未跟进`);
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '过期回收失败');
+    } finally {
+      setRecycleLoading(false);
     }
   };
 
@@ -239,9 +276,20 @@ export default function SalesTeam() {
                     { title: '行业', dataIndex: 'industry', render: (v) => v || <Text type="secondary">不限</Text> },
                     { title: '地区', dataIndex: 'region', render: (v) => v || <Text type="secondary">不限</Text> },
                     { title: '级别', dataIndex: 'customer_level', render: (v) => v || <Text type="secondary">不限</Text> },
-                    { title: '分配给', dataIndex: 'sales_user_id', render: (v: number) => {
-                      const u = userById(v);
-                      return u ? <Tag color="geekblue">{u.name}</Tag> : <Tag>未知({v})</Tag>;
+                    { title: '分配给', render: (_: any, r: Rule) => {
+                      if (r.sales_user_ids && r.sales_user_ids.length > 0) {
+                        return (
+                          <Space wrap size={4}>
+                            <Tag icon={<RetweetOutlined />} color="green">轮询 · cursor {r.cursor}</Tag>
+                            {r.sales_user_ids.map((uid) => {
+                              const u = userById(uid);
+                              return <Tag key={uid} color="geekblue">{u ? u.name : `#${uid}`}</Tag>;
+                            })}
+                          </Space>
+                        );
+                      }
+                      const u = userById(r.sales_user_id);
+                      return u ? <Tag color="geekblue">{u.name}</Tag> : <Tag>未设</Tag>;
                     }},
                     { title: '操作', width: 160, render: (_, r) => (
                       <Space>
@@ -253,6 +301,54 @@ export default function SalesTeam() {
                     )},
                   ]}
                 />
+              </Card>
+            ),
+          },
+          {
+            key: 'recycle',
+            label: <Space><ClockCircleOutlined />过期回收</Space>,
+            children: (
+              <Card bordered={false}>
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Alert
+                    type="info" showIcon
+                    message="把超过 N 天没跟进的客户退回商机池 (sales_user_id 置 null)。last_follow_time 为空也视作超期。"
+                  />
+                  <Space>
+                    <Text>阈值</Text>
+                    <InputNumber min={1} max={365} value={staleDays} onChange={(v) => setStaleDays(v || 30)} />
+                    <Text>天</Text>
+                    <Button icon={<ClockCircleOutlined />} loading={recycleLoading} onClick={() => runRecycle(true)}>
+                      干跑（预览）
+                    </Button>
+                    <Button type="primary" danger icon={<ClockCircleOutlined />} loading={recycleLoading} onClick={() => runRecycle(false)}>
+                      执行回收
+                    </Button>
+                  </Space>
+                  {recycleResult && (
+                    <Card size="small" title={
+                      <Space>
+                        <Text>结果</Text>
+                        {recycleResult.dry_run && <Tag color="gold">dry-run</Tag>}
+                        <Tag>阈值 {recycleResult.stale_days} 天</Tag>
+                        <Tag color="orange">扫描 {recycleResult.total_scanned}</Tag>
+                        <Tag color="red">回收 {recycleResult.total_recycled}</Tag>
+                      </Space>
+                    }>
+                      <Table<RecycleItem>
+                        rowKey="customer_id" dataSource={recycleResult.items} size="small" pagination={{ pageSize: 20 }}
+                        columns={[
+                          { title: '客户编号', dataIndex: 'customer_code', width: 160 },
+                          { title: '原负责销售', dataIndex: 'from_user_id', render: (v: number | null) => {
+                            const u = userById(v); return u ? <Tag>{u.name}</Tag> : <Tag>#{v}</Tag>;
+                          }},
+                          { title: '最近跟进', dataIndex: 'last_follow_time', render: (v: string | null) => v ? new Date(v).toLocaleDateString() : '从未' },
+                          { title: '原因', dataIndex: 'reason' },
+                        ]}
+                      />
+                    </Card>
+                  )}
+                </Space>
               </Card>
             ),
           },
@@ -345,12 +441,32 @@ export default function SalesTeam() {
           <Form.Item name="customer_level" label="匹配客户级别" tooltip="空=不限">
             <Input placeholder="KEY / NORMAL" />
           </Form.Item>
-          <Form.Item name="sales_user_id" label="分配给" rules={[{ required: true }]}>
+          <Form.Item label="分配模式">
             <Select
-              showSearch optionFilterProp="label"
-              options={users.filter((u) => u.is_active).map((u) => ({ value: u.id, label: u.name }))}
+              value={ruleMode} onChange={(v) => setRuleMode(v)} style={{ width: 200 }}
+              options={[
+                { value: 'single', label: '单人 — 固定分给一个销售' },
+                { value: 'roundrobin', label: '轮询 — 多个销售轮流' },
+              ]}
             />
           </Form.Item>
+          {ruleMode === 'single' ? (
+            <Form.Item name="sales_user_id" label="分配给" rules={[{ required: true }]}>
+              <Select
+                showSearch optionFilterProp="label"
+                options={users.filter((u) => u.is_active).map((u) => ({ value: u.id, label: u.name }))}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item name="sales_user_ids" label="轮询候选 (至少选 1 个, 命中此规则的客户会按顺序轮流派给列表中的销售)"
+              rules={[{ required: true, type: 'array', min: 1, message: '至少选 1 个销售' }]}>
+              <Select
+                mode="multiple" showSearch optionFilterProp="label"
+                placeholder="选择候选销售, 按选择顺序轮流"
+                options={users.filter((u) => u.is_active).map((u) => ({ value: u.id, label: u.name }))}
+              />
+            </Form.Item>
+          )}
           <Form.Item name="priority" label="优先级" tooltip="越小越先命中，默认 100"
             rules={[{ required: true }]}>
             <InputNumber min={0} max={9999} style={{ width: 160 }} />

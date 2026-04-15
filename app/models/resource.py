@@ -3,12 +3,14 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
+_PK = BigInteger().with_variant(Integer(), "sqlite")
+
 
 class Resource(Base):
     """货源表"""
     __tablename__ = "resource"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(_PK, primary_key=True, index=True, autoincrement=True)
     resource_code = Column(String(100), unique=True, nullable=False, comment="货源编号")
     resource_type = Column(String(20), nullable=False, comment="货源类型：ORIGINAL/OTHER")
     cloud_provider = Column(String(20), comment="云厂商：AWS/AZURE/GCP")

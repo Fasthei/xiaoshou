@@ -23,6 +23,7 @@ from app.models.customer import Customer
 from app.models.sales import LeadAssignmentLog, LeadAssignmentRule, SalesUser
 from app.schemas.sales import (
     AssignBody, AssignmentLogOut, AutoAssignBody, AutoAssignItem, AutoAssignResult,
+    RecycleBody, RecycleItem, RecycleResult,
     RuleCreate, RuleOut, RuleUpdate,
     SalesUserCreate, SalesUserOut, SalesUserUpdate,
 )
@@ -104,15 +105,27 @@ def list_rules(
     return q.order_by(LeadAssignmentRule.priority.asc(), LeadAssignmentRule.id.asc()).all()
 
 
+def _validate_rule_targets(db: Session, single_id: Optional[int], ids: Optional[List[int]]):
+    if not single_id and not ids:
+        raise HTTPException(400, "必须指定 sales_user_id 或 sales_user_ids")
+    if ids:
+        if len(ids) < 1:
+            raise HTTPException(400, "sales_user_ids 至少 1 个")
+        found = db.query(SalesUser.id).filter(SalesUser.id.in_(ids)).all()
+        if len(found) != len(set(ids)):
+            raise HTTPException(400, "sales_user_ids 包含不存在的销售")
+    if single_id:
+        if not db.query(SalesUser).filter(SalesUser.id == single_id).first():
+            raise HTTPException(400, "sales_user_id 对应销售不存在")
+
+
 @router.post("/rules", response_model=RuleOut, summary="新建分配规则")
 def create_rule(
     body: RuleCreate,
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ):
-    # validate sales user exists
-    if not db.query(SalesUser).filter(SalesUser.id == body.sales_user_id).first():
-        raise HTTPException(400, "销售不存在")
+    _validate_rule_targets(db, body.sales_user_id, body.sales_user_ids)
     rule = LeadAssignmentRule(**body.model_dump())
     db.add(rule); db.commit(); db.refresh(rule)
     return rule
@@ -128,7 +141,14 @@ def update_rule(
     rule = db.query(LeadAssignmentRule).filter(LeadAssignmentRule.id == rule_id).first()
     if not rule:
         raise HTTPException(404, "规则不存在")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if "sales_user_id" in data or "sales_user_ids" in data:
+        single = data.get("sales_user_id", rule.sales_user_id)
+        multi = data.get("sales_user_ids", rule.sales_user_ids)
+        _validate_rule_targets(db, single, multi)
+        if "sales_user_ids" in data:
+            rule.cursor = 0  # reset cursor when pool changes
+    for k, v in data.items():
         setattr(rule, k, v)
     db.add(rule); db.commit(); db.refresh(rule)
     return rule
@@ -165,6 +185,21 @@ def _match_rule(customer: Customer, rules: List[LeadAssignmentRule]) -> Optional
             continue
         return rule
     return None
+
+
+def _pick_target_user(rule: LeadAssignmentRule) -> Optional[int]:
+    """Given a matched rule, pick the sales_user_id to assign to.
+    If round-robin (sales_user_ids non-empty), use cursor and increment it.
+    Otherwise fall back to rule.sales_user_id.
+    Caller is responsible for committing the cursor mutation.
+    """
+    ids = rule.sales_user_ids or []
+    if isinstance(ids, list) and len(ids) > 0:
+        idx = (rule.cursor or 0) % len(ids)
+        uid = ids[idx]
+        rule.cursor = (rule.cursor or 0) + 1
+        return uid
+    return rule.sales_user_id
 
 
 # ---------- customer-scoped endpoints ----------
@@ -254,25 +289,34 @@ def auto_assign(
             continue
 
         if body.dry_run:
+            # For dry-run, peek at the next assignee WITHOUT advancing the cursor
+            ids = matched.sales_user_ids or []
+            if isinstance(ids, list) and ids:
+                peek = ids[(matched.cursor or 0) % len(ids)]
+                mode = f"轮询候选[{len(ids)}] cursor={matched.cursor}"
+            else:
+                peek = matched.sales_user_id
+                mode = "单人"
             results.append(AutoAssignItem(
                 customer_id=c.id, customer_code=c.customer_code,
-                matched_rule_id=matched.id, sales_user_id=matched.sales_user_id,
-                reason=f"(dry-run) would assign via rule '{matched.name}'",
+                matched_rule_id=matched.id, sales_user_id=peek,
+                reason=f"(dry-run) via '{matched.name}' [{mode}]",
             ))
             continue
 
+        target_uid = _pick_target_user(matched)
         from_uid = c.sales_user_id
-        c.sales_user_id = matched.sales_user_id
-        db.add(c)
+        c.sales_user_id = target_uid
+        db.add(c); db.add(matched)  # matched may have mutated cursor
         db.add(LeadAssignmentLog(
-            customer_id=c.id, from_user_id=from_uid, to_user_id=matched.sales_user_id,
+            customer_id=c.id, from_user_id=from_uid, to_user_id=target_uid,
             reason=f"auto-assign via rule '{matched.name}'", trigger="auto",
             rule_id=matched.id, operator_casdoor_id=operator,
         ))
         assigned_count += 1
         results.append(AutoAssignItem(
             customer_id=c.id, customer_code=c.customer_code,
-            matched_rule_id=matched.id, sales_user_id=matched.sales_user_id,
+            matched_rule_id=matched.id, sales_user_id=target_uid,
             reason=f"assigned via rule '{matched.name}'",
         ))
 
@@ -284,4 +328,61 @@ def auto_assign(
         total_assigned=assigned_count,
         items=results,
         dry_run=body.dry_run,
+    )
+
+
+# ---------- expire-recycle ----------
+
+@router.post("/auto-recycle", response_model=RecycleResult,
+             summary="过期回收: 把超过 N 天没跟进的客户退回未分配池")
+def auto_recycle(
+    body: RecycleBody,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    """扫描 sales_user_id 非空 + (last_follow_time 为空 或 < now - stale_days) 的客户,
+    把 sales_user_id 置 null, 并在 lead_assignment_log 写 trigger=recycle 流水。
+    """
+    from datetime import datetime, timedelta
+    cutoff = datetime.now() - timedelta(days=body.stale_days)
+    operator = getattr(user, "sub", None) if user else None
+
+    candidates = (
+        db.query(Customer)
+        .filter(Customer.is_deleted == False)  # noqa: E712
+        .filter(Customer.sales_user_id.isnot(None))
+        .filter((Customer.last_follow_time == None) | (Customer.last_follow_time < cutoff))  # noqa: E711
+        .all()
+    )
+
+    items: List[RecycleItem] = []
+    recycled = 0
+
+    for c in candidates:
+        reason = (
+            f"超 {body.stale_days} 天未跟进 (last_follow_time="
+            f"{c.last_follow_time.isoformat() if c.last_follow_time else '从未跟进'})"
+        )
+        items.append(RecycleItem(
+            customer_id=c.id, customer_code=c.customer_code,
+            from_user_id=c.sales_user_id,
+            last_follow_time=c.last_follow_time, reason=reason,
+        ))
+        if body.dry_run:
+            continue
+        from_uid = c.sales_user_id
+        c.sales_user_id = None
+        db.add(c)
+        db.add(LeadAssignmentLog(
+            customer_id=c.id, from_user_id=from_uid, to_user_id=None,
+            reason=reason, trigger="recycle", operator_casdoor_id=operator,
+        ))
+        recycled += 1
+
+    if not body.dry_run and recycled:
+        db.commit()
+
+    return RecycleResult(
+        total_scanned=len(candidates), total_recycled=recycled,
+        stale_days=body.stale_days, dry_run=body.dry_run, items=items,
     )

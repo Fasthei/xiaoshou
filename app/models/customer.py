@@ -3,12 +3,16 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
+# BigInteger PK isn't auto-increment under SQLite — compile to INTEGER in that
+# dialect so in-memory tests can insert without supplying id. No Postgres impact.
+_PK = BigInteger().with_variant(Integer(), "sqlite")
+
 
 class Customer(Base):
     """客户表"""
     __tablename__ = "customer"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(_PK, primary_key=True, index=True, autoincrement=True)
     customer_code = Column(String(50), unique=True, nullable=False, comment="客户编号")
     customer_name = Column(String(200), nullable=False, comment="客户名称")
     customer_short_name = Column(String(100), comment="客户简称")
@@ -40,7 +44,7 @@ class CustomerContact(Base):
     """客户联系人表"""
     __tablename__ = "customer_contact"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(_PK, primary_key=True, index=True, autoincrement=True)
     customer_id = Column(BigInteger, ForeignKey("customer.id"), nullable=False)
     contact_name = Column(String(100), nullable=False, comment="联系人姓名")
     contact_title = Column(String(50), comment="职位")
