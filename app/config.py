@@ -47,6 +47,21 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
+    # 工单 (gongdan) 集成
+    GONGDAN_ENDPOINT: str = ""
+    GONGDAN_API_KEY: str = ""
+
+    # 云管 (cloudcost) 集成
+    CLOUDCOST_ENDPOINT: str = ""
+    # Which service-account field matches xiaoshou customer_code.
+    # Options commonly seen: external_project_id | supplier_name | name
+    CLOUDCOST_MATCH_FIELD: str = "external_project_id"
+
+    # Internal API auth — Casdoor M2M audiences allowed to pull /api/internal/*
+    CASDOOR_INTERNAL_ALLOWED_CLIENTS: str = ""
+    # Fallback static key for cloudcost before it joins Casdoor
+    XIAOSHOU_INTERNAL_API_KEY: str = ""
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

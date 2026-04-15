@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import allocation, auth, customer, resource, usage
+from app.api import allocation, auth, customer, resource, usage, sync, customer_resources, internal
 from app.auth.dependencies import require_auth
 from app.config import get_settings
 from app.database import Base, engine
@@ -43,12 +43,17 @@ app.add_middleware(
 # Public routes
 app.include_router(auth.router)
 
+# Internal M2M routes: its own auth (see app.api.internal._auth) — not behind user JWT
+app.include_router(internal.router)
+
 # Protected business routes — all /api/* require a valid Casdoor JWT
 protected_deps = [Depends(require_auth)]
 app.include_router(customer.router, dependencies=protected_deps)
+app.include_router(customer_resources.router, dependencies=protected_deps)
 app.include_router(resource.router, dependencies=protected_deps)
 app.include_router(allocation.router, dependencies=protected_deps)
 app.include_router(usage.router, dependencies=protected_deps)
+app.include_router(sync.router, dependencies=protected_deps)
 
 
 @app.get("/")
