@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     allocation, auth, customer, resource, usage, sync, customer_resources,
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
-    customer_insight_agent, sales,
+    customer_insight_agent, sales, external,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -49,6 +49,9 @@ app.include_router(auth.router)
 
 # Internal M2M routes: its own auth (see app.api.internal._auth) — not behind user JWT
 app.include_router(internal.router)
+
+# External routes for 超级运营中心: own auth via X-Api-Key — not behind user JWT
+app.include_router(external.router)
 
 # Protected business routes — all /api/* require a valid Casdoor JWT
 protected_deps = [Depends(require_auth)]

@@ -3,12 +3,14 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
+_PK = BigInteger().with_variant(Integer(), "sqlite")
+
 
 class Allocation(Base):
     """分配表"""
     __tablename__ = "allocation"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(_PK, primary_key=True, index=True, autoincrement=True)
     allocation_code = Column(String(50), unique=True, nullable=False, comment="分配编号")
     customer_id = Column(BigInteger, ForeignKey("customer.id"), nullable=False)
     resource_id = Column(BigInteger, ForeignKey("resource.id"), nullable=False)

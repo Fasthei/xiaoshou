@@ -46,7 +46,8 @@ class RuleBase(BaseModel):
     industry: Optional[str] = None
     region: Optional[str] = None
     customer_level: Optional[str] = None
-    sales_user_id: int
+    sales_user_id: Optional[int] = Field(None, description="单人模式, 与 sales_user_ids 互斥")
+    sales_user_ids: Optional[List[int]] = Field(None, description="轮询模式候选 id 列表")
     priority: int = 100
     is_active: bool = True
 
@@ -61,16 +62,39 @@ class RuleUpdate(BaseModel):
     region: Optional[str] = None
     customer_level: Optional[str] = None
     sales_user_id: Optional[int] = None
+    sales_user_ids: Optional[List[int]] = None
     priority: Optional[int] = None
     is_active: Optional[bool] = None
 
 
 class RuleOut(RuleBase):
     id: int
+    cursor: int = 0
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class RecycleBody(BaseModel):
+    stale_days: int = Field(30, ge=1, le=365, description="超 N 天无跟进视为过期")
+    dry_run: bool = False
+
+
+class RecycleItem(BaseModel):
+    customer_id: int
+    customer_code: str
+    from_user_id: Optional[int]
+    last_follow_time: Optional[datetime]
+    reason: str
+
+
+class RecycleResult(BaseModel):
+    total_scanned: int
+    total_recycled: int
+    stale_days: int
+    dry_run: bool
+    items: List[RecycleItem]
 
 
 class AssignBody(BaseModel):

@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_VERSION: str = "2025-04-01-preview"
     AZURE_OPENAI_DEPLOYMENT: str = "gpt-5.4"
 
+    # 超级运营中心访问专用 API key (只读, /api/external/*)
+    SUPER_OPS_API_KEY: str = ""
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

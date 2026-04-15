@@ -2,7 +2,7 @@
 from sqlalchemy import (
     Column, BigInteger, String, DateTime, Text, ForeignKey, Integer,
     Boolean, JSON, Index,
-)
+)  # noqa: F401
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -30,7 +30,14 @@ class SalesUser(Base):
 
 
 class LeadAssignmentRule(Base):
-    """分配规则。匹配 (industry, region, customer_level) 任意组合，priority 低的先命中。"""
+    """分配规则。匹配 (industry, region, customer_level) 任意组合，priority 低的先命中。
+
+    两种分配模式二选一:
+      - 单人: 填 sales_user_id, 所有命中该规则的客户都去这一个销售。
+      - 轮询: 填 sales_user_ids (JSON 数组), 命中后按 cursor 轮流, 每次 +1。
+               cursor % len(ids) 确定这次分给谁。
+    若两者都填, 轮询优先。
+    """
     __tablename__ = "lead_assignment_rule"
 
     id = Column(_PK, primary_key=True, index=True, autoincrement=True)
@@ -38,7 +45,12 @@ class LeadAssignmentRule(Base):
     industry = Column(String(50), nullable=True, comment="匹配行业, 空=不限")
     region = Column(String(50), nullable=True, comment="匹配地区, 空=不限")
     customer_level = Column(String(20), nullable=True, comment="匹配客户级别, 空=不限")
-    sales_user_id = Column(BigInteger, ForeignKey("sales_user.id"), nullable=False)
+    sales_user_id = Column(BigInteger, ForeignKey("sales_user.id"), nullable=True,
+                           comment="单人分配模式: 固定分给谁")
+    sales_user_ids = Column(JSON, nullable=True,
+                            comment="轮询分配模式: 候选销售 id 列表, 与 sales_user_id 互斥")
+    cursor = Column(Integer, nullable=False, default=0,
+                    comment="轮询游标, 每次分配后 +1, 取模得到当前分给谁")
     priority = Column(Integer, default=100, nullable=False, comment="小优先, 默认100")
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
