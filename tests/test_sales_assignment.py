@@ -210,6 +210,65 @@ def test_auto_assign_reports_no_rule_matched(client, seed_customers, db_session)
     assert all(it["matched_rule_id"] is None for it in result["items"])
 
 
+def test_hard_delete_manual_user_recycles_customers_and_cleans_rules(client, seed_customers, db_session):
+    u1 = client.post("/api/sales/users", json={"name": "手工1"}).json()
+    u2 = client.post("/api/sales/users", json={"name": "手工2"}).json()
+
+    # Assign customer 1 to u1
+    client.patch("/api/customers/1/assign", json={"sales_user_id": u1["id"]})
+    # Single-user rule pointing to u1
+    r_single = client.post("/api/sales/rules", json={
+        "name": "U1 单人", "industry": "能源", "sales_user_id": u1["id"], "priority": 10,
+    }).json()
+    # Round-robin rule with u1 + u2
+    r_rr = client.post("/api/sales/rules", json={
+        "name": "轮询", "sales_user_ids": [u1["id"], u2["id"]], "priority": 20,
+    }).json()
+
+    # Hard delete u1
+    resp = client.delete(f"/api/sales/users/{u1['id']}/hard").json()
+    assert resp["ok"] is True
+    # customer #1 (just assigned) + customer #3 (seed pre-assigned to sales_user_id=1) both recycle
+    assert resp["customers_recycled"] == 2
+    assert resp["rules_touched"] == 2
+
+    # Customer 1 is back in the pool
+    db_session.expire_all()
+    from app.models.customer import Customer as _C
+    assert db_session.query(_C).get(1).sales_user_id is None
+
+    # Single-user rule: sales_user_id cleared + is_active=false
+    from app.models.sales import LeadAssignmentRule
+    r1 = db_session.query(LeadAssignmentRule).get(r_single["id"])
+    assert r1.sales_user_id is None
+    assert r1.is_active is False
+
+    # Round-robin rule: u1 removed from ids, u2 kept, still active, cursor reset
+    r2 = db_session.query(LeadAssignmentRule).get(r_rr["id"])
+    assert r2.sales_user_ids == [u2["id"]]
+    assert r2.is_active is True
+    assert r2.cursor == 0
+
+    # sales_user row is gone
+    from app.models.sales import SalesUser
+    assert db_session.query(SalesUser).get(u1["id"]) is None
+
+    # Recycle log written for customer 1
+    logs = client.get("/api/customers/1/assignment-log").json()
+    assert any(l["trigger"] == "recycle" and "被硬删" in (l.get("reason") or "") for l in logs)
+
+
+def test_hard_delete_casdoor_user_rejected(client, db_session):
+    # Simulate a Casdoor-synced user by setting casdoor_user_id
+    from app.models.sales import SalesUser
+    u = SalesUser(name="admin from casdoor", casdoor_user_id="built-in/admin", is_active=True)
+    db_session.add(u); db_session.commit(); db_session.refresh(u)
+
+    r = client.delete(f"/api/sales/users/{u.id}/hard")
+    assert r.status_code == 400
+    assert "Casdoor" in r.json()["detail"]
+
+
 def test_unassign_by_sending_null(client, seed_customers, db_session):
     # customer 3 is currently assigned (sales_user_id=1); create that user first
     client.post("/api/sales/users", json={"name": "初始"})  # id=1
