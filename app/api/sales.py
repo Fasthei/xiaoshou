@@ -27,8 +27,10 @@ from app.schemas.sales import (
     RecycleBody, RecycleItem, RecycleResult,
     RuleCreate, RuleOut, RuleUpdate,
     SalesLoadItem, SalesUserCreate, SalesUserOut, SalesUserUpdate,
+    TargetSetBody, TargetProgressOut,
+    SalesPlanCreate, SalesPlanOut, SalesPlanUpdate,
 )
-from sqlalchemy import func as _sql_func
+from sqlalchemy import func as _sql_func, extract as _sql_extract
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sales", tags=["销售团队 / 分配"])
@@ -803,3 +805,177 @@ def recent_activity(
 
     merged.sort(key=lambda x: x.at, reverse=True)
     return merged[:limit]
+
+
+# ---------- 年度利润目标 + 进度 ----------
+
+@router.post("/users/{user_id}/target", summary="设置销售年度利润目标")
+def set_annual_target(
+    user_id: int,
+    body: TargetSetBody,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    su = db.query(SalesUser).filter(SalesUser.id == user_id).first()
+    if not su:
+        raise HTTPException(404, "销售不存在")
+    su.annual_profit_target = body.annual_profit_target
+    su.target_year = body.target_year
+    db.add(su)
+    db.commit()
+    db.refresh(su)
+    return {
+        "ok": True,
+        "id": su.id,
+        "annual_profit_target": str(su.annual_profit_target) if su.annual_profit_target is not None else None,
+        "target_year": su.target_year,
+    }
+
+
+@router.get("/users/{user_id}/progress", response_model=TargetProgressOut,
+            summary="销售年度目标进度 (YTD 毛利 / 目标)")
+def get_target_progress(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    from decimal import Decimal as _D
+    from app.models.allocation import Allocation
+
+    su = db.query(SalesUser).filter(SalesUser.id == user_id).first()
+    if not su:
+        raise HTTPException(404, "销售不存在")
+
+    target_year = su.target_year
+    ytd = _D("0")
+    alloc_count = 0
+    last_update = None
+
+    if target_year is not None:
+        # Aggregate allocation.profit_amount where sales_user_id is this user
+        # and the allocation year (prefer allocated_at, fallback created_at) == target_year.
+        # allocation has no sales_user_id FK directly — we derive via customer.sales_user_id.
+        from app.models.customer import Customer as _C
+        q_sum = (
+            db.query(
+                _sql_func.coalesce(_sql_func.sum(Allocation.profit_amount), 0),
+                _sql_func.count(Allocation.id),
+                _sql_func.max(Allocation.updated_at),
+            )
+            .join(_C, _C.id == Allocation.customer_id)
+            .filter(_C.sales_user_id == user_id)
+            .filter(Allocation.is_deleted == False)  # noqa: E712
+            .filter(
+                _sql_extract(
+                    "year",
+                    _sql_func.coalesce(Allocation.allocated_at, Allocation.created_at),
+                ) == target_year
+            )
+        )
+        row = q_sum.one()
+        ytd = _D(str(row[0] or 0))
+        alloc_count = int(row[1] or 0)
+        last_update = row[2]
+
+    target = su.annual_profit_target
+    pct = 0.0
+    if target and float(target) > 0:
+        pct = round(float(ytd) * 100.0 / float(target), 2)
+
+    return TargetProgressOut(
+        sales_user_id=su.id,
+        sales_user_name=su.name,
+        target_year=target_year,
+        annual_profit_target=target,
+        ytd_profit=ytd,
+        progress_pct=pct,
+        allocations_count=alloc_count,
+        last_update=last_update,
+    )
+
+
+# ---------- 工作计划 CRUD ----------
+
+@router.get("/plans", response_model=List[SalesPlanOut],
+            summary="工作计划列表 (可按销售/类型/日期过滤)")
+def list_plans(
+    user_id: Optional[int] = Query(None),
+    plan_type: Optional[str] = Query(None, description="daily | weekly | monthly"),
+    from_: Optional[str] = Query(None, alias="from", description="起始日期 YYYY-MM-DD"),
+    to: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    from app.models.sales_plan import SalesPlan
+    from datetime import date as _date
+
+    q = db.query(SalesPlan)
+    if user_id is not None:
+        q = q.filter(SalesPlan.user_id == user_id)
+    if plan_type:
+        q = q.filter(SalesPlan.plan_type == plan_type)
+    if from_:
+        try:
+            q = q.filter(SalesPlan.plan_date >= _date.fromisoformat(from_))
+        except ValueError:
+            raise HTTPException(400, "from 需为 YYYY-MM-DD")
+    if to:
+        try:
+            q = q.filter(SalesPlan.plan_date <= _date.fromisoformat(to))
+        except ValueError:
+            raise HTTPException(400, "to 需为 YYYY-MM-DD")
+    return q.order_by(SalesPlan.plan_date.desc(), SalesPlan.id.desc()).all()
+
+
+@router.post("/plans", response_model=SalesPlanOut, summary="新建工作计划")
+def create_plan(
+    body: SalesPlanCreate,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    from app.models.sales_plan import SalesPlan
+
+    if body.plan_type not in ("daily", "weekly", "monthly"):
+        raise HTTPException(400, "plan_type 仅支持 daily | weekly | monthly")
+    if not db.query(SalesUser).filter(SalesUser.id == body.user_id).first():
+        raise HTTPException(400, "销售不存在")
+
+    plan = SalesPlan(**body.model_dump())
+    db.add(plan); db.commit(); db.refresh(plan)
+    return plan
+
+
+@router.patch("/plans/{plan_id}", response_model=SalesPlanOut, summary="更新工作计划")
+def update_plan(
+    plan_id: int,
+    body: SalesPlanUpdate,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    from app.models.sales_plan import SalesPlan
+
+    plan = db.query(SalesPlan).filter(SalesPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "计划不存在")
+    data = body.model_dump(exclude_unset=True)
+    if "plan_type" in data and data["plan_type"] not in ("daily", "weekly", "monthly"):
+        raise HTTPException(400, "plan_type 仅支持 daily | weekly | monthly")
+    for k, v in data.items():
+        setattr(plan, k, v)
+    db.add(plan); db.commit(); db.refresh(plan)
+    return plan
+
+
+@router.delete("/plans/{plan_id}", summary="删除工作计划")
+def delete_plan(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    from app.models.sales_plan import SalesPlan
+
+    plan = db.query(SalesPlan).filter(SalesPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "计划不存在")
+    db.delete(plan); db.commit()
+    return {"ok": True, "id": plan_id}

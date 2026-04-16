@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -16,6 +17,8 @@ class SalesUserBase(BaseModel):
     max_customers: Optional[int] = Field(None, ge=1, description="容量上限, 空=不限")
     is_active: bool = True
     note: Optional[str] = None
+    annual_profit_target: Optional[Decimal] = Field(None, description="年度毛利目标")
+    target_year: Optional[int] = Field(None, description="目标年份, 例 2026")
 
 
 class SalesUserCreate(SalesUserBase):
@@ -152,6 +155,56 @@ class AssignmentLogOut(BaseModel):
     rule_id: Optional[int] = None
     at: datetime
     operator_casdoor_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ---------- 年度目标 + 进度 ----------
+
+class TargetSetBody(BaseModel):
+    annual_profit_target: Decimal = Field(..., description="年度毛利目标金额")
+    target_year: int = Field(..., ge=2000, le=2100)
+
+
+class TargetProgressOut(BaseModel):
+    sales_user_id: int
+    sales_user_name: str
+    target_year: Optional[int] = None
+    annual_profit_target: Optional[Decimal] = None
+    ytd_profit: Decimal = Field(Decimal("0"), description="当年累计毛利")
+    progress_pct: float = Field(0.0, description="0-100 或 0-200 的进度百分比")
+    allocations_count: int = 0
+    last_update: Optional[datetime] = None
+
+
+# ---------- 工作计划 CRUD ----------
+
+class SalesPlanBase(BaseModel):
+    user_id: int
+    plan_date: date
+    plan_type: str = Field(..., description="daily | weekly | monthly")
+    title: Optional[str] = Field(None, max_length=200)
+    content: Optional[str] = None
+    status: str = Field("pending", description="pending | in_progress | done | cancelled")
+
+
+class SalesPlanCreate(SalesPlanBase):
+    pass
+
+
+class SalesPlanUpdate(BaseModel):
+    plan_date: Optional[date] = None
+    plan_type: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    status: Optional[str] = None
+
+
+class SalesPlanOut(SalesPlanBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

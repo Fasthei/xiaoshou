@@ -1,7 +1,7 @@
 """Sales team + lead assignment rules + assignment history."""
 from sqlalchemy import (
     Column, BigInteger, String, DateTime, Text, ForeignKey, Integer,
-    Boolean, JSON, Index,
+    Boolean, JSON, Index, Numeric,
 )  # noqa: F401
 from sqlalchemy.sql import func
 from app.database import Base
@@ -27,6 +27,9 @@ class SalesUser(Base):
                            comment="容量上限: 同时承接客户数, 空=无限制")
     is_active = Column(Boolean, default=True, nullable=False)
     note = Column(Text, nullable=True)
+    annual_profit_target = Column(Numeric(15, 2), nullable=True,
+                                  comment="年度毛利目标金额")
+    target_year = Column(Integer, nullable=True, comment="目标年份")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
