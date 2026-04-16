@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
 from app.models.customer import Customer, CustomerContact
+from app.models.sales import SalesUser
 from app.schemas.customer import (
     CustomerCreate,
     CustomerUpdate,
@@ -11,6 +12,18 @@ from app.schemas.customer import (
     CustomerContactCreate,
     CustomerContactResponse
 )
+
+
+def _attach_sales_user_name(customer: Customer, db: Session) -> Customer:
+    """Attach sales_user_name onto customer object (non-persistent attr)."""
+    if customer is None:
+        return customer
+    if getattr(customer, "sales_user_id", None):
+        su = db.query(SalesUser).filter(SalesUser.id == customer.sales_user_id).first()
+        customer.sales_user_name = su.name if su else None
+    else:
+        customer.sales_user_name = None
+    return customer
 
 router = APIRouter(prefix="/api/customers", tags=["客户管理"])
 
@@ -42,7 +55,7 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
     ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
-    return customer
+    return _attach_sales_user_name(customer, db)
 
 
 @router.put("/{customer_id}", response_model=CustomerResponse, summary="更新客户信息")
@@ -95,6 +108,15 @@ def list_customers(
 
     total = query.count()
     items = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    # Batch attach sales_user_name to avoid N+1
+    sales_ids = {c.sales_user_id for c in items if c.sales_user_id}
+    sales_map = {}
+    if sales_ids:
+        sales_rows = db.query(SalesUser).filter(SalesUser.id.in_(sales_ids)).all()
+        sales_map = {s.id: s.name for s in sales_rows}
+    for c in items:
+        c.sales_user_name = sales_map.get(c.sales_user_id) if c.sales_user_id else None
 
     return {"total": total, "items": items}
 

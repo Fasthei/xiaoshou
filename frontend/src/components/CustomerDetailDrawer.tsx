@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
   Drawer, Tabs, Descriptions, Tag, Space, Typography, List, Avatar, Empty,
-  Skeleton, Button, Card, Timeline, Select, Input, Modal, Form,
+  Skeleton, Button, Card, Timeline, Select, Input, Modal, Form, Table, Alert,
   message as antdMessage,
 } from 'antd';
 import {
   CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined,
-  UserSwitchOutlined, HistoryOutlined,
+  UserSwitchOutlined, HistoryOutlined, FileTextOutlined, BarChartOutlined,
+  WarningOutlined, ProfileOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Customer } from '../types';
@@ -47,6 +48,108 @@ export default function CustomerDetailDrawer({
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignForm] = Form.useForm<{ sales_user_id?: number | null; reason?: string }>();
 
+  // --- Milestone 2: 4 new tabs state ---
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [contractsLoading, setContractsLoading] = useState(false);
+  const [usageSummary, setUsageSummary] = useState<any>(null);
+  const [usageErr, setUsageErr] = useState(false);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [bills, setBills] = useState<any[]>([]);
+  const [bridgeErr, setBridgeErr] = useState<string | null>(null);
+  const [bridgeLoading, setBridgeLoading] = useState(false);
+  const [historyBills, setHistoryBills] = useState<any[]>([]);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const currentMonth = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const loadContracts = async () => {
+    if (!customer) return;
+    setContractsLoading(true);
+    try {
+      const { data } = await api.get(`/api/customers/${customer.id}/contracts`);
+      setContracts(Array.isArray(data) ? data : []);
+    } catch {
+      setContracts([]);
+    } finally {
+      setContractsLoading(false);
+    }
+  };
+
+  const loadUsage = async () => {
+    if (!customer) return;
+    setUsageLoading(true);
+    setUsageErr(false);
+    try {
+      const { data } = await api.get(`/api/usage/customer/${customer.id}/summary`);
+      setUsageSummary(data);
+    } catch {
+      setUsageSummary(null);
+      setUsageErr(true);
+    } finally {
+      setUsageLoading(false);
+    }
+  };
+
+  const loadBridge = async () => {
+    if (!customer) return;
+    setBridgeLoading(true);
+    setBridgeErr(null);
+    const month = currentMonth();
+    try {
+      const [aResp, bResp] = await Promise.allSettled([
+        api.get('/api/bridge/alerts', { params: { month } }),
+        api.get('/api/bridge/bills', { params: { month } }),
+      ]);
+      const code = (customer.customer_code || '').toString();
+      if (aResp.status === 'fulfilled') {
+        const items = Array.isArray(aResp.value.data) ? aResp.value.data
+          : (aResp.value.data?.items || []);
+        setAlerts(items.filter((x: any) =>
+          JSON.stringify(x).includes(code) || x.customer_code === code || x.customer_id === customer.id
+        ));
+      } else {
+        setAlerts([]);
+        setBridgeErr('云管暂不可达');
+      }
+      if (bResp.status === 'fulfilled') {
+        const items = Array.isArray(bResp.value.data) ? bResp.value.data
+          : (bResp.value.data?.items || []);
+        setBills(items.filter((x: any) =>
+          JSON.stringify(x).includes(code) || x.customer_code === code || x.customer_id === customer.id
+        ));
+      } else {
+        setBills([]);
+        if (!bridgeErr) setBridgeErr('云管暂不可达');
+      }
+    } finally {
+      setBridgeLoading(false);
+    }
+  };
+
+  const loadHistoryBills = async () => {
+    if (!customer) return;
+    setHistoryLoading(true);
+    setHistoryErr(null);
+    try {
+      const { data } = await api.get('/api/bridge/bills', { params: { page_size: 200 } });
+      const items = Array.isArray(data) ? data : (data?.items || []);
+      const code = (customer.customer_code || '').toString();
+      setHistoryBills(items.filter((x: any) =>
+        JSON.stringify(x).includes(code) || x.customer_code === code || x.customer_id === customer.id
+      ));
+    } catch {
+      setHistoryBills([]);
+      setHistoryErr('云管暂不可达');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const loadResources = async () => {
     if (!customer) return;
     setLoading(true);
@@ -77,6 +180,10 @@ export default function CustomerDetailDrawer({
       api.get(`/api/customers/${customer.id}/health`).then(({ data }) => setHealth(data)).catch(() => setHealth(null));
       api.get(`/api/customers/${customer.id}/timeline`).then(({ data }) => setTimeline(data)).catch(() => setTimeline([]));
       loadAssign();
+      loadContracts();
+      loadUsage();
+      loadBridge();
+      loadHistoryBills();
     }
     // eslint-disable-next-line
   }, [open, customer?.id]);
@@ -273,6 +380,136 @@ export default function CustomerDetailDrawer({
                 <Space><BulbOutlined style={{ color: '#f59e0b' }} />AI 洞察</Space>
               ),
               children: <CustomerInsightPanel customerId={customer.id} />,
+            },
+            {
+              key: 'contracts',
+              label: (<Space><FileTextOutlined />合同 <Tag color="purple">{contracts.length}</Tag></Space>),
+              children: (
+                <Table
+                  size="small"
+                  rowKey="id"
+                  loading={contractsLoading}
+                  dataSource={contracts}
+                  locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无合同" /> }}
+                  pagination={false}
+                  columns={[
+                    { title: '合同号', dataIndex: 'contract_code', width: 160,
+                      render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
+                    { title: '标题', dataIndex: 'title', ellipsis: true },
+                    { title: '金额', dataIndex: 'amount', width: 110,
+                      render: (v: any) => v ? `¥ ${v}` : '—' },
+                    { title: '起止', width: 200,
+                      render: (_: any, r: any) =>
+                        `${r.start_date || '—'} ~ ${r.end_date || '—'}` },
+                    { title: '状态', dataIndex: 'status', width: 90,
+                      render: (s: string) => <Tag color={s === 'active' ? 'green' : 'default'}>{s || 'active'}</Tag> },
+                  ]}
+                />
+              ),
+            },
+            {
+              key: 'usage',
+              label: (<Space><BarChartOutlined />用量</Space>),
+              children: usageLoading ? <Skeleton active /> : (usageErr || !usageSummary) ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无用量数据" />
+              ) : (
+                <Card size="small">
+                  <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                    {JSON.stringify(usageSummary, null, 2)}
+                  </pre>
+                </Card>
+              ),
+            },
+            {
+              key: 'alerts-bills',
+              label: (<Space><WarningOutlined />预警 &amp; 收款 <Tag color="gold">{alerts.length + bills.length}</Tag></Space>),
+              children: (
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  {bridgeErr ? (
+                    <Alert message={bridgeErr} type="warning" showIcon closable={false} />
+                  ) : null}
+                  <Card size="small" title={<Space>预警 <Tag>{alerts.length}</Tag></Space>}
+                    extra={<Button size="small" icon={<SyncOutlined />} loading={bridgeLoading} onClick={loadBridge}>刷新</Button>}>
+                    {alerts.length === 0 ? (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本月暂无预警" />
+                    ) : (
+                      <List
+                        size="small"
+                        dataSource={alerts}
+                        renderItem={(a: any) => (
+                          <List.Item>
+                            <Space direction="vertical" size={2}>
+                              <Text strong>{a.title || a.alert_type || '预警'}</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                {a.level ? <Tag color="orange">{a.level}</Tag> : null}
+                                {a.message || a.detail || ''}
+                              </Text>
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
+                    )}
+                  </Card>
+                  <Card size="small" title={<Space>本月账单 <Tag>{bills.length}</Tag></Space>}>
+                    {bills.length === 0 ? (
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本月暂无账单" />
+                    ) : (
+                      <List
+                        size="small"
+                        dataSource={bills}
+                        renderItem={(b: any) => (
+                          <List.Item>
+                            <Space direction="vertical" size={2}>
+                              <Text>{b.month || b.period || '—'} · ¥ {b.amount ?? b.total_amount ?? '—'}</Text>
+                              {b.status ? <Tag>{b.status}</Tag> : null}
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
+                    )}
+                  </Card>
+                </Space>
+              ),
+            },
+            {
+              key: 'history-bills',
+              label: (<Space><ProfileOutlined />过往账单 <Tag color="cyan">{historyBills.length}</Tag></Space>),
+              children: historyLoading ? <Skeleton active /> : (
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  {historyErr ? <Alert message={historyErr} type="warning" showIcon /> : null}
+                  {historyBills.length === 0 ? (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无过往账单" />
+                  ) : (
+                    <Timeline
+                      items={
+                        // Group by month desc
+                        Object.entries(
+                          historyBills.reduce((acc: Record<string, any[]>, b: any) => {
+                            const key = (b.month || b.period || 'unknown').toString().slice(0, 7);
+                            (acc[key] = acc[key] || []).push(b);
+                            return acc;
+                          }, {})
+                        )
+                          .sort((a, b) => b[0].localeCompare(a[0]))
+                          .map(([month, items]: [string, any]) => ({
+                            color: 'blue',
+                            children: (
+                              <Space direction="vertical" size={2}>
+                                <Text strong>{month}</Text>
+                                {items.map((b: any, i: number) => (
+                                  <Text key={i} type="secondary" style={{ fontSize: 12 }}>
+                                    ¥ {b.amount ?? b.total_amount ?? '—'}
+                                    {b.status ? ` · ${b.status}` : ''}
+                                  </Text>
+                                ))}
+                              </Space>
+                            ),
+                          }))
+                      }
+                    />
+                  )}
+                </Space>
+              ),
             },
             {
               key: 'resources',

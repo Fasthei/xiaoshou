@@ -13,6 +13,7 @@ export interface Customer {
   customer_level?: string | null;
   customer_status: string;
   sales_user_id?: number | null;
+  sales_user_name?: string | null;
   operation_user_id?: number | null;
   current_resource_count?: number;
   current_month_consumption?: string | number;

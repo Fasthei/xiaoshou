@@ -77,6 +77,7 @@ class CustomerResponse(CustomerBase):
     created_at: datetime
     updated_at: datetime
     contacts: list[CustomerContactResponse] = []
+    sales_user_name: Optional[str] = None
 
     class Config:
         from_attributes = True
