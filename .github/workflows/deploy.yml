@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-container-app
+  cancel-in-progress: false
+
 env:
   RESOURCE_GROUP: sales-rg
   CONTAINER_APP:  xiaoshou-api

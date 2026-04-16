@@ -8,6 +8,10 @@ on:
       - '.github/workflows/frontend-deploy.yml'
   workflow_dispatch:
 
+concurrency:
+  group: deploy-swa
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
