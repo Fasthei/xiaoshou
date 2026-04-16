@@ -130,6 +130,34 @@ export default function CustomerDetailDrawer({
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsSyncing, setTicketsSyncing] = useState(false);
 
+  // 工单聚合统计 (顶部 Statistic 卡)
+  interface TicketStats {
+    total: number;
+    by_status: Record<string, number>;
+    last_30d_count: number;
+  }
+  const [ticketStats, setTicketStats] = useState<TicketStats | null>(null);
+
+  const loadTicketStats = async () => {
+    if (!customer) return;
+    try {
+      const { data } = await api.get<TicketStats>(
+        `/api/customers/${customer.id}/tickets/stats`,
+      );
+      if (data && typeof data === 'object') {
+        setTicketStats({
+          total: Number(data.total || 0),
+          by_status: data.by_status && typeof data.by_status === 'object' ? data.by_status : {},
+          last_30d_count: Number(data.last_30d_count || 0),
+        });
+      } else {
+        setTicketStats(null);
+      }
+    } catch {
+      setTicketStats(null);
+    }
+  };
+
   const loadTickets = async () => {
     if (!customer) return;
     setTicketsLoading(true);
@@ -141,6 +169,8 @@ export default function CustomerDetailDrawer({
     } finally {
       setTicketsLoading(false);
     }
+    // 并发拉统计,不阻塞表格渲染
+    loadTicketStats();
   };
 
   const syncTickets = async () => {
@@ -1167,6 +1197,52 @@ export default function CustomerDetailDrawer({
               ),
               children: (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  {/* 顶部 Statistic 卡片:总数/近30天/按状态 */}
+                  {ticketStats && ticketStats.total > 0 && (
+                    <Row gutter={12}>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic title="工单总数" value={ticketStats.total} />
+                        </Card>
+                      </Col>
+                      <Col span={6}>
+                        <Card size="small">
+                          <Statistic
+                            title="近 30 天新增"
+                            value={ticketStats.last_30d_count}
+                            valueStyle={{
+                              color: ticketStats.last_30d_count > 0 ? '#fa8c16' : undefined,
+                            }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col span={12}>
+                        <Card size="small" title="按状态分布" bodyStyle={{ padding: '12px 16px' }}>
+                          <Space size={[8, 4]} wrap>
+                            {Object.entries(ticketStats.by_status)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([status, count]) => {
+                                const color =
+                                  status === 'CLOSED' ? 'default' :
+                                  status === 'IN_PROGRESS' ? 'processing' :
+                                  status === 'OPEN' ? 'blue' :
+                                  status === 'PENDING' ? 'gold' :
+                                  status === 'RESOLVED' ? 'green' :
+                                  status === 'UNKNOWN' ? 'default' : 'cyan';
+                                return (
+                                  <Tag key={status} color={color}>
+                                    {status} · {count}
+                                  </Tag>
+                                );
+                              })}
+                            {Object.keys(ticketStats.by_status).length === 0 && (
+                              <Text type="secondary">—</Text>
+                            )}
+                          </Space>
+                        </Card>
+                      </Col>
+                    </Row>
+                  )}
                   <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       来源：本地镜像 (gongdan) · 匹配字段

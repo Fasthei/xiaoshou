@@ -46,10 +46,15 @@ def _cloud(request: Request) -> CloudCostClient:
     s = get_settings()
     if not s.CLOUDCOST_ENDPOINT:
         raise HTTPException(400, "CLOUDCOST_ENDPOINT not configured")
+    # AI-BRAIN-API.md §1.2 推荐: 有 CLOUDCOST_API_KEY 就走 X-API-Key (云管官方推荐,
+    # 按 key 的 allowed_cloud_account_ids 在聚合前收窄数据),
+    # 没配才回退到转发调用方 Casdoor JWT (向后兼容旧部署).
+    api_key = s.CLOUDCOST_API_KEY or None
     return CloudCostClient(
         s.CLOUDCOST_ENDPOINT,
         match_field=s.CLOUDCOST_MATCH_FIELD,
-        bearer_token=_bearer_from_request(request),
+        api_key=api_key,
+        bearer_token=_bearer_from_request(request) if not api_key else None,
     )
 
 

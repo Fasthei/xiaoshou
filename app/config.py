@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # Which service-account field matches xiaoshou customer_code.
     # Options commonly seen: external_project_id | supplier_name | name
     CLOUDCOST_MATCH_FIELD: str = "external_project_id"
+    # Cloudcost 推荐的鉴权方式 (AI-BRAIN-API.md §1.2): 专属 API Key (cck_XXX)。
+    # 优先级: API Key > forwarded Casdoor bearer > M2M token。
+    # 为空时回退到 bearer token forward (保持向后兼容)。
+    CLOUDCOST_API_KEY: str = ""
 
     # Internal API auth — Casdoor M2M audiences allowed to pull /api/internal/*
     CASDOOR_INTERNAL_ALLOWED_CLIENTS: str = ""

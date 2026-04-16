@@ -63,10 +63,13 @@ def daily(
         raise HTTPException(400, "CLOUDCOST_ENDPOINT not configured")
     now = datetime.utcnow()
     m_now = now.strftime("%Y-%m")
+    # AI-BRAIN-API.md §1.2: 优先 X-API-Key, 未配才回退到转发调用方 JWT.
+    api_key = s.CLOUDCOST_API_KEY or None
     try:
         bundle = CloudCostClient(
             s.CLOUDCOST_ENDPOINT,
-            bearer_token=_bearer_from_request(request),
+            api_key=api_key,
+            bearer_token=_bearer_from_request(request) if not api_key else None,
         ).dashboard_bundle(m_now, "daily", 1)
         if not isinstance(bundle, dict):
             raise TypeError(f"expected dict, got {type(bundle).__name__}")
