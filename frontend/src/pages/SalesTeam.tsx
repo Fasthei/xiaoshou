@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
   Button, Card, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Typography,
-  Popconfirm, Switch, InputNumber, message as antdMessage, Alert,
+  Popconfirm, Switch, InputNumber, message as antdMessage, Alert, Progress,
 } from 'antd';
 import {
   PlusOutlined, ThunderboltOutlined, UserOutlined, ApartmentOutlined,
   EditOutlined, DeleteOutlined, ReloadOutlined, ClockCircleOutlined,
-  RetweetOutlined, CloudDownloadOutlined,
+  RetweetOutlined, CloudDownloadOutlined, AimOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
+import SalesPlanDrawer from '../components/SalesPlanDrawer';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -23,7 +24,20 @@ interface SalesUser {
   max_customers?: number | null;
   is_active: boolean;
   note?: string | null;
+  annual_profit_target?: number | string | null;
+  target_year?: number | null;
   created_at: string;
+}
+
+interface TargetProgress {
+  sales_user_id: number;
+  sales_user_name: string;
+  target_year: number | null;
+  annual_profit_target: number | string | null;
+  ytd_profit: number | string;
+  progress_pct: number;
+  allocations_count: number;
+  last_update: string | null;
 }
 
 interface Rule {
@@ -74,6 +88,24 @@ export default function SalesTeam() {
   const [ruleMode, setRuleMode] = useState<'single' | 'roundrobin'>('single');
   const [casdoorLoading, setCasdoorLoading] = useState(false);
   const [casdoorResult, setCasdoorResult] = useState<any>(null);
+  const [progressMap, setProgressMap] = useState<Record<number, TargetProgress>>({});
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [targetEditing, setTargetEditing] = useState<SalesUser | null>(null);
+  const [targetForm] = Form.useForm<{ target_year: number; annual_profit_target: number }>();
+  const [planUser, setPlanUser] = useState<SalesUser | null>(null);
+
+  const loadProgress = async (list: SalesUser[]) => {
+    const pm: Record<number, TargetProgress> = {};
+    await Promise.all(list.map(async (u) => {
+      try {
+        const { data } = await api.get<TargetProgress>(`/api/sales/users/${u.id}/progress`);
+        pm[u.id] = data;
+      } catch {
+        // ignore per-user failure
+      }
+    }));
+    setProgressMap(pm);
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -84,9 +116,31 @@ export default function SalesTeam() {
       ]);
       setUsers(u.data);
       setRules(r.data);
+      loadProgress(u.data);
     } finally {
       setLoading(false);
     }
+  };
+
+  const openSetTarget = (u: SalesUser) => {
+    setTargetEditing(u);
+    targetForm.setFieldsValue({
+      target_year: u.target_year || new Date().getFullYear(),
+      annual_profit_target: u.annual_profit_target ? Number(u.annual_profit_target) : (undefined as any),
+    });
+    setTargetOpen(true);
+  };
+
+  const submitTarget = async () => {
+    if (!targetEditing) return;
+    const v = await targetForm.validateFields();
+    await api.post(`/api/sales/users/${targetEditing.id}/target`, {
+      target_year: v.target_year,
+      annual_profit_target: v.annual_profit_target,
+    });
+    antdMessage.success('年度目标已设定');
+    setTargetOpen(false);
+    loadAll();
   };
 
   useEffect(() => { loadAll(); }, []);
@@ -289,9 +343,36 @@ export default function SalesTeam() {
                     { title: '行业', dataIndex: 'industries', render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="purple">{x}</Tag>) },
                     { title: '容量', dataIndex: 'max_customers', width: 80,
                       render: (v: number | null) => v ? <Tag color="orange">{v} 上限</Tag> : <Tag>不限</Tag> },
+                    { title: '年度目标', width: 140, render: (_: any, r: SalesUser) => {
+                      if (!r.annual_profit_target) return <Text type="secondary">未设</Text>;
+                      const amt = Number(r.annual_profit_target);
+                      const y = r.target_year || '-';
+                      return <Space direction="vertical" size={0}>
+                        <Text strong>¥{amt.toLocaleString()}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{y} 年</Text>
+                      </Space>;
+                    }},
+                    { title: 'YTD 毛利', width: 120, render: (_: any, r: SalesUser) => {
+                      const p = progressMap[r.id];
+                      if (!p || p.target_year == null) return <Text type="secondary">-</Text>;
+                      const ytd = Number(p.ytd_profit || 0);
+                      return <Space direction="vertical" size={0}>
+                        <Text strong>¥{ytd.toLocaleString()}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{p.allocations_count} 单</Text>
+                      </Space>;
+                    }},
+                    { title: '进度', width: 160, render: (_: any, r: SalesUser) => {
+                      const p = progressMap[r.id];
+                      if (!p || !p.annual_profit_target || p.target_year == null) return <Text type="secondary">-</Text>;
+                      const pct = Math.min(100, Math.max(0, Math.round(p.progress_pct)));
+                      const status = p.progress_pct >= 100 ? 'success' : p.progress_pct >= 50 ? 'active' : 'normal';
+                      return <Progress percent={pct} status={status as any} size="small" />;
+                    }},
                     { title: '备注', dataIndex: 'note', ellipsis: true },
-                    { title: '操作', width: 240, render: (_, r) => (
-                      <Space size={4}>
+                    { title: '操作', width: 380, render: (_, r) => (
+                      <Space size={4} wrap>
+                        <Button size="small" icon={<AimOutlined />} onClick={() => openSetTarget(r)}>设目标</Button>
+                        <Button size="small" icon={<CalendarOutlined />} onClick={() => setPlanUser(r)}>工作计划</Button>
                         <Button size="small" icon={<EditOutlined />} onClick={() => openEditUser(r)}>编辑</Button>
                         {r.is_active && (
                           <Popconfirm title="停用该销售？" description="软删, 保留档案和历史, 可再启用" onConfirm={() => deactivateUser(r)}>
@@ -550,6 +631,45 @@ export default function SalesTeam() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* target modal */}
+      <Modal
+        title={<Space><AimOutlined />设置年度利润目标 {targetEditing ? `· ${targetEditing.name}` : ''}</Space>}
+        open={targetOpen} onOk={submitTarget} onCancel={() => setTargetOpen(false)} destroyOnClose
+      >
+        <Form form={targetForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="target_year" label="目标年份"
+            rules={[{ required: true, message: '请选择年份' }]}
+          >
+            <Select
+              style={{ width: 160 }}
+              options={(() => {
+                const y = new Date().getFullYear();
+                return [y - 1, y, y + 1, y + 2].map((yy) => ({ value: yy, label: `${yy} 年` }));
+              })()}
+            />
+          </Form.Item>
+          <Form.Item
+            name="annual_profit_target" label="年度毛利目标金额"
+            rules={[{ required: true, message: '请输入目标金额' }]}
+            tooltip="单位: 元。YTD 自动聚合该销售名下客户本年度 allocation.profit_amount"
+          >
+            <InputNumber
+              min={0} step={10000} style={{ width: 240 }}
+              formatter={(v) => `¥ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={(v) => (v ? Number(v.replace(/[^\d.]/g, '')) : 0) as any}
+              placeholder="例如 1000000"
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <SalesPlanDrawer
+        user={planUser}
+        open={!!planUser}
+        onClose={() => setPlanUser(null)}
+      />
     </div>
   );
 }
