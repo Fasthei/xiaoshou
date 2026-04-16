@@ -9,11 +9,12 @@ from app.models.sales_plan import SalesPlan
 from app.models.allocation_history import AllocationHistory
 from app.models.follow_up import CustomerFollowUp
 from app.models.contract import Contract
+from app.models.ticket import Ticket
 
 __all__ = [
     "Customer", "CustomerContact", "Resource", "Allocation", "UsageRecord", "SyncLog",
     "CustomerInsightRun", "CustomerInsightFact",
     "SalesUser", "LeadAssignmentRule", "LeadAssignmentLog", "SalesPlan",
     "AllocationHistory", "CustomerFollowUp",
-    "Contract",
+    "Contract", "Ticket",
 ]

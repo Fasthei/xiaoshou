@@ -1,13 +1,13 @@
 """Client for the 工单 (gongdan) system.
 
-Only needs a read of the customer list. Auth is a static API key passed as
-`X-Api-Key` (mechanism confirmed in gongdan/backend/src/common/guards/api-key.guard.ts).
+Reads customers and tickets. Auth is a static API key passed as `X-Api-Key`
+(mechanism confirmed in gongdan/backend/src/common/guards/api-key.guard.ts).
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -51,6 +51,34 @@ class GongdanClient:
                 )
             )
         return out
+
+    def list_tickets(self, page_size: int = 200, max_pages: int = 50) -> List[Dict[str, Any]]:
+        """GET /api/tickets — paginated; walks until exhausted or max_pages.
+
+        gongdan returns ``{tickets: [...], total, page, pageSize, totalPages}``.
+        We defensively accept both that and a raw list shape in case of version
+        drift. Returns the raw ticket dicts (callers pluck what they need).
+        """
+        if not self.api_key:
+            raise RuntimeError("GONGDAN_API_KEY not configured")
+        url = f"{self.base}/api/tickets"
+        collected: List[Dict[str, Any]] = []
+        with httpx.Client(timeout=self.timeout) as c:
+            page = 1
+            while page <= max_pages:
+                r = c.get(url, headers=self._headers(), params={"page": page, "pageSize": page_size})
+                r.raise_for_status()
+                data = r.json()
+                if isinstance(data, list):
+                    collected.extend(data)
+                    break  # list shape → no pagination envelope
+                items = data.get("tickets") or data.get("items") or []
+                collected.extend(items)
+                total_pages = int(data.get("totalPages") or 1)
+                if page >= total_pages or not items:
+                    break
+                page += 1
+        return collected
 
     def health(self) -> bool:
         try:
