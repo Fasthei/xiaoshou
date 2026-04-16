@@ -4,6 +4,7 @@ import {
 } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
+import MultiResourceSelector, { type ResourceLine } from './MultiResourceSelector';
 
 /**
  * CustomerOrderWizardModal — skeleton.
@@ -32,8 +33,7 @@ interface Step1Values {
 
 interface Step2Values {
   order_note?: string;
-  // 多货源行：placeholder，等 multi-resource selector 组件就位再换
-  resource_lines?: Array<{ resource_id?: number; end_user_label?: string }>;
+  resources?: ResourceLine[];
   contract_file?: UploadFile | null;
 }
 
@@ -90,7 +90,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess }: P
       //   2) const formData = new FormData()
       //      formData.append('customer_id', customer.id)
       //      formData.append('note', orderVals.order_note || '')
-      //      formData.append('resources', JSON.stringify(orderVals.resource_lines || []))
+      //      formData.append('resources', JSON.stringify(orderVals.resources || []))
       //      formData.append('contract', contractFile.originFileObj)
       //   3) await api.post('/api/orders', formData, { headers: { 'Content-Type': 'multipart/form-data' }})
       //   4) 订单 approval_status 默认 'pending'，等销售主管审批
@@ -206,24 +206,20 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess }: P
       {/* Step 2: 订单详情 */}
       <div style={{ display: current === 1 ? 'block' : 'none' }}>
         <Form<Step2Values> form={step2Form} layout="vertical">
-          {/* TODO: 替换为 OrderCreateMultiResourceModal 的多货源选择器组件
-              （等后端 Task #3 提供 order + multi-resource 接口 + 前端 multi-resource selector 组件就位）
-              每行形如: { resource_id, end_user_label? } */}
-          <Form.Item label="多货源选择（占位）">
-            <div
-              style={{
-                border: '1px dashed #d9d9d9',
-                borderRadius: 8,
-                padding: 16,
-                background: '#fafafa',
-                color: '#94a3b8',
-                fontSize: 13,
-              }}
-            >
-              多货源选择器待接入 — 等后端 POST /api/orders (multi-resource) 和
-              OrderCreateMultiResourceModal 组件就位。每行货源支持选填 end_user_label
-              （渠道客户用）。
-            </div>
+          <Form.Item
+            name="resources"
+            label="货源选择"
+            rules={[
+              { required: true, message: '至少选一个货源' },
+              {
+                validator: (_, v: ResourceLine[] | undefined) =>
+                  v && v.length > 0 && v.every((l) => l.resource_id)
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('至少选一个货源，且每行必须选定货源')),
+              },
+            ]}
+          >
+            <MultiResourceSelector customerType={step1Values?.customer_type} />
           </Form.Item>
 
           <Form.Item name="order_note" label="订单备注">

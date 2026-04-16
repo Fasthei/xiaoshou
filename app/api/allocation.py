@@ -1,3 +1,4 @@
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -14,17 +15,20 @@ from app.schemas.allocation import (
     AllocationUpdate,
     AllocationResponse,
     AllocationListResponse,
-    AllocationProfitResponse
+    AllocationProfitResponse,
+    AllocationApprovalRequest,
 )
 from app.schemas.allocation_history import AllocationHistoryOut, CancelAllocationBody
+from app.models.sales import SalesUser
 from typing import List as _List
 
 router = APIRouter(prefix="/api/allocations", tags=["分配管理"])
 
 
 def generate_allocation_code() -> str:
-    """生成分配编号"""
-    return f"ALLOC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    """生成分配编号 (秒级时间戳 + 4 位随机后缀, 避免同秒并发碰撞)"""
+    suffix = secrets.token_hex(2).upper()  # 4 hex chars
+    return f"ALLOC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{suffix}"
 
 
 def calculate_profit(unit_cost: Decimal, unit_price: Decimal, quantity: int):
@@ -83,7 +87,8 @@ def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db
         profit_rate=profit_data["profit_rate"],
         allocation_status="PENDING",
         allocated_at=datetime.now(),
-        remark=allocation.remark
+        remark=allocation.remark,
+        approval_status="pending",
     )
 
     # 更新货源已分配数量
@@ -206,6 +211,7 @@ def list_allocations(
     customer_id: Optional[int] = Query(None, description="客户ID"),
     resource_id: Optional[int] = Query(None, description="货源ID"),
     allocation_status: Optional[str] = Query(None, description="分配状态"),
+    approval_status: Optional[str] = Query(None, description="审批状态: pending/approved/rejected"),
     db: Session = Depends(get_db)
 ):
     """分页查询分配列表"""
@@ -217,11 +223,49 @@ def list_allocations(
         query = query.filter(Allocation.resource_id == resource_id)
     if allocation_status:
         query = query.filter(Allocation.allocation_status == allocation_status)
+    if approval_status:
+        query = query.filter(Allocation.approval_status == approval_status)
 
     total = query.count()
     items = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return {"total": total, "items": items}
+
+
+@router.patch("/{allocation_id}/approval", response_model=AllocationResponse, summary="审批分配")
+def approve_allocation(
+    allocation_id: int,
+    body: AllocationApprovalRequest,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    """审批或拒绝一个分配。写入 approver_id / approved_at / approval_note / approval_status。"""
+    if body.approval_status not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="approval_status 必须是 approved 或 rejected")
+
+    allocation = db.query(Allocation).filter(
+        Allocation.id == allocation_id,
+        Allocation.is_deleted == False,  # noqa: E712
+    ).first()
+    if not allocation:
+        raise HTTPException(status_code=404, detail="分配记录不存在")
+
+    # 通过 casdoor_user_id 映射到本地 sales_user.id（软外键，找不到则写 None）
+    approver_id: Optional[int] = None
+    sub = getattr(user, "sub", None) if user else None
+    if sub:
+        su = db.query(SalesUser).filter(SalesUser.casdoor_user_id == sub).first()
+        if su:
+            approver_id = int(su.id)
+
+    allocation.approval_status = body.approval_status
+    allocation.approver_id = approver_id
+    allocation.approved_at = datetime.utcnow()
+    allocation.approval_note = body.approval_note
+
+    db.commit()
+    db.refresh(allocation)
+    return allocation
 
 
 @router.get("/{allocation_id}/profit", response_model=AllocationProfitResponse, summary="查询分配毛利")

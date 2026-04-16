@@ -8,7 +8,7 @@ from app.api import (
     allocation, auth, customer, resource, usage, sync, customer_resources,
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
     customer_insight_agent, sales, external, follow_up, contract, ticket,
-    alert_rule, payment, cc_sync,
+    alert_rule, payment, cc_sync, bills_export, manager,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -45,12 +45,48 @@ def _ensure_customer_source_label_column():
         logger.warning("ensure source_label column failed: %s", e)
 
 
+def _ensure_allocation_approval_columns():
+    """Best-effort additive migration: ensure allocation approval columns exist.
+
+    Adds: approval_status, approver_id, approved_at, approval_note.
+    Idempotent; safe on Postgres (IF NOT EXISTS) and SQLite (inspect first).
+    """
+    from sqlalchemy import text, inspect
+    cols_spec = [
+        ("approval_status", "VARCHAR(20)"),
+        ("approver_id", "INTEGER"),
+        ("approved_at", "TIMESTAMP"),
+        ("approval_note", "VARCHAR(500)"),
+    ]
+    try:
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                for name, typ in cols_spec:
+                    conn.execute(text(
+                        f"ALTER TABLE allocation ADD COLUMN IF NOT EXISTS {name} {typ}"
+                    ))
+            else:
+                insp = inspect(conn)
+                if "allocation" in insp.get_table_names():
+                    existing = {c["name"] for c in insp.get_columns("allocation")}
+                    for name, typ in cols_spec:
+                        if name not in existing:
+                            conn.execute(text(
+                                f"ALTER TABLE allocation ADD COLUMN {name} {typ}"
+                            ))
+        logger.info("ensured allocation approval columns")
+    except Exception as e:
+        logger.warning("ensure allocation approval columns failed: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("DB tables ensured via metadata.create_all")
         _ensure_customer_source_label_column()
+        _ensure_allocation_approval_columns()
     except Exception as e:
         logger.error("DB init failed: %s", e)
     yield
@@ -107,6 +143,8 @@ app.include_router(alert_rule.router, dependencies=protected_deps)
 app.include_router(payment.router, dependencies=protected_deps)
 app.include_router(cc_sync.sync_router, dependencies=protected_deps)
 app.include_router(cc_sync.local_router, dependencies=protected_deps)
+app.include_router(bills_export.router, dependencies=protected_deps)
+app.include_router(manager.router, dependencies=protected_deps)
 
 
 @app.get("/")

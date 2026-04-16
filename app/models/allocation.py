@@ -27,6 +27,11 @@ class Allocation(Base):
     delivery_status = Column(String(20), comment="交付状态")
     delivery_at = Column(DateTime, comment="交付时间")
     remark = Column(Text, comment="备注")
+    # 审批工作流（additive, nullable）
+    approval_status = Column(String(20), default="pending", comment="审批状态: pending/approved/rejected")
+    approver_id = Column(Integer, nullable=True, comment="审批人 sales_user.id（软外键）")
+    approved_at = Column(DateTime, nullable=True, comment="审批时间")
+    approval_note = Column(String(500), nullable=True, comment="审批备注")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_deleted = Column(Boolean, default=False)

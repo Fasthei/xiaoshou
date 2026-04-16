@@ -37,6 +37,11 @@ class AllocationResponse(AllocationBase):
     allocated_at: Optional[datetime]
     delivery_status: Optional[str]
     delivery_at: Optional[datetime]
+    # 审批工作流
+    approval_status: Optional[str] = None
+    approver_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    approval_note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -55,3 +60,8 @@ class AllocationProfitResponse(BaseModel):
     total_price: Decimal
     profit_amount: Decimal
     profit_rate: Decimal
+
+
+class AllocationApprovalRequest(BaseModel):
+    approval_status: str = Field(..., description="approved 或 rejected")
+    approval_note: Optional[str] = Field(None, description="审批备注")
