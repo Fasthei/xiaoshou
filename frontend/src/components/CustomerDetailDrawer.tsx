@@ -504,10 +504,14 @@ export default function CustomerDetailDrawer({
   const submitAssign = async () => {
     if (!customer) return;
     const v = await assignForm.validateFields();
-    await api.patch(`/api/customers/${customer.id}/assign`, v);
-    antdMessage.success('分配已更新');
-    setAssignOpen(false);
-    loadAssign();
+    try {
+      await api.patch(`/api/customers/${customer.id}/assign`, v);
+      antdMessage.success('分配已更新');
+      setAssignOpen(false);
+      loadAssign();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '分配更新失败');
+    }
   };
 
   const salesUserById = (id?: number | null) => salesUsers.find((u) => u.id === id);
@@ -590,10 +594,12 @@ export default function CustomerDetailDrawer({
                       const s = customer.customer_status;
                       const colorMap: Record<string, string> = {
                         active: 'green', potential: 'purple', prospect: 'purple',
+                        formal: 'blue',
                         inactive: 'default', frozen: 'red',
                       };
                       const labelMap: Record<string, string> = {
                         active: '客户池', potential: '潜在', prospect: '潜在',
+                        formal: '正式',
                         inactive: '停用', frozen: '冻结',
                       };
                       return <Tag color={colorMap[s] || 'default'}>{labelMap[s] || s}</Tag>;

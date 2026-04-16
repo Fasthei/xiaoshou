@@ -92,8 +92,18 @@ export default function CustomerInsightPanel({ customerId }: { customerId: numbe
         }
       },
       {
-        onError: (err) => { antdMessage.error(`连接中断: ${err.message}`); setRunning(false); },
-        onComplete: () => { setRunning(false); },
+        onError: (err) => {
+          antdMessage.error(`连接中断: ${err.message}`);
+          setRunning(false);
+          refreshHistory();
+        },
+        onComplete: () => {
+          // Server closed the stream. If we never got a terminal `done`/`error`
+          // event, the user would be left with a spinner; make sure to clear it
+          // and refresh history so any partial run shows up in "运行记录".
+          setRunning(false);
+          refreshHistory();
+        },
       },
     );
   };

@@ -67,6 +67,8 @@ export default function Customers() {
       const items = onlyUnassigned ? data.items.filter((c) => c.sales_user_id == null) : data.items;
       setData(items);
       setTotal(onlyUnassigned ? items.length : data.total);
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '加载客户列表失败');
     } finally {
       setLoading(false);
     }
@@ -91,6 +93,8 @@ export default function Customers() {
       const { data } = await api.post('/api/sync/customers/from-ticket');
       antdMessage.success(`同步完成：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`);
       load();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '从工单同步失败');
     } finally {
       setSyncing(false);
     }

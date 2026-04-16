@@ -4,7 +4,7 @@ import {
   List, Avatar, Progress, Timeline,
 } from 'antd';
 import {
-  TeamOutlined, InboxOutlined, AppstoreOutlined, RiseOutlined,
+  TeamOutlined, InboxOutlined, AppstoreOutlined, RiseOutlined, FallOutlined,
   SyncOutlined, CloudServerOutlined, RocketOutlined, UserOutlined,
   HistoryOutlined, PhoneOutlined, BulbOutlined, UserSwitchOutlined,
 } from '@ant-design/icons';
@@ -222,10 +222,20 @@ export default function Dashboard() {
             <Space align="start" style={{ width: '100%', justifyContent: 'space-between' }}>
               <div>
                 <Text type="secondary">近 14 天趋势</Text>
-                {spark.length ? (
-                  <Statistic value={+(spark[spark.length - 1] - spark[0]).toFixed(0)}
-                    suffix="%" prefix={<RiseOutlined />} valueStyle={{ color: '#16a34a', fontWeight: 700 }} />
-                ) : (
+                {spark.length ? (() => {
+                  // first/last 可能为 0 或 spark 只有 1 个点 → 退化为 0% 避免 -601% 这种无意义数字
+                  const first = spark[0] ?? 0;
+                  const last = spark[spark.length - 1] ?? 0;
+                  const pct = spark.length > 1 && first > 0
+                    ? +(((last - first) / first) * 100).toFixed(1)
+                    : 0;
+                  const positive = pct >= 0;
+                  return (
+                    <Statistic value={pct}
+                      suffix="%" prefix={positive ? <RiseOutlined /> : <FallOutlined />}
+                      valueStyle={{ color: positive ? '#16a34a' : '#dc2626', fontWeight: 700 }} />
+                  );
+                })() : (
                   <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 13 }}>
                     {trendFailed ? '云管暂不可达' : '—'}
                   </Text>

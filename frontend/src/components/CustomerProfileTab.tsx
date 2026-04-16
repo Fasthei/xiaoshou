@@ -56,12 +56,12 @@ export default function CustomerProfileTab({ customerId }: { customerId: number 
   const load = async () => {
     setLoading(true);
     try {
-      const [f, c] = await Promise.all([
+      const [fRes, cRes] = await Promise.allSettled([
         api.get<FollowUp[]>(`/api/customers/${customerId}/follow-ups`),
         api.get<Completeness>(`/api/customers/${customerId}/completeness`),
       ]);
-      setFus(f.data);
-      setCompleteness(c.data);
+      setFus(fRes.status === 'fulfilled' && Array.isArray(fRes.value.data) ? fRes.value.data : []);
+      setCompleteness(cRes.status === 'fulfilled' ? (cRes.value.data ?? null) : null);
     } finally {
       setLoading(false);
     }
@@ -71,18 +71,26 @@ export default function CustomerProfileTab({ customerId }: { customerId: number 
 
   const submit = async () => {
     const v: any = await form.validateFields();
-    await api.post(`/api/customers/${customerId}/follow-ups`, {
-      ...v,
-      next_action_at: v.next_action_at ? dayjs(v.next_action_at).toISOString() : null,
-    });
-    antdMessage.success('已记录跟进');
-    setOpen(false); form.resetFields();
-    load();
+    try {
+      await api.post(`/api/customers/${customerId}/follow-ups`, {
+        ...v,
+        next_action_at: v.next_action_at ? dayjs(v.next_action_at).toISOString() : null,
+      });
+      antdMessage.success('已记录跟进');
+      setOpen(false); form.resetFields();
+      load();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '新增跟进失败');
+    }
   };
 
   const del = async (id: number) => {
-    await api.delete(`/api/customers/${customerId}/follow-ups/${id}`);
-    load();
+    try {
+      await api.delete(`/api/customers/${customerId}/follow-ups/${id}`);
+      load();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '删除失败');
+    }
   };
 
   const tierColor = completeness?.tier === 'green' ? '#10b981'

@@ -102,7 +102,10 @@ export default function Leads() {
     setLoading(true);
     try {
       const { data } = await api.get<Lead[]>('/api/enrich/leads', { params: { q: query, num: 10 } });
-      setLeads(data);
+      setLeads(data || []);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '商机搜索失败');
+      setLeads([]);
     } finally {
       setLoading(false);
     }

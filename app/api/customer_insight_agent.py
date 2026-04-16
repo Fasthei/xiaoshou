@@ -35,9 +35,15 @@ def _stream_generator(customer_id: int, user_id: Optional[int]) -> Generator[byt
     """
     q: "queue.Queue[tuple[str, dict] | None]" = queue.Queue(maxsize=256)
     db = SessionLocal()
-    customer = db.query(Customer).filter(
-        Customer.id == customer_id, Customer.is_deleted == False,  # noqa: E712
-    ).first()
+    try:
+        customer = db.query(Customer).filter(
+            Customer.id == customer_id, Customer.is_deleted == False,  # noqa: E712
+        ).first()
+    except Exception as e:  # noqa: BLE001 — DB transient errors shouldn't crash the stream
+        logger.exception("customer lookup failed")
+        db.close()
+        yield _sse_format("error", {"message": f"客户查询失败: {e}"})
+        return
     if not customer:
         db.close()
         yield _sse_format("error", {"message": "客户不存在"})
@@ -80,12 +86,18 @@ def _stream_generator(customer_id: int, user_id: Optional[int]) -> Generator[byt
     # Initial handshake event so the client knows the run_id immediately.
     yield _sse_format("run_created", {"run_id": run.id, "customer_id": customer.id})
 
-    while True:
-        item = q.get()
-        if item is None:
-            break
-        event, data = item
-        yield _sse_format(event, data)
+    try:
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            event, data = item
+            yield _sse_format(event, data)
+    except GeneratorExit:
+        # Client disconnected mid-stream; the worker thread is daemon and will
+        # finish (and persist) on its own. Do not re-raise as an error event.
+        logger.info("SSE client disconnected for run %s", getattr(run, "id", None))
+        raise
 
 
 @router.post("/{customer_id}/insight/run", summary="运行 AI 洞察 Agent (SSE 流)")
