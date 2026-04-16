@@ -7,13 +7,21 @@ from datetime import datetime
 from typing import Any, List
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.auth import CurrentUser, require_auth
 from app.config import get_settings
 from app.integrations import CloudCostClient
+
+
+def _bearer_from_request(request: Request):
+    """Forward the caller's Casdoor bearer token to cloudcost (shared Casdoor)."""
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return None
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +54,7 @@ def _bad_gateway(e: BaseException) -> JSONResponse:
     },
 )
 def daily(
+    request: Request,
     days: int = Query(14, ge=1, le=60),
     _: CurrentUser = Depends(require_auth),
 ) -> Any:
@@ -55,7 +64,10 @@ def daily(
     now = datetime.utcnow()
     m_now = now.strftime("%Y-%m")
     try:
-        bundle = CloudCostClient(s.CLOUDCOST_ENDPOINT).dashboard_bundle(m_now, "daily", 1)
+        bundle = CloudCostClient(
+            s.CLOUDCOST_ENDPOINT,
+            bearer_token=_bearer_from_request(request),
+        ).dashboard_bundle(m_now, "daily", 1)
         if not isinstance(bundle, dict):
             raise TypeError(f"expected dict, got {type(bundle).__name__}")
         points = bundle.get("trend") or []
