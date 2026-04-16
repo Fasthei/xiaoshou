@@ -170,7 +170,7 @@ export default function Dashboard() {
                   从工单同步客户
                 </Button>
                 <Link to="/customers"><Button type="primary" ghost>查看客户</Button></Link>
-                <Link to="/allocations"><Button type="primary" ghost>货源分配</Button></Link>
+                <Link to="/allocations"><Button type="primary" ghost>订单管理</Button></Link>
               </Space>
             </div>
           </Card>
@@ -208,7 +208,7 @@ export default function Dashboard() {
           <Card bordered={false} style={{ borderRadius: 12 }}>
             <Space align="start" style={{ width: '100%', justifyContent: 'space-between' }}>
               <div>
-                <Text type="secondary">货源分配</Text>
+                <Text type="secondary">订单总数</Text>
                 {loading ? <Skeleton.Input active size="large" style={{ marginTop: 4 }} /> :
                   <Statistic value={allocCount ?? 0} prefix={<AppstoreOutlined />} valueStyle={{ color: '#ec4899', fontWeight: 700 }} />}
               </div>

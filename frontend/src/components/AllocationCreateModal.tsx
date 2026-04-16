@@ -18,8 +18,14 @@ export default function AllocationCreateModal({
 
   useEffect(() => {
     if (!open) return;
-    api.get('/api/customers', { params: { page_size: 200 } }).then(({ data }) => setCustomers(data.items));
-    api.get('/api/resources', { params: { page_size: 200 } }).then(({ data }) => setResources(data.items));
+    // Backend caps page_size at 100 — fetch 100 each, enough for dropdown.
+    // TODO: switch to remote-search dropdown when inventory grows beyond 100.
+    api.get('/api/customers', { params: { page_size: 100 } })
+      .then(({ data }) => setCustomers(data.items || []))
+      .catch(() => message.error('客户列表加载失败'));
+    api.get('/api/resources', { params: { page_size: 100 } })
+      .then(({ data }) => setResources(data.items || []))
+      .catch(() => message.error('货源列表加载失败'));
   }, [open]);
 
   const unitPrice = +(cost * (1 + markup / 100)).toFixed(2);
@@ -45,7 +51,7 @@ export default function AllocationCreateModal({
         allocation_code: `ALLOC-${Date.now().toString(36).toUpperCase()}`,
         allocation_status: 'PENDING',
       });
-      message.success('分配已创建，云管会自动拉取同步');
+      message.success('订单已创建，云管会自动拉取同步');
       onCreated?.();
       onClose();
     } finally {
@@ -55,7 +61,7 @@ export default function AllocationCreateModal({
 
   return (
     <Modal
-      title="新建分配 · 毛利实时计算" open={open} onOk={submit} onCancel={onClose}
+      title="新建订单 · 毛利实时计算" open={open} onOk={submit} onCancel={onClose}
       width={640} confirmLoading={saving} destroyOnClose
     >
       <Form form={form} layout="vertical">

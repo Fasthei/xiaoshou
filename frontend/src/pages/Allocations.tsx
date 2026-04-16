@@ -75,16 +75,16 @@ export default function Allocations() {
   const cancelAllocation = async () => {
     if (!cancelFor) return;
     await api.post(`/api/allocations/${cancelFor.id}/cancel`, { reason: cancelReason || undefined });
-    antdMessage.success('已取消分配，货源已退回池子');
+    antdMessage.success('已取消订单，货源已退回池子');
     setCancelFor(null); setCancelReason('');
     load();
   };
 
   const baseCols: any[] = [
-    { title: '分配编号', dataIndex: 'allocation_code', width: 180 },
+    { title: '订单编号', dataIndex: 'allocation_code', width: 180 },
     { title: '客户 ID', dataIndex: 'customer_id', width: 80 },
     { title: '货源 ID', dataIndex: 'resource_id', width: 80 },
-    { title: '分配数量', dataIndex: 'allocated_quantity', width: 90 },
+    { title: '订单数量', dataIndex: 'allocated_quantity', width: 90 },
     { title: '总售价', dataIndex: 'total_price', width: 110 },
     { title: '毛利', dataIndex: 'profit_amount', width: 110 },
     {
@@ -103,7 +103,7 @@ export default function Allocations() {
           <Button size="small" icon={<HistoryOutlined />} onClick={() => openHistory(r)}>历史</Button>
           {r.allocation_status !== 'CANCELLED' && (
             <Popconfirm
-              title="取消这笔分配？"
+              title="取消这笔订单？"
               description="货源会退回池子, 并写入变更流水"
               onConfirm={() => { setCancelFor(r); setCancelReason(''); }}
               okText="确认"
@@ -119,11 +119,11 @@ export default function Allocations() {
   return (
     <Card>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-        <Title level={4} style={{ margin: 0 }}>分配管理</Title>
+        <Title level={4} style={{ margin: 0 }}>订单管理</Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            新建分配
+            新建订单
           </Button>
         </Space>
       </Space>
@@ -163,7 +163,7 @@ export default function Allocations() {
         {historyLoading ? (
           <Text type="secondary">加载中...</Text>
         ) : history.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该分配暂无变更记录" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该订单暂无变更记录" />
         ) : (
           <Timeline
             items={history.map((h) => ({
@@ -193,7 +193,7 @@ export default function Allocations() {
 
       {/* 取消原因 Modal */}
       <Modal
-        title="取消分配"
+        title="取消订单"
         open={!!cancelFor}
         onOk={cancelAllocation}
         onCancel={() => { setCancelFor(null); setCancelReason(''); }}

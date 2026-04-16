@@ -165,7 +165,7 @@ export default function Resources() {
     { title: '云厂商', dataIndex: 'cloud_provider', width: 100 },
     { title: '账号', dataIndex: 'account_name' },
     { title: '总量', dataIndex: 'total_quantity', width: 80 },
-    { title: '已分配', dataIndex: 'allocated_quantity', width: 80 },
+    { title: '已订购', dataIndex: 'allocated_quantity', width: 80 },
     { title: '可用', dataIndex: 'available_quantity', width: 80 },
     { title: '单位成本', dataIndex: 'unit_cost', width: 100 },
     { title: '建议价', dataIndex: 'suggested_price', width: 100 },
@@ -217,7 +217,7 @@ export default function Resources() {
               style={{ width: 140 }}
               value={availOnly ? 'avail' : 'all'}
               onChange={(v) => setAvailOnly(v === 'avail')}
-              options={[{ value: 'all', label: '全部货源' }, { value: 'avail', label: '仅可分配' }]}
+              options={[{ value: 'all', label: '全部货源' }, { value: 'avail', label: '仅可订购' }]}
             />
             <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
             <Button
@@ -254,7 +254,7 @@ export default function Resources() {
             </Col>
             <Col xs={12} md={6}>
               <Card size="small" loading={summaryLoading}>
-                <Statistic title="已分配" value={stats.allocated} valueStyle={{ color: '#1677ff' }} />
+                <Statistic title="已订购" value={stats.allocated} valueStyle={{ color: '#1677ff' }} />
               </Card>
             </Col>
             <Col xs={12} md={6}>
@@ -282,9 +282,9 @@ export default function Resources() {
                             <Text type="secondary">{p.total} 条</Text>
                           </Space>
                           <Text>可用: <b>{p.available}</b></Text>
-                          <Text>已分配: <b>{p.allocated}</b></Text>
+                          <Text>已订购: <b>{p.allocated}</b></Text>
                           <Text type="secondary">
-                            分配率: {(p.allocation_rate * 100).toFixed(1)}%
+                            订购率: {(p.allocation_rate * 100).toFixed(1)}%
                           </Text>
                         </Space>
                       </Card>

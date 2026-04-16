@@ -226,8 +226,19 @@ export default function CustomerDetailDrawer({
         start_date: v.start_date ? dayjs(v.start_date).format('YYYY-MM-DD') : null,
         end_date: v.end_date ? dayjs(v.end_date).format('YYYY-MM-DD') : null,
       };
-      await api.post('/api/contracts', payload);
-      antdMessage.success('合同已创建，可在列表中上传附件');
+      const { data: created } = await api.post('/api/contracts', payload);
+      // One-step: if user picked a file, upload immediately after create
+      const fileList: UploadFile[] = Array.isArray(v.file) ? v.file : [];
+      const fileObj: File | undefined = fileList[0]?.originFileObj as File | undefined;
+      if (fileObj && created?.id) {
+        const ok = await uploadContractFile(created.id, fileObj);
+        if (!ok) {
+          antdMessage.warning('合同已创建，但附件上传失败，请在列表中点「上传」重试');
+        }
+        // success toast emitted by uploadContractFile itself — avoid double toast
+      } else {
+        antdMessage.success('合同已创建');
+      }
       setContractModalOpen(false);
       loadContracts();
     } catch (e: any) {
@@ -1437,6 +1448,21 @@ export default function CustomerDetailDrawer({
           </Space>
           <Form.Item name="notes" label="备注">
             <Input.TextArea rows={2} placeholder="合同备注" />
+          </Form.Item>
+          <Form.Item
+            name="file"
+            label="合同附件"
+            valuePropName="fileList"
+            getValueFromEvent={(e: any) => Array.isArray(e) ? e : e && e.fileList}
+            extra="可选，支持 PDF / Word / JPG / PNG，单文件 ≤ 10MB"
+          >
+            <Upload
+              beforeUpload={() => false}
+              maxCount={1}
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+            >
+              <Button icon={<UploadOutlined />}>选择文件（可选）</Button>
+            </Upload>
           </Form.Item>
         </Form>
       </Modal>

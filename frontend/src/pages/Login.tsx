@@ -52,7 +52,7 @@ export default function Login() {
               </Text>
             </div>
             <Paragraph style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 0 }}>
-              客户 · 货源 · 分配 · 用量 · 智能洞察
+              客户 · 货源 · 订单 · 用量 · 智能洞察
             </Paragraph>
             <Button
               type="primary" size="large" icon={<LoginOutlined />} block
