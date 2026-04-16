@@ -62,10 +62,13 @@ def customer_resources(
     if not customer:
         raise HTTPException(404, "客户不存在")
 
+    # AI-BRAIN-API.md §1.2: 优先 X-API-Key, 未配才回退到转发调用方 JWT.
+    api_key = s.CLOUDCOST_API_KEY or None
     client = CloudCostClient(
         s.CLOUDCOST_ENDPOINT,
         match_field=s.CLOUDCOST_MATCH_FIELD,
-        bearer_token=_bearer_from_request(request),
+        api_key=api_key,
+        bearer_token=_bearer_from_request(request) if not api_key else None,
     )
     try:
         accounts = client.resources_for_customer(customer.customer_code)
