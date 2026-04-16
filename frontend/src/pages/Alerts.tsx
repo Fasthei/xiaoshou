@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Tag, Typography, Progress, Space, DatePicker, Button, Empty } from 'antd';
+import { Card, Table, Tag, Typography, Progress, Space, DatePicker, Button, Empty, Result } from 'antd';
 import { ReloadOutlined, AlertOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
+import { AxiosError } from 'axios';
 import { api } from '../api/axios';
 
 const { Title, Text } = Typography;
@@ -23,20 +24,47 @@ export default function Alerts() {
   const [rows, setRows] = useState<RuleStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [month, setMonth] = useState<Dayjs | null>(dayjs());
+  const [error, setError] = useState<AxiosError<{ detail?: string }> | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
       const { data } = await api.get<RuleStatus[]>('/api/bridge/alerts', {
         params: { month: month?.format('YYYY-MM') },
       });
       setRows(data);
+    } catch (err) {
+      setError(err as AxiosError<{ detail?: string }>);
+      setRows([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [month]);
+
+  if (error) {
+    const status = error.response?.status;
+    const detail = error.response?.data?.detail || error.message || '稍后再试';
+    return (
+      <div className="page-fade">
+        <Card bordered={false} style={{ borderRadius: 12 }}>
+          <Result
+            status="500"
+            title="云管暂不可达"
+            subTitle={`${status ? status + ' · ' : ''}${detail}`}
+            extra={
+              <Space>
+                <DatePicker picker="month" value={month} onChange={setMonth} />
+                <Button type="primary" icon={<ReloadOutlined />} onClick={load}>重试</Button>
+              </Space>
+            }
+          />
+        </Card>
+      </div>
+    );
+  }
 
   const triggered = rows.filter((r) => r.triggered).length;
   const near = rows.filter((r) => !r.triggered && (r.pct || 0) >= 80).length;

@@ -74,6 +74,7 @@ export default function Dashboard() {
   const [syncs, setSyncs] = useState<SyncRow[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [trend, setTrend] = useState<number[]>([]);
+  const [trendFailed, setTrendFailed] = useState(false);
   const [salesLoad, setSalesLoad] = useState<SalesLoad[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
 
@@ -95,6 +96,13 @@ export default function Dashboard() {
       if (s.status === 'fulfilled') setSyncs(s.value.data);
       if (t.status === 'fulfilled') {
         setTrend((t.value.data || []).map((p: any) => Number(p.cost || 0)));
+        setTrendFailed(false);
+      } else {
+        // /api/trend/daily often 502s when cloudcost is down — degrade the
+        // sparkline cards gracefully to <Empty> instead of showing random
+        // made-up numbers (which is misleading).
+        setTrend([]);
+        setTrendFailed(true);
       }
       if (sl.status === 'fulfilled') setSalesLoad(sl.value.data.filter((u: SalesLoad) => u.is_active));
       if (act.status === 'fulfilled') setActivities(act.value.data);
@@ -114,9 +122,21 @@ export default function Dashboard() {
     }
   };
 
-  const spark = useMemo(
-    () => (trend.length ? trend : Array.from({ length: 14 }, () => Math.round(20 + Math.random() * 80))),
-    [trend],
+  // Only render a real sparkline when we actually have trend data. When the
+  // trend endpoint fails (e.g. cloudcost 502), we render <Empty> placeholders
+  // instead of fabricating numbers.
+  const spark = useMemo(() => (trend.length ? trend : []), [trend]);
+  const sparkPlaceholder = (
+    <div style={{ height: 42, display: 'flex', alignItems: 'center' }}>
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description={<span style={{ fontSize: 11, color: '#9ca3af' }}>
+          {trendFailed ? '趋势数据暂不可达' : '趋势数据暂无'}
+        </span>}
+        imageStyle={{ height: 20 }}
+        style={{ margin: 0 }}
+      />
+    </div>
   );
 
   return (
@@ -168,7 +188,7 @@ export default function Dashboard() {
               </div>
               <Avatar size={42} style={{ background: '#eef2ff', color: '#4f46e5' }} icon={<TeamOutlined />} />
             </Space>
-            <Sparkline values={spark} />
+            {spark.length ? <Sparkline values={spark} /> : sparkPlaceholder}
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -181,7 +201,7 @@ export default function Dashboard() {
               </div>
               <Avatar size={42} style={{ background: '#e0f2fe', color: '#0ea5e9' }} icon={<CloudServerOutlined />} />
             </Space>
-            <Sparkline values={spark.slice().reverse()} color="#0ea5e9" />
+            {spark.length ? <Sparkline values={spark.slice().reverse()} color="#0ea5e9" /> : sparkPlaceholder}
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -194,7 +214,7 @@ export default function Dashboard() {
               </div>
               <Avatar size={42} style={{ background: '#fce7f3', color: '#ec4899' }} icon={<AppstoreOutlined />} />
             </Space>
-            <Sparkline values={spark.map((v) => Math.max(0, v - 30))} color="#ec4899" />
+            {spark.length ? <Sparkline values={spark.map((v) => Math.max(0, v - 30))} color="#ec4899" /> : sparkPlaceholder}
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -202,12 +222,18 @@ export default function Dashboard() {
             <Space align="start" style={{ width: '100%', justifyContent: 'space-between' }}>
               <div>
                 <Text type="secondary">近 14 天趋势</Text>
-                <Statistic value={+(spark[spark.length - 1] - spark[0]).toFixed(0)}
-                  suffix="%" prefix={<RiseOutlined />} valueStyle={{ color: '#16a34a', fontWeight: 700 }} />
+                {spark.length ? (
+                  <Statistic value={+(spark[spark.length - 1] - spark[0]).toFixed(0)}
+                    suffix="%" prefix={<RiseOutlined />} valueStyle={{ color: '#16a34a', fontWeight: 700 }} />
+                ) : (
+                  <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 13 }}>
+                    {trendFailed ? '云管暂不可达' : '—'}
+                  </Text>
+                )}
               </div>
               <Avatar size={42} style={{ background: '#dcfce7', color: '#16a34a' }} icon={<RocketOutlined />} />
             </Space>
-            <Sparkline values={spark} color="#16a34a" />
+            {spark.length ? <Sparkline values={spark} color="#16a34a" /> : sparkPlaceholder}
           </Card>
         </Col>
       </Row>

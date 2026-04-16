@@ -27,6 +27,11 @@ api.interceptors.response.use(
           !window.location.pathname.startsWith('/auth/callback')) {
         window.location.href = '/login';
       }
+    } else if (status && status >= 500) {
+      // 5xx: upstream / gateway issues (e.g. 502 from /api/bridge/* when
+      // cloudcost 云管 is unreachable). Don't toast — let the component
+      // render its own friendly error state (Result / Empty) so the user
+      // sees business context instead of a terse global message.
     } else if (status && status >= 400) {
       const detail = err.response?.data?.detail || err.message;
       message.error(`${status}: ${detail}`);
