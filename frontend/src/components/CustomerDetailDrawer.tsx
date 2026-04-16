@@ -8,13 +8,9 @@ import {
 import {
   CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined,
   UserSwitchOutlined, HistoryOutlined, FileTextOutlined, BarChartOutlined,
-<<<<<<< HEAD
   WarningOutlined, ProfileOutlined, CustomerServiceOutlined,
-=======
-  WarningOutlined, ProfileOutlined,
   FullscreenOutlined, FullscreenExitOutlined,
   ZoomInOutlined, ZoomOutOutlined, CloseOutlined,
->>>>>>> 5c84654 (feat(customer): 生命周期(potential/active)+drawer全屏+商机本地潜客)
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api } from '../api/axios';
