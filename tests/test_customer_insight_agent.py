@@ -197,6 +197,71 @@ def test_fingerprint_is_stable_and_categorised():
     assert fingerprint("basic", "X") != fingerprint("tech", "X")
 
 
+def test_system_prompt_includes_local_customer_data(db, customer):
+    """System prompt must surface follow-ups, contracts, allocations, profile to the agent."""
+    import datetime as _dt
+
+    from app.agents.customer_insight_agent import _build_system_prompt
+    from app.models.allocation import Allocation
+    from app.models.contract import Contract
+    from app.models.follow_up import CustomerFollowUp
+    from app.models.resource import Resource
+
+    # Annotate the customer with optional profile fields (soft-access compatible).
+    customer.note = "关键客户，季度拜访"
+    customer.website = "https://corecube.example.com"
+    customer.linkedin_url = "https://linkedin.com/company/corecube"
+    db.add(customer)
+
+    # 2 follow-up records
+    db.add(CustomerFollowUp(
+        customer_id=customer.id, kind="meeting", title="Q2 业务回顾",
+        content="客户计划扩展到 GCP", next_action_at=_dt.datetime(2026, 5, 1),
+    ))
+    db.add(CustomerFollowUp(
+        customer_id=customer.id, kind="call", title="催回款",
+        content="已承诺 4 月底付清",
+    ))
+
+    # 1 active contract
+    db.add(Contract(
+        customer_id=customer.id, contract_code="CN-2026-007",
+        title="年度云服务合同", amount=500000,
+        start_date=_dt.date(2026, 1, 1), status="active",
+    ))
+
+    # 1 allocation with a linked resource
+    res = Resource(
+        resource_code="cc-42", resource_type="ORIGINAL",
+        resource_status="AVAILABLE", is_deleted=False,
+    )
+    db.add(res); db.commit(); db.refresh(res)
+
+    db.add(Allocation(
+        allocation_code="ALC-0001", customer_id=customer.id, resource_id=res.id,
+        allocated_quantity=100, allocation_status="approved", is_deleted=False,
+    ))
+    db.commit()
+
+    prompt = _build_system_prompt(customer, prior_facts=[], db=db)
+
+    assert "== 本地已知客户信息 ==" in prompt
+    # Profile
+    assert "关键客户，季度拜访" in prompt
+    assert "corecube.example.com" in prompt
+    # Follow-ups
+    assert "Q2 业务回顾" in prompt
+    assert "催回款" in prompt
+    # Contract
+    assert "CN-2026-007" in prompt
+    assert "500000" in prompt
+    # Allocation + resource code
+    assert "ALC-0001" in prompt
+    assert "cc-42" in prompt
+    # Ground-truth directive
+    assert "GROUND TRUTH" in prompt
+
+
 # ---------- helper: reuse the real record_fact closure without external clients ----------
 
 def _real_record_fact_runner(db_, customer, run, emitter):

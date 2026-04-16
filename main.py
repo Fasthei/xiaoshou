@@ -8,7 +8,7 @@ from app.api import (
     allocation, auth, customer, resource, usage, sync, customer_resources,
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
     customer_insight_agent, sales, external, follow_up, contract, ticket,
-    alert_rule, payment, cc_sync,
+    alert_rule, payment, cc_sync, bills_export, manager, orders,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -45,12 +45,111 @@ def _ensure_customer_source_label_column():
         logger.warning("ensure source_label column failed: %s", e)
 
 
+def _ensure_allocation_approval_columns():
+    """Best-effort additive migration: ensure allocation approval columns exist.
+
+    Adds: approval_status, approver_id, approved_at, approval_note.
+    Idempotent; safe on Postgres (IF NOT EXISTS) and SQLite (inspect first).
+    """
+    from sqlalchemy import text, inspect
+    cols_spec = [
+        ("approval_status", "VARCHAR(20)"),
+        ("approver_id", "INTEGER"),
+        ("approved_at", "TIMESTAMP"),
+        ("approval_note", "VARCHAR(500)"),
+    ]
+    try:
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                for name, typ in cols_spec:
+                    conn.execute(text(
+                        f"ALTER TABLE allocation ADD COLUMN IF NOT EXISTS {name} {typ}"
+                    ))
+            else:
+                insp = inspect(conn)
+                if "allocation" in insp.get_table_names():
+                    existing = {c["name"] for c in insp.get_columns("allocation")}
+                    for name, typ in cols_spec:
+                        if name not in existing:
+                            conn.execute(text(
+                                f"ALTER TABLE allocation ADD COLUMN {name} {typ}"
+                            ))
+        logger.info("ensured allocation approval columns")
+    except Exception as e:
+        logger.warning("ensure allocation approval columns failed: %s", e)
+
+
+def _ensure_customer_acquisition_columns():
+    """Best-effort additive migration: ensure customer acquisition columns exist.
+
+    Adds: customer_type (default 'direct'), referrer, channel_notes.
+    Idempotent on pg + sqlite.
+    """
+    from sqlalchemy import text, inspect
+    cols_spec = [
+        ("customer_type", "VARCHAR(20)"),
+        ("referrer", "VARCHAR(200)"),
+        ("channel_notes", "TEXT"),
+    ]
+    try:
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                for name, typ in cols_spec:
+                    conn.execute(text(
+                        f"ALTER TABLE customer ADD COLUMN IF NOT EXISTS {name} {typ}"
+                    ))
+                # Backfill existing rows with default 'direct' where null
+                conn.execute(text(
+                    "UPDATE customer SET customer_type='direct' WHERE customer_type IS NULL"
+                ))
+            else:
+                insp = inspect(conn)
+                if "customer" in insp.get_table_names():
+                    existing = {c["name"] for c in insp.get_columns("customer")}
+                    for name, typ in cols_spec:
+                        if name not in existing:
+                            conn.execute(text(
+                                f"ALTER TABLE customer ADD COLUMN {name} {typ}"
+                            ))
+        logger.info("ensured customer acquisition columns")
+    except Exception as e:
+        logger.warning("ensure customer acquisition columns failed: %s", e)
+
+
+def _ensure_allocation_end_user_label_column():
+    """Best-effort additive migration: ensure allocation.end_user_label exists."""
+    from sqlalchemy import text, inspect
+    try:
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(text(
+                    "ALTER TABLE allocation ADD COLUMN IF NOT EXISTS end_user_label VARCHAR(200)"
+                ))
+            else:
+                insp = inspect(conn)
+                if "allocation" in insp.get_table_names():
+                    cols = {c["name"] for c in insp.get_columns("allocation")}
+                    if "end_user_label" not in cols:
+                        conn.execute(text(
+                            "ALTER TABLE allocation ADD COLUMN end_user_label VARCHAR(200)"
+                        ))
+        logger.info("ensured allocation.end_user_label column")
+    except Exception as e:
+        logger.warning("ensure allocation end_user_label column failed: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("DB tables ensured via metadata.create_all")
         _ensure_customer_source_label_column()
+        _ensure_allocation_approval_columns()
+        _ensure_customer_acquisition_columns()
+        _ensure_allocation_end_user_label_column()
     except Exception as e:
         logger.error("DB init failed: %s", e)
     yield
@@ -107,6 +206,9 @@ app.include_router(alert_rule.router, dependencies=protected_deps)
 app.include_router(payment.router, dependencies=protected_deps)
 app.include_router(cc_sync.sync_router, dependencies=protected_deps)
 app.include_router(cc_sync.local_router, dependencies=protected_deps)
+app.include_router(bills_export.router, dependencies=protected_deps)
+app.include_router(manager.router, dependencies=protected_deps)
+app.include_router(orders.router, dependencies=protected_deps)
 
 
 @app.get("/")

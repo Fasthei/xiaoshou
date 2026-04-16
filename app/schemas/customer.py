@@ -44,6 +44,9 @@ class CustomerBase(BaseModel):
     website: Optional[str] = None
     linkedin_url: Optional[str] = None
     note: Optional[str] = None
+    customer_type: Optional[str] = Field(None, description="direct(直客) / channel(渠道), 默认 direct")
+    referrer: Optional[str] = Field(None, description="转介绍来源文本")
+    channel_notes: Optional[str] = Field(None, description="渠道客户专属 free text")
 
 
 class CustomerCreate(CustomerBase):
@@ -62,6 +65,9 @@ class CustomerCreateLite(BaseModel):
     sales_user_id: Optional[int] = None
     operation_user_id: Optional[int] = None
     source_label: Optional[str] = None
+    customer_type: Optional[str] = Field("direct", description="direct(直客) / channel(渠道)")
+    referrer: Optional[str] = None
+    channel_notes: Optional[str] = None
 
 
 class CustomerUpdate(BaseModel):
@@ -81,6 +87,9 @@ class CustomerUpdate(BaseModel):
     website: Optional[str] = None
     linkedin_url: Optional[str] = None
     note: Optional[str] = None
+    customer_type: Optional[str] = None
+    referrer: Optional[str] = None
+    channel_notes: Optional[str] = None
 
 
 class CustomerResponse(CustomerBase):

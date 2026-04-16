@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
 import {
-  Button, Card, Form, Input, Modal, Select, Space, Table, Tag, Typography,
+  Button, Card, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Typography,
   message as antdMessage,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined, SyncOutlined,
-  EyeOutlined, EditOutlined, DownloadOutlined, UploadOutlined,
+  EyeOutlined, EditOutlined, DownloadOutlined, UploadOutlined, DownOutlined,
 } from '@ant-design/icons';
 import { Upload } from 'antd';
-import type { UploadProps } from 'antd';
 import { api } from '../api/axios';
 import type { Customer, Pagination } from '../types';
 import CustomerDetailDrawer from '../components/CustomerDetailDrawer';
+import CustomerOrderWizardModal from '../components/CustomerOrderWizardModal';
 
 const { Title } = Typography;
 
@@ -57,6 +57,7 @@ export default function Customers() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [detail, setDetail] = useState<Customer | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -67,6 +68,8 @@ export default function Customers() {
       const items = onlyUnassigned ? data.items.filter((c) => c.sales_user_id == null) : data.items;
       setData(items);
       setTotal(onlyUnassigned ? items.length : data.total);
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '加载客户列表失败');
     } finally {
       setLoading(false);
     }
@@ -91,6 +94,8 @@ export default function Customers() {
       const { data } = await api.post('/api/sync/customers/from-ticket');
       antdMessage.success(`同步完成：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`);
       load();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '从工单同步失败');
     } finally {
       setSyncing(false);
     }
@@ -220,10 +225,27 @@ export default function Customers() {
             <Button icon={<SyncOutlined spin={syncing} />} onClick={syncFromTicket} loading={syncing}>
               从工单同步
             </Button>
-            <Button type="primary" icon={<PlusOutlined />}
-              onClick={() => { setEditing(null); form.resetFields(); setOpen(true); }}>
-              新建客户
-            </Button>
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  {
+                    key: 'customer-only',
+                    label: '新建客户（空客户）',
+                    onClick: () => { setEditing(null); form.resetFields(); setOpen(true); },
+                  },
+                  {
+                    key: 'customer-plus-order',
+                    label: '新建客户 + 新建订单',
+                    onClick: () => { setWizardOpen(true); },
+                  },
+                ],
+              }}
+            >
+              <Button type="primary" icon={<PlusOutlined />}>
+                新建客户 <DownOutlined />
+              </Button>
+            </Dropdown>
           </Space>
         </Space>
 
@@ -272,6 +294,12 @@ export default function Customers() {
 
       <CustomerDetailDrawer
         open={!!detail} customer={detail} onClose={() => setDetail(null)}
+      />
+
+      <CustomerOrderWizardModal
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onSuccess={() => { setWizardOpen(false); load(); }}
       />
     </div>
   );

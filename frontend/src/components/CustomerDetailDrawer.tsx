@@ -3,7 +3,7 @@ import {
   Drawer, Tabs, Descriptions, Tag, Space, Typography, List, Avatar, Empty,
   Skeleton, Button, Card, Timeline, Select, Input, Modal, Form, Table, Alert,
   Statistic, Row, Col, DatePicker,
-  Upload, InputNumber, Popconfirm,
+  Upload, InputNumber,
   message as antdMessage,
 } from 'antd';
 import type { UploadFile } from 'antd/es/upload/interface';
@@ -14,7 +14,7 @@ import {
   FullscreenOutlined, FullscreenExitOutlined,
   ZoomInOutlined, ZoomOutOutlined, CloseOutlined,
   UploadOutlined, DownloadOutlined,
-  DeleteOutlined, PlusOutlined, PaperClipOutlined,
+  PaperClipOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api } from '../api/axios';
@@ -504,10 +504,14 @@ export default function CustomerDetailDrawer({
   const submitAssign = async () => {
     if (!customer) return;
     const v = await assignForm.validateFields();
-    await api.patch(`/api/customers/${customer.id}/assign`, v);
-    antdMessage.success('分配已更新');
-    setAssignOpen(false);
-    loadAssign();
+    try {
+      await api.patch(`/api/customers/${customer.id}/assign`, v);
+      antdMessage.success('分配已更新');
+      setAssignOpen(false);
+      loadAssign();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '分配更新失败');
+    }
   };
 
   const salesUserById = (id?: number | null) => salesUsers.find((u) => u.id === id);
@@ -590,10 +594,12 @@ export default function CustomerDetailDrawer({
                       const s = customer.customer_status;
                       const colorMap: Record<string, string> = {
                         active: 'green', potential: 'purple', prospect: 'purple',
+                        formal: 'blue',
                         inactive: 'default', frozen: 'red',
                       };
                       const labelMap: Record<string, string> = {
                         active: '客户池', potential: '潜在', prospect: '潜在',
+                        formal: '正式',
                         inactive: '停用', frozen: '冻结',
                       };
                       return <Tag color={colorMap[s] || 'default'}>{labelMap[s] || s}</Tag>;
@@ -744,18 +750,15 @@ export default function CustomerDetailDrawer({
               label: (<Space><FileTextOutlined />合同 <Tag color="purple">{contracts.length}</Tag></Space>),
               children: (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                    <Text type="secondary">
-                      支持上传 PDF / Word / 图片 (≤10MB), 存储于 Azure Blob
-                    </Text>
-                    <Space>
-                      <Button size="small" icon={<SyncOutlined />} onClick={loadContracts} loading={contractsLoading}>
-                        刷新
-                      </Button>
-                      <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openContractModal}>
-                        新建合同
-                      </Button>
-                    </Space>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="合同在新建订单流程中创建，此处只查看与下载"
+                  />
+                  <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                    <Button size="small" icon={<SyncOutlined />} onClick={loadContracts} loading={contractsLoading}>
+                      刷新
+                    </Button>
                   </Space>
                   <Table
                     size="small"
@@ -789,35 +792,20 @@ export default function CustomerDetailDrawer({
                         ) : <Text type="secondary" style={{ fontSize: 12 }}>未上传</Text>,
                       },
                       {
-                        title: '操作', width: 200, fixed: 'right' as const,
-                        render: (_: any, r: any) => (
-                          <Space size={4}>
-                            <Upload
-                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                              maxCount={1}
-                              showUploadList={false}
-                              beforeUpload={(file: UploadFile & File) => {
-                                uploadContractFile(r.id, file as unknown as File);
-                                return false; // prevent default auto-upload
-                              }}
+                        title: '操作', width: 120, fixed: 'right' as const,
+                        render: (_: any, r: any) =>
+                          r.file_url ? (
+                            <Button
+                              size="small"
+                              type="link"
+                              icon={<DownloadOutlined />}
+                              onClick={() => downloadContractFile(r.id)}
                             >
-                              <Button size="small" type="link" icon={<UploadOutlined />}
-                                loading={uploadingId === r.id}>
-                                {r.file_url ? '替换' : '上传'}
-                              </Button>
-                            </Upload>
-                            {r.file_url ? (
-                              <>
-                                <Button size="small" type="link" icon={<DownloadOutlined />}
-                                  onClick={() => downloadContractFile(r.id)}>下载</Button>
-                                <Popconfirm title="确定删除该合同文件?" onConfirm={() => removeContractFile(r.id)}
-                                  okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
-                                  <Button size="small" type="link" danger icon={<DeleteOutlined />} />
-                                </Popconfirm>
-                              </>
-                            ) : null}
-                          </Space>
-                        ),
+                              下载
+                            </Button>
+                          ) : (
+                            <Text type="secondary" style={{ fontSize: 12 }}>无附件</Text>
+                          ),
                       },
                     ]}
                   />

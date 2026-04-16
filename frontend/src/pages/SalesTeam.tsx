@@ -177,9 +177,13 @@ export default function SalesTeam() {
   };
 
   const deactivateUser = async (u: SalesUser) => {
-    await api.delete(`/api/sales/users/${u.id}`);
-    antdMessage.success('已停用');
-    loadAll();
+    try {
+      await api.delete(`/api/sales/users/${u.id}`);
+      antdMessage.success('已停用');
+      loadAll();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '停用失败');
+    }
   };
 
   const hardDeleteUser = async (u: SalesUser) => {
@@ -225,9 +229,13 @@ export default function SalesTeam() {
   };
 
   const deleteRule = async (r: Rule) => {
-    await api.delete(`/api/sales/rules/${r.id}`);
-    antdMessage.success('已删除');
-    loadAll();
+    try {
+      await api.delete(`/api/sales/rules/${r.id}`);
+      antdMessage.success('已删除');
+      loadAll();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '删除失败');
+    }
   };
 
   const runAuto = async (dry: boolean) => {
@@ -237,6 +245,8 @@ export default function SalesTeam() {
       setAutoResult(data);
       if (!dry && data.total_assigned > 0) antdMessage.success(`已分配 ${data.total_assigned} 个客户`);
       else if (!dry) antdMessage.info('没有可分配的客户');
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '自动分配失败');
     } finally {
       setAutoLoading(false);
     }

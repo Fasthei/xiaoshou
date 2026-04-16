@@ -39,3 +39,15 @@ api.interceptors.response.use(
     return Promise.reject(err);
   },
 );
+
+/**
+ * 读取当前登录用户的角色列表。来源: localStorage.xs_user.roles
+ * 用于前端菜单过滤 / 守卫判定。返回空数组表示未登录或未设置角色。
+ */
+export function getCurrentRoles(): string[] {
+  try {
+    return (JSON.parse(localStorage.getItem('xs_user') || '{}')?.roles || []) as string[];
+  } catch {
+    return [];
+  }
+}

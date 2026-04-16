@@ -27,8 +27,12 @@ from app.agents.openai_client import deployment_name, get_azure_openai_client
 from app.config import get_settings
 from app.integrations.jina import JinaClient
 from app.integrations.linkedin import LinkedInClient
+from app.models.allocation import Allocation
+from app.models.contract import Contract
 from app.models.customer import Customer
 from app.models.customer_insight import CustomerInsightFact, CustomerInsightRun
+from app.models.follow_up import CustomerFollowUp
+from app.models.resource import Resource
 
 logger = logging.getLogger(__name__)
 
@@ -272,13 +276,156 @@ def _build_tool_runners(
 
 # ---------- system prompt ----------
 
-def _build_system_prompt(customer: Customer, prior_facts: List[CustomerInsightFact]) -> str:
+def _fmt_dt(d: Any) -> str:
+    """Render datetime/date as ISO short form; '' if None."""
+    if not d:
+        return ""
+    try:
+        return d.strftime("%Y-%m-%d")
+    except Exception:  # noqa: BLE001
+        return str(d)[:10]
+
+
+def _build_local_facts_section(db: Session, customer: Customer) -> str:
+    """Build the '== 本地已知客户信息 ==' block from the local DB.
+
+    Segments are omitted when the underlying query is empty so the prompt stays
+    tight. Soft-access customer_type/referrer/channel_notes so this works even
+    before the PR that adds those columns has landed.
+    """
+    blocks: List[str] = []
+
+    # 【档案】— inline key/value pairs pulled off the customer row.
+    profile_bits: List[str] = []
+    short_name = getattr(customer, "customer_short_name", None)
+    if short_name:
+        profile_bits.append(f"short_name: {short_name}")
+    note = getattr(customer, "note", None)
+    if note:
+        profile_bits.append(f"note: {note}")
+    website = getattr(customer, "website", None)
+    if website:
+        profile_bits.append(f"website: {website}")
+    linkedin_url = getattr(customer, "linkedin_url", None)
+    if linkedin_url:
+        profile_bits.append(f"linkedin: {linkedin_url}")
+    region = getattr(customer, "region", None)
+    if region:
+        profile_bits.append(f"region: {region}")
+    customer_type = getattr(customer, "customer_type", None)
+    if customer_type:
+        profile_bits.append(f"type: {customer_type}")
+    referrer = getattr(customer, "referrer", None)
+    if referrer:
+        profile_bits.append(f"referrer: {referrer}")
+    channel_notes = getattr(customer, "channel_notes", None)
+    if channel_notes:
+        profile_bits.append(f"channel_notes: {channel_notes}")
+    if profile_bits:
+        blocks.append("【档案】" + " | ".join(profile_bits))
+
+    # 【跟进记录】— last 10.
+    try:
+        follow_ups = (
+            db.query(CustomerFollowUp)
+            .filter(CustomerFollowUp.customer_id == customer.id)
+            .order_by(CustomerFollowUp.created_at.desc())
+            .limit(10)
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        follow_ups = []
+    if follow_ups:
+        lines = ["【跟进记录】(最近 {} 条)".format(len(follow_ups))]
+        for f in follow_ups:
+            ts = _fmt_dt(f.created_at)
+            title = (f.title or "").strip()
+            content = (f.content or "").strip().replace("\n", " ")
+            next_at = _fmt_dt(f.next_action_at)
+            parts = [ts or "-", title]
+            if content:
+                parts.append(content[:120])
+            if next_at:
+                parts.append(f"next: {next_at}")
+            lines.append("- " + " / ".join(p for p in parts if p))
+        blocks.append("\n".join(lines))
+
+    # 【合同】— active only.
+    try:
+        contracts = (
+            db.query(Contract)
+            .filter(Contract.customer_id == customer.id, Contract.status == "active")
+            .order_by(Contract.start_date.desc())
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        contracts = []
+    if contracts:
+        lines = ["【合同】(生效中)"]
+        for c in contracts:
+            parts = [c.contract_code]
+            if c.title:
+                parts.append(c.title)
+            if c.amount is not None:
+                parts.append(f"¥{c.amount}")
+            started = _fmt_dt(c.start_date)
+            if started:
+                parts.append(started)
+            lines.append("- " + " / ".join(parts))
+        blocks.append("\n".join(lines))
+
+    # 【历史订单】— last 5 allocations with resource code.
+    try:
+        allocations = (
+            db.query(Allocation, Resource.resource_code)
+            .outerjoin(Resource, Resource.id == Allocation.resource_id)
+            .filter(Allocation.customer_id == customer.id, Allocation.is_deleted == False)  # noqa: E712
+            .order_by(Allocation.created_at.desc())
+            .limit(5)
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        allocations = []
+    if allocations:
+        lines = ["【历史订单】(最近 {})".format(len(allocations))]
+        for alloc, res_code in allocations:
+            parts = [alloc.allocation_code]
+            if res_code:
+                parts.append(res_code)
+            if alloc.allocated_quantity is not None:
+                parts.append(f"数量 {alloc.allocated_quantity}")
+            if alloc.allocation_status:
+                parts.append(alloc.allocation_status)
+            lines.append("- " + " / ".join(parts))
+        blocks.append("\n".join(lines))
+
+    if not blocks:
+        return ""
+
+    body = "\n".join(blocks)
+    return (
+        "\n\n== 本地已知客户信息 ==\n"
+        + body
+        + "\n==\n"
+        + "The above local facts are GROUND TRUTH from the sales team. "
+        + "Use them as starting context; do NOT re-query them from the web. "
+        + "Focus your tool calls on DELTA information not already in this list."
+    )
+
+
+def _build_system_prompt(
+    customer: Customer,
+    prior_facts: List[CustomerInsightFact],
+    db: Optional[Session] = None,
+) -> str:
     known = ""
     if prior_facts:
         lines = [
             f"- [{f.category}] {f.content}"[:280] for f in prior_facts[:20]
         ]
         known = "\n\n已知事实（勿重复）:\n" + "\n".join(lines)
+
+    local = _build_local_facts_section(db, customer) if db is not None else ""
 
     return f"""你是一个客户洞察研究员。目标是围绕下面这家客户，**广撒网**收集公开信息 —— 人、事、技术栈、近期动态、行业位置都要抓，**追求广度，不需要严格求证**。
 
@@ -301,7 +448,7 @@ def _build_system_prompt(customer: Customer, prior_facts: List[CustomerInsightFa
 3. linkedin_search 拿公司 profile, 必要时 linkedin_company 取详情
 4. jina_search 近 6 个月的新闻、融资、产品发布、高管变动
 5. 每找到一条就 record_fact, 注意分类
-6. 最后 finish, 给一段 markdown 总结 (标题 + 要点 + 建议跟进方向){known}
+6. 最后 finish, 给一段 markdown 总结 (标题 + 要点 + 建议跟进方向){known}{local}
 
 约束:
 - 最多 {MAX_ITERS} 轮工具调用
@@ -332,7 +479,7 @@ def run_customer_insight_agent(
         .all()
     )
 
-    system_prompt = _build_system_prompt(customer, prior)
+    system_prompt = _build_system_prompt(customer, prior, db=db)
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"请对客户「{customer.customer_name}」做一次洞察研究。"},

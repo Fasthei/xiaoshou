@@ -38,6 +38,10 @@ class Customer(Base):
     website = Column(String(500), comment="公司官网")
     linkedin_url = Column(String(500), comment="LinkedIn 公司主页")
     note = Column(Text, comment="业务备注 / 标签")
+    # --- 客户来源 & 类型 (转介绍 / 渠道商) ---
+    customer_type = Column(String(20), default="direct", server_default="direct", comment="客户类型 direct(直客) / channel(渠道)")
+    referrer = Column(String(200), comment="转介绍来源文本（老客户/合作伙伴推荐）")
+    channel_notes = Column(Text, comment="渠道客户专属: 渠道方透露的终端用户说明")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     created_by = Column(BigInteger)

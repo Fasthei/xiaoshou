@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
-  Button, Card, Space, Table, Tag, Typography, Tabs, Drawer, Timeline, Empty,
+  Alert, Button, Card, Space, Table, Tag, Typography, Tabs, Drawer, Timeline, Empty,
   Popconfirm, Modal, Input, message as antdMessage,
 } from 'antd';
 import {
-  PlusOutlined, ReloadOutlined, HistoryOutlined, StopOutlined,
+  ReloadOutlined, HistoryOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Allocation, Pagination } from '../types';
-import AllocationCreateModal from '../components/AllocationCreateModal';
 
 const { Title, Text } = Typography;
 
@@ -34,7 +33,6 @@ export default function Allocations() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
   const [tab, setTab] = useState<'active' | 'cancelled'>('active');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyAllocation, setHistoryAllocation] = useState<Allocation | null>(null);
@@ -53,6 +51,8 @@ export default function Allocations() {
       if (tab === 'active') items = items.filter((a: any) => a.allocation_status !== 'CANCELLED');
       setRows(items);
       setTotal(tab === 'active' ? items.length : data.total);
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '加载订单列表失败');
     } finally {
       setLoading(false);
     }
@@ -74,10 +74,14 @@ export default function Allocations() {
 
   const cancelAllocation = async () => {
     if (!cancelFor) return;
-    await api.post(`/api/allocations/${cancelFor.id}/cancel`, { reason: cancelReason || undefined });
-    antdMessage.success('已取消订单，货源已退回池子');
-    setCancelFor(null); setCancelReason('');
-    load();
+    try {
+      await api.post(`/api/allocations/${cancelFor.id}/cancel`, { reason: cancelReason || undefined });
+      antdMessage.success('已取消订单，货源已退回池子');
+      setCancelFor(null); setCancelReason('');
+      load();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '取消订单失败');
+    }
   };
 
   const baseCols: any[] = [
@@ -122,11 +126,10 @@ export default function Allocations() {
         <Title level={4} style={{ margin: 0 }}>订单管理</Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            新建订单
-          </Button>
         </Space>
       </Space>
+
+      <Alert type="info" showIcon message="订单由云管同步自动生成，不支持手动新建" style={{ marginBottom: 12 }} />
 
       <Tabs
         activeKey={tab}
@@ -135,10 +138,6 @@ export default function Allocations() {
           { key: 'active', label: '进行中 / 全部' },
           { key: 'cancelled', label: <Space>已取消 <Tag color="red">历史</Tag></Space> },
         ]}
-      />
-
-      <AllocationCreateModal
-        open={createOpen} onClose={() => setCreateOpen(false)} onCreated={load}
       />
 
       <Table<Allocation>
