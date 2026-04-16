@@ -6,7 +6,7 @@ without another round-trip.
 """
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, DateTime, Index, Integer, JSON, String
+from sqlalchemy import BigInteger, Column, DateTime, Integer, JSON, String
 from sqlalchemy.sql import func
 
 from app.database import Base
