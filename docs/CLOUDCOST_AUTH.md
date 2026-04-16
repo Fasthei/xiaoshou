@@ -8,79 +8,111 @@ rejects anonymous calls to every endpoint xiaoshou's bridge depends on
 `/api/health`).
 
 This document explains how xiaoshou authenticates outbound calls to cloudcost,
-what env vars operators must set, and how to verify the wiring end-to-end.
+what env vars operators may set, and how to verify the wiring end-to-end.
 
 ---
 
-## 1. Trust model
+## 1. Trust model — shared Casdoor, forwarded user JWT
 
-xiaoshou is a server-side Python (FastAPI) app. It talks to cloudcost in **two
-directions**:
+xiaoshou and cloudcost share the **same Casdoor tenant**. Because of that, the
+cheapest correct thing is for xiaoshou to **forward the caller's Casdoor
+Bearer token** on outbound calls rather than use a separate machine identity.
+This preserves per-user audit context downstream and needs zero operator
+configuration.
 
-| Direction                       | Caller       | Auth carrier                                  |
-|---------------------------------|--------------|-----------------------------------------------|
-| xiaoshou → cloudcost (outbound) | xiaoshou API | `Authorization: Bearer <M2M-JWT>` **or** `X-Api-Key: <static-key>` |
-| cloudcost → xiaoshou (inbound)  | cloudcost    | Same pair, verified by `app/integrations/casdoor_m2m.py` |
+| Direction                       | Caller       | Auth carrier (prod)                                           |
+|---------------------------------|--------------|---------------------------------------------------------------|
+| xiaoshou → cloudcost (outbound) | xiaoshou API | `Authorization: Bearer <caller's Casdoor JWT>` (forwarded as-is) |
+| cloudcost → xiaoshou (inbound)  | cloudcost    | Casdoor M2M JWT **or** `X-Api-Key`, verified by `app/integrations/casdoor_m2m.py` |
 
-End-user Casdoor tokens (issued to the SPA) are **never** forwarded to
-cloudcost. Cloudcost doesn't know xiaoshou's users — it trusts the xiaoshou
-service identity instead. The user's Casdoor token only passes `require_auth`
-on xiaoshou's own edge (e.g. `/api/bridge/*`); after that point xiaoshou
-swaps in its own service credentials when calling cloudcost.
+The forwarding happens in the FastAPI handlers (`app/api/bridge.py`,
+`app/api/trend.py`, `app/api/customer_resources.py`) — each extracts
+`Authorization: Bearer <jwt>` from the inbound `Request` and passes it to
+`CloudCostClient(..., bearer_token=...)`. See `_bearer_from_request` in
+`app/api/bridge.py`.
+
+Per-request side effects you can rely on:
+
+- Cloudcost sees the same `sub` / `aud` / roles the end user has in xiaoshou.
+- RBAC on cloudcost is enforced against the end user, not a service role. If
+  cloudcost returns `403 missing required role`, the fix is a role assignment
+  in Casdoor, **not** a xiaoshou env tweak.
+- `/docs` and `/health` still work unauthenticated (they don't call cloudcost).
 
 ---
 
-## 2. Env vars on xiaoshou (outbound)
+## 2. Precedence of credentials on `CloudCostClient`
 
-Set exactly one of the two — both will work together if both are set, but only
-one is required.
+`CloudCostClient` accepts three credential sources. They are tried in this
+order and the first hit wins for the `Authorization` header:
 
-```bash
-# Option A: preferred — Casdoor-issued M2M JWT (machine-to-machine, short-lived)
-CLOUDCOST_M2M_TOKEN=eyJ...           # refreshed by sidecar / cronjob
-# Option B: static fallback for bootstrap (before cloudcost joins Casdoor)
-CLOUDCOST_API_KEY=<32+ random bytes>
-```
+1. **`bearer_token=...` kwarg** — forwarded caller JWT (prod path).
+2. **`CLOUDCOST_M2M_TOKEN` env** — Casdoor client_credentials JWT
+   (fallback; used by background jobs without a user context).
+3. *(none)* → `Authorization` header is omitted → cloudcost returns `401`.
 
-`CloudCostClient` (see `app/integrations/cloudcost.py`) will read these from
-env at construction time and forward them on every outbound request:
+Independently, if `CLOUDCOST_API_KEY` is set it is **always** sent as
+`X-Api-Key`. This is useful for local dev against a cloudcost deployment
+that still accepts a static key.
 
-```
-X-Api-Key: <CLOUDCOST_API_KEY>                 # if set
-Authorization: Bearer <CLOUDCOST_M2M_TOKEN>    # if set
-```
-
-Other cloudcost-related env:
-
-| Var                       | Required | Notes                                              |
-|---------------------------|----------|----------------------------------------------------|
+| Var                       | Required | Notes                                                          |
+|---------------------------|----------|----------------------------------------------------------------|
 | `CLOUDCOST_ENDPOINT`      | yes      | Base URL, e.g. `https://cloudcost-api.<region>.azurecontainerapps.io` |
 | `CLOUDCOST_MATCH_FIELD`   | no       | Which `service_account` attr equals `customer_code`. Default `external_project_id`. |
-| `CLOUDCOST_M2M_TOKEN`     | one of   | Casdoor client_credentials JWT. Rotate hourly.      |
-| `CLOUDCOST_API_KEY`       | one of   | Shared-secret static key. Rotate on incident.       |
+| `CLOUDCOST_M2M_TOKEN`     | no       | Casdoor client_credentials JWT fallback. Only consulted when no caller token is available. |
+| `CLOUDCOST_API_KEY`       | no       | Static `X-Api-Key`. Useful for local dev.                      |
 
-Unset both → outbound becomes anonymous and cloudcost returns `401/403`,
-which the bridge layer converts to the friendly `502 {"detail": "云管暂不可达..."}`
-envelope. That is the observable signal that auth isn't wired up yet.
+In production today **none of the cloudcost env vars need to be set** beyond
+`CLOUDCOST_ENDPOINT` and `CLOUDCOST_MATCH_FIELD` — the caller's JWT does the
+work.
 
 ---
 
-## 3. Env vars on xiaoshou (inbound, for cloudcost → xiaoshou)
+## 3. Env vars on xiaoshou for the *inbound* direction (cloudcost → xiaoshou)
 
 Cloudcost also pulls data from xiaoshou (`/api/internal/*`). Accept either a
-Casdoor M2M JWT whose `aud` is in the allowlist, or the same static API key:
+Casdoor M2M JWT whose `aud` is in the allowlist, or a static API key:
 
-| Var                               | Purpose                                         |
-|-----------------------------------|-------------------------------------------------|
+| Var                               | Purpose                                                       |
+|-----------------------------------|---------------------------------------------------------------|
 | `CASDOOR_INTERNAL_ALLOWED_CLIENTS`| Comma-sep list of Casdoor client IDs allowed to hit `/api/internal/*`. |
-| `XIAOSHOU_INTERNAL_API_KEY`       | Static shared secret. Sent by cloudcost as `X-Api-Key`. |
+| `XIAOSHOU_INTERNAL_API_KEY`       | Static shared secret. Sent by cloudcost as `X-Api-Key`.       |
 
 See `app/integrations/casdoor_m2m.py::verify_internal` for the verification
 path.
 
 ---
 
-## 4. Token acquisition (Casdoor client_credentials)
+## 4. How a request actually flows
+
+```
+Browser (user Casdoor JWT)
+  │  Authorization: Bearer eyJ...  (the user's token)
+  ▼
+xiaoshou /api/bridge/alerts?month=2026-04
+  │  require_auth → validates aud/iss on the user token
+  │  _bearer_from_request → extracts raw "eyJ..." string
+  │  CloudCostClient(bearer_token="eyJ...")
+  ▼
+cloudcost /api/alerts/rule-status
+  │  validates the SAME token (same Casdoor, same aud accepted)
+  │  RBAC check against the user's roles
+  ▼
+  200 (happy) | 401 (expired token) | 403 (missing role) | 500 (cloudcost bug)
+```
+
+If the caller token is expired or missing, the bridge handler catches the
+resulting `401` as an `httpx.HTTPStatusError` and wraps it in the
+`502 {"detail": "云管暂不可达: HTTPStatusError: ..."}` envelope the SPA knows how
+to render.
+
+---
+
+## 5. M2M fallback (CLOUDCOST_M2M_TOKEN)
+
+There is no user context for scheduled/system callers (cron jobs, background
+sync, etc.). For those, obtain a Casdoor client_credentials token at startup
+and set it via env:
 
 ```bash
 curl -sS -X POST \
@@ -92,46 +124,53 @@ curl -sS -X POST \
   | jq -r .access_token
 ```
 
-For production, use a sidecar / cronjob that refreshes `CLOUDCOST_M2M_TOKEN`
-every 30 minutes (tokens are typically ~1 h) and writes to the Container App's
-secret store. Never bake tokens into images.
+Refresh every 30 minutes and write back into the Container App's secret
+store. Never bake tokens into images.
+
+In production today no scheduled-job path exercises cloudcost, so
+`CLOUDCOST_M2M_TOKEN` is typically unset.
 
 ---
 
-## 5. Verifying the wiring end-to-end
+## 6. Verifying the wiring end-to-end
 
 Against a live environment:
 
 ```bash
-export TOKEN=<user-casdoor-token>
+export TOKEN=<fresh Casdoor token from Casdoor /access_token>
 export API=https://xiaoshou-api.<region>.azurecontainerapps.io
 
-# 200 means xiaoshou → cloudcost succeeded (auth passed both hops).
-# 502 with detail "云管暂不可达" means xiaoshou edge is fine but the outbound
-# call to cloudcost failed — usually a missing/stale M2M token.
+# 200 means forwarding works end-to-end.
+# 502 with detail "云管暂不可达" means the outbound call failed — usually
+#   a stale/expired user token, or the user lacks the cloudcost role.
 curl -sS -H "Authorization: Bearer $TOKEN" "$API/api/bridge/alerts?month=$(date +%Y-%m)"
 curl -sS -H "Authorization: Bearer $TOKEN" "$API/api/bridge/bills?month=$(date +%Y-%m)&page_size=5"
 curl -sS -H "Authorization: Bearer $TOKEN" "$API/api/trend/daily?days=7"
+curl -sS -H "Authorization: Bearer $TOKEN" "$API/api/customers/2/resources"
 ```
 
-Or just run the smoke script (token + API exported):
+Or just run the smoke script:
 
 ```bash
 BASE_URL=$API TOKEN=$TOKEN bash scripts/smoke-test.sh
 ```
 
-All three bridge routes must return either `200` or the acceptable-502
-envelope. Anything else (especially blank 502 from ingress, 401, or 5xx with a
-Python stack trace) is a real regression — page the platform team.
+All four bridge-family routes must return either `200` or the acceptable-502
+envelope. Anything else (blank 502 from ingress, 401 bubbling up, or 5xx with
+a Python stack trace) is a real regression — page the platform team.
+
+If you see `502 "... cloudcost returned 403 ... missing required role ..."`,
+that's a **cloudcost-side RBAC problem**: assign the right role to the user
+in Casdoor. It is not a xiaoshou bug.
 
 ---
 
-## 6. Rollback / break-glass
+## 7. Rollback / break-glass
 
 If cloudcost revokes `AUTH_ENFORCED` (e.g. during an incident), xiaoshou
-continues to work: the outbound headers are ignored by anonymous cloudcost,
-and responses come back normally. You do **not** need to redeploy xiaoshou to
-respond to a cloudcost auth change.
+continues to work: forwarded headers are ignored by anonymous cloudcost,
+and responses come back normally. You do **not** need to redeploy xiaoshou
+to respond to a cloudcost auth change.
 
 If xiaoshou must stop calling cloudcost entirely (blast-radius isolation):
 
