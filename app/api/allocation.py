@@ -89,6 +89,7 @@ def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db
         allocated_at=datetime.now(),
         remark=allocation.remark,
         approval_status="pending",
+        end_user_label=allocation.end_user_label,
     )
 
     # 更新货源已分配数量

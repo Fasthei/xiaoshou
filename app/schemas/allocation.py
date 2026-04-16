@@ -10,6 +10,7 @@ class AllocationBase(BaseModel):
     allocated_quantity: int = Field(..., description="分配数量")
     unit_price: Decimal = Field(..., description="单位售价")
     remark: Optional[str] = Field(None, description="备注")
+    end_user_label: Optional[str] = Field(None, description="渠道订单下终端用户标签 (仅 channel 客户)")
 
 
 class AllocationCreate(AllocationBase):

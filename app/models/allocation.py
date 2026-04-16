@@ -32,6 +32,8 @@ class Allocation(Base):
     approver_id = Column(Integer, nullable=True, comment="审批人 sales_user.id（软外键）")
     approved_at = Column(DateTime, nullable=True, comment="审批时间")
     approval_note = Column(String(500), nullable=True, comment="审批备注")
+    # 渠道客户订单专属: 该货源给渠道方哪个终端用户的备忘
+    end_user_label = Column(String(200), nullable=True, comment="渠道订单下终端用户标签")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_deleted = Column(Boolean, default=False)
