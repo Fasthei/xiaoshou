@@ -66,11 +66,19 @@ def test_resource_summary_aggregation(client):
     providers = {row["provider"]: row for row in data["by_provider"]}
     assert providers["AZURE"]["total"] == 4
     assert providers["AWS"]["total"] == 1
+    # 新语义: by_provider 每项不再带 allocated/available/rate, 改成按 status 分桶
+    assert "allocated" not in providers["AZURE"]
+    assert "allocation_rate" not in providers["AZURE"]
+    assert providers["AZURE"]["by_status"]["AVAILABLE"] == 3
+    assert providers["AZURE"]["by_status"]["EXHAUSTED"] == 1
+    assert providers["AWS"]["by_status"]["ALLOCATED"] == 1
 
-    # Top available only contains AVAILABLE status, sorted desc by available_quantity
+    # Top available 只筛 AVAILABLE, 不返回 available_quantity (云管没这字段)
     top = data["top_available"]
-    assert len(top) == 3
-    assert top[0]["resource_code"] == "S-3"
-    assert top[0]["available_quantity"] == 200
-    assert top[1]["resource_code"] == "S-1"
+    assert len(top) == 3  # 只 3 条 AVAILABLE (S-1, S-2, S-3)
     assert all(t["provider"] == "AZURE" for t in top)
+    codes = {t["resource_code"] for t in top}
+    assert codes == {"S-1", "S-2", "S-3"}
+    # 不应再暴露本地凑的 quantity 字段
+    assert "available_quantity" not in top[0]
+    assert "allocated_quantity" not in top[0]
