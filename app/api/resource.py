@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
@@ -10,7 +11,74 @@ from app.schemas.resource import (
     ResourceListResponse
 )
 
-router = APIRouter(prefix="/api/resources", tags=["货源管理"])
+router = APIRouter(prefix="/api/resources", tags=["货源看板"])
+
+
+@router.get("/summary", summary="货源聚合看板数据")
+def get_resource_summary(db: Session = Depends(get_db)):
+    """货源看板聚合数据: 总数 / 按状态 / 按云厂商 / Top 10 可用货源。
+
+    Note: This static route MUST be registered before /{resource_id}
+    so FastAPI does not try to parse 'summary' as an int resource_id.
+    """
+    base = db.query(Resource).filter(Resource.is_deleted == False)
+    all_items = base.all()
+
+    total = len(all_items)
+
+    by_status: dict[str, int] = {}
+    for it in all_items:
+        key = it.resource_status or "UNKNOWN"
+        by_status[key] = by_status.get(key, 0) + 1
+
+    def _avail(it: Resource) -> int:
+        if it.available_quantity is not None:
+            return int(it.available_quantity)
+        tot = int(it.total_quantity or 0)
+        alloc = int(it.allocated_quantity or 0)
+        return max(tot - alloc, 0)
+
+    # by provider aggregation
+    prov_map: dict[str, dict] = {}
+    for it in all_items:
+        p = it.cloud_provider or "UNKNOWN"
+        row = prov_map.setdefault(p, {"provider": p, "total": 0, "available": 0, "allocated": 0})
+        row["total"] += 1
+        row["available"] += _avail(it)
+        row["allocated"] += int(it.allocated_quantity or 0)
+
+    by_provider = []
+    for row in prov_map.values():
+        denom = row["available"] + row["allocated"]
+        rate = (row["allocated"] / denom) if denom > 0 else 0.0
+        by_provider.append({
+            "provider": row["provider"],
+            "total": row["total"],
+            "available": row["available"],
+            "allocated": row["allocated"],
+            "allocation_rate": round(rate, 4),
+        })
+    by_provider.sort(key=lambda r: r["total"], reverse=True)
+
+    # Top 10 available (by computed available quantity desc)
+    top_items = sorted(
+        [it for it in all_items if it.resource_status == "AVAILABLE"],
+        key=_avail, reverse=True,
+    )[:10]
+    top_available = [{
+        "id": it.id,
+        "resource_code": it.resource_code,
+        "account_name": it.account_name,
+        "provider": it.cloud_provider,
+        "available_quantity": _avail(it),
+    } for it in top_items]
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "by_provider": by_provider,
+        "top_available": top_available,
+    }
 
 
 @router.post("", response_model=ResourceResponse, summary="创建货源")

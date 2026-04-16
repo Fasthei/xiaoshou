@@ -41,7 +41,7 @@ npm run preview
 | `/login` | Casdoor 登录入口 |
 | `/auth/callback` | OAuth2 回调，交换 code → token |
 | `/customers` | 客户管理（列表 + 新建 + 编辑） |
-| `/resources` | 货源管理（筛选 + 列表） |
+| `/resources` | 货源看板（筛选 + 列表） |
 | `/allocations` | 分配管理（列表 + 毛利） |
 | `/usage` | 用量查询（按客户汇总 + 明细） |
 

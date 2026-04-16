@@ -30,7 +30,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
   const staticEntries: Entry[] = useMemo(() => [
     { key: 'nav:dashboard',   icon: <DashboardOutlined />,  title: '总览',    hint: '回到仪表盘',  action: () => nav('/dashboard') },
     { key: 'nav:customers',   icon: <TeamOutlined />,       title: '客户管理', hint: '客户主档',    action: () => nav('/customers') },
-    { key: 'nav:resources',   icon: <InboxOutlined />,      title: '货源管理', hint: '货源池',      action: () => nav('/resources') },
+    { key: 'nav:resources',   icon: <InboxOutlined />,      title: '货源看板', hint: '货源池',      action: () => nav('/resources') },
     { key: 'nav:allocations', icon: <AppstoreOutlined />,   title: '分配管理', hint: '毛利 / 状态', action: () => nav('/allocations') },
     { key: 'nav:usage',       icon: <LineChartOutlined />,  title: '用量查询', hint: '按客户查用量', action: () => nav('/usage') },
     { key: 'act:sync',        icon: <SyncOutlined />,       title: '从工单同步客户', tag: '动作',

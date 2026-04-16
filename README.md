@@ -5,7 +5,7 @@
 ## 功能模块
 
 - **客户管理**：客户主档、联系人管理、客户列表查询
-- **货源管理**：货源池管理、可分配货源查询
+- **货源看板**：货源池管理、可分配货源查询
 - **分配管理**：货源分配、毛利计算
 - **用量查询**：客户用量、用量趋势、用量汇总
 
@@ -57,7 +57,7 @@ uvicorn main:app --reload
 | `GET /api/auth/callback` | 公开 | OAuth2 回调，换 token |
 | `GET /api/auth/me` | **需 JWT** | 当前用户信息 |
 | `/api/customers/*` | **需 JWT** | 客户管理 |
-| `/api/resources/*` | **需 JWT** | 货源管理 |
+| `/api/resources/*` | **需 JWT** | 货源看板 |
 | `/api/allocations/*` | **需 JWT** | 分配管理 |
 | `/api/usage/*` | **需 JWT** | 用量查询 |
 
