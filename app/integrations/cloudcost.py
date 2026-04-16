@@ -1,13 +1,17 @@
 """Client for 云管 (cloudcost).
 
 Historically read-only and unauthenticated per docs/AI-BRAIN-API.md. Cloudcost
-has since started requiring auth on some deployments, so this client now
-optionally forwards credentials if provided via env:
+has since started requiring auth on all deployments (``AUTH_ENFORCED=true``),
+so this client now forwards credentials in one of three ways:
 
-- ``CLOUDCOST_API_KEY``  → sent as ``X-Api-Key``
-- ``CLOUDCOST_M2M_TOKEN`` → sent as ``Authorization: Bearer``
+- Explicit ``bearer_token`` arg → sent as ``Authorization: Bearer`` (highest
+  priority; used by bridge/trend/customer_resources handlers to forward the
+  caller's Casdoor JWT, since xiaoshou and cloudcost share the same Casdoor).
+- ``CLOUDCOST_API_KEY`` env      → sent as ``X-Api-Key`` (optional fallback).
+- ``CLOUDCOST_M2M_TOKEN`` env    → sent as ``Authorization: Bearer``
+  (M2M fallback; only used when no explicit ``bearer_token`` is provided).
 
-Both are optional: unset ⇒ anonymous calls (old behaviour).
+All three are optional: unset ⇒ anonymous calls (for tests / legacy deploys).
 
 Canonical mapping (see SSO.md §data-model):
   xiaoshou.customer.customer_code   ← gongdan.customer.customerCode (source of truth)
@@ -58,11 +62,14 @@ class CloudCostClient:
         match_field: str = "external_project_id",
         api_key: Optional[str] = None,
         m2m_token: Optional[str] = None,
+        bearer_token: Optional[str] = None,
     ):
         self.base = endpoint.rstrip("/")
         self.timeout = timeout
         # Which ServiceAccount attribute is matched against xiaoshou.customer_code
         self.match_field = match_field
+        # Explicit forwarded bearer (e.g. caller's Casdoor JWT) takes precedence.
+        self.bearer_token = bearer_token or None
         # Optional credentials (fall back to env so callers don't need to plumb them).
         self.api_key = api_key if api_key is not None else os.getenv("CLOUDCOST_API_KEY", "") or None
         self.m2m_token = (
@@ -73,7 +80,12 @@ class CloudCostClient:
         h: Dict[str, str] = {"Accept": "application/json"}
         if self.api_key:
             h["X-Api-Key"] = self.api_key
-        if self.m2m_token:
+        # Explicit forwarded caller token wins over the M2M fallback — cloudcost
+        # and xiaoshou share the same Casdoor, so forwarding the user's JWT is
+        # both sufficient and preserves per-user audit context downstream.
+        if self.bearer_token:
+            h["Authorization"] = f"Bearer {self.bearer_token}"
+        elif self.m2m_token:
             h["Authorization"] = f"Bearer {self.m2m_token}"
         return h
 

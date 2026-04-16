@@ -177,6 +177,58 @@ def test_cloudcost_client_sends_auth_headers(monkeypatch):
     assert captured["headers"].get("authorization") == "Bearer ey.test.jwt"
 
 
+def test_cloudcost_client_forwards_explicit_bearer(monkeypatch):
+    """Explicit bearer_token (e.g. user's Casdoor JWT) wins over env M2M token.
+
+    Production scenario: cloudcost has AUTH_ENFORCED=true and shares Casdoor
+    with xiaoshou. Bridge/trend/customer_resources handlers extract the caller's
+    Authorization header and forward it via bearer_token=; this must win.
+    """
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json=[], request=request)
+
+    # Env M2M still set — the user bearer MUST still win.
+    monkeypatch.setenv("CLOUDCOST_M2M_TOKEN", "ey.m2m.should-be-ignored")
+
+    transport = httpx.MockTransport(handler)
+    client = CloudCostClient("https://cc.example", bearer_token="ey.user.casdoor.jwt")
+
+    def fake_client(self):  # noqa: ANN001
+        return httpx.Client(transport=transport, headers=self._headers(), timeout=self.timeout)
+
+    monkeypatch.setattr(CloudCostClient, "_client", fake_client)
+    client.alerts_rule_status("2026-04")
+    assert captured["headers"].get("authorization") == "Bearer ey.user.casdoor.jwt"
+
+
+def test_bridge_alerts_forwards_caller_bearer_to_cloudcost(client, monkeypatch):
+    """End-to-end: /api/bridge/alerts must forward the incoming Authorization
+    header to cloudcost. This is the exact bug that caused 4 routes to 502 in
+    production after cloudcost enabled AUTH_ENFORCED."""
+    # Disable auth so we don't need a signed JWT; the handler still must copy
+    # whatever Authorization header the caller sends to the upstream call.
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json=[], request=request)
+
+    _patch_httpx_client(monkeypatch, handler)
+    r = client.get(
+        "/api/bridge/alerts?month=2026-04",
+        headers={"Authorization": "Bearer ey.caller.casdoor"},
+    )
+    assert r.status_code == 200, r.text
+    assert captured["headers"].get("authorization") == "Bearer ey.caller.casdoor"
+
+
 def test_cloudcost_non_json_raises_decoding_error():
     """Unit-level: _parse_json raises httpx.DecodingError (not plain JSONDecodeError)."""
     req = httpx.Request("GET", "https://cc.example/api/foo")

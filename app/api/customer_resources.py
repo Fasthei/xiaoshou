@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,14 @@ from app.config import get_settings
 from app.database import get_db
 from app.integrations import CloudCostClient
 from app.models.customer import Customer
+
+
+def _bearer_from_request(request: Request):
+    """Forward the caller's Casdoor bearer token to cloudcost (shared Casdoor)."""
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return None
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +47,7 @@ def _bad_gateway(e: BaseException) -> JSONResponse:
 
 @router.get("/{customer_id}/resources", summary="该客户在云管侧的关联货源")
 def customer_resources(
+    request: Request,
     customer_id: int,
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
@@ -53,7 +62,11 @@ def customer_resources(
     if not customer:
         raise HTTPException(404, "客户不存在")
 
-    client = CloudCostClient(s.CLOUDCOST_ENDPOINT, match_field=s.CLOUDCOST_MATCH_FIELD)
+    client = CloudCostClient(
+        s.CLOUDCOST_ENDPOINT,
+        match_field=s.CLOUDCOST_MATCH_FIELD,
+        bearer_token=_bearer_from_request(request),
+    )
     try:
         accounts = client.resources_for_customer(customer.customer_code)
     except HTTPException:
