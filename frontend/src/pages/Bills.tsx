@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Table, Tag, Typography, Space, DatePicker, Button, Select, Statistic,
-  Row, Col, Empty, Skeleton, Divider,
+  Row, Col, Empty, Skeleton, Divider, Result, Alert,
 } from 'antd';
 import {
   ReloadOutlined, DollarOutlined, SearchOutlined, AppstoreOutlined,
   TeamOutlined, LineChartOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
+import { AxiosError } from 'axios';
 import { api } from '../api/axios';
 
 const { Title, Text } = Typography;
@@ -54,6 +55,7 @@ export default function Bills() {
   const [loading, setLoading] = useState(false);
   const [month, setMonth] = useState<Dayjs | null>(dayjs());
   const [status, setStatus] = useState<string | undefined>();
+  const [billsError, setBillsError] = useState<AxiosError<{ detail?: string }> | null>(null);
 
   // ---- customer/resource drill-down (merged from Usage page) ----
   const [mode, setMode] = useState<'customer' | 'resource'>('customer');
@@ -68,11 +70,15 @@ export default function Bills() {
 
   const loadBills = async () => {
     setLoading(true);
+    setBillsError(null);
     try {
       const { data } = await api.get<Bill[]>('/api/bridge/bills', {
         params: { month: month?.format('YYYY-MM'), status, page_size: 100 },
       });
       setRows(data);
+    } catch (err) {
+      setBillsError(err as AxiosError<{ detail?: string }>);
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -298,25 +304,45 @@ export default function Bills() {
             <Button icon={<ReloadOutlined />} onClick={loadBills}>刷新</Button>
           </Space>
         </Space>
-        <Table<Bill>
-          rowKey="id" loading={loading} dataSource={rows} pagination={{ pageSize: 20 }}
-          columns={[
-            { title: '月份', dataIndex: 'month', width: 110 },
-            { title: '云厂商', dataIndex: 'provider', width: 100,
-              render: (v: string) => <Tag color="blue">{v}</Tag> },
-            { title: '原始成本', dataIndex: 'original_cost', width: 120,
-              render: (v: number) => `¥${Number(v).toFixed(2)}` },
-            { title: '加价倍率', dataIndex: 'markup_rate', width: 110,
-              render: (v: number) => `${Number(v).toFixed(2)}x` },
-            { title: '调整', dataIndex: 'adjustment', width: 100,
-              render: (v: number) => `¥${Number(v).toFixed(2)}` },
-            { title: '最终', dataIndex: 'final_cost', width: 120,
-              render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
-            { title: '状态', dataIndex: 'status', width: 110,
-              render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{s}</Tag> },
-            { title: '创建', dataIndex: 'created_at', width: 170 },
-          ]}
-        />
+        {billsError ? (
+          <Result
+            status="500"
+            title="云管账单暂不可达"
+            subTitle={
+              `${billsError.response?.status ? billsError.response.status + ' · ' : ''}` +
+              `${billsError.response?.data?.detail || billsError.message || '稍后再试'}`
+            }
+            extra={<Button type="primary" icon={<ReloadOutlined />} onClick={loadBills}>重试</Button>}
+          />
+        ) : (
+          <>
+            {rows.length === 0 && !loading && (
+              <Alert
+                type="info" showIcon style={{ marginBottom: 12 }}
+                message="本月暂无账单" description="若云管已切分月度账单仍无数据, 可稍后刷新重试。"
+              />
+            )}
+            <Table<Bill>
+              rowKey="id" loading={loading} dataSource={rows} pagination={{ pageSize: 20 }}
+              columns={[
+                { title: '月份', dataIndex: 'month', width: 110 },
+                { title: '云厂商', dataIndex: 'provider', width: 100,
+                  render: (v: string) => <Tag color="blue">{v}</Tag> },
+                { title: '原始成本', dataIndex: 'original_cost', width: 120,
+                  render: (v: number) => `¥${Number(v).toFixed(2)}` },
+                { title: '加价倍率', dataIndex: 'markup_rate', width: 110,
+                  render: (v: number) => `${Number(v).toFixed(2)}x` },
+                { title: '调整', dataIndex: 'adjustment', width: 100,
+                  render: (v: number) => `¥${Number(v).toFixed(2)}` },
+                { title: '最终', dataIndex: 'final_cost', width: 120,
+                  render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
+                { title: '状态', dataIndex: 'status', width: 110,
+                  render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{s}</Tag> },
+                { title: '创建', dataIndex: 'created_at', width: 170 },
+              ]}
+            />
+          </>
+        )}
       </Card>
     </div>
   );
