@@ -33,7 +33,7 @@ class CustomerBase(BaseModel):
     industry: Optional[str] = Field(None, description="所属行业")
     region: Optional[str] = Field(None, description="所属地区")
     customer_level: Optional[str] = Field(None, description="客户级别")
-    customer_status: str = Field(..., description="客户状态 potential/active/inactive/frozen")
+    customer_status: str = Field(..., description="客户状态 potential/active/formal/inactive/frozen")
     sales_user_id: Optional[int] = Field(None, description="所属销售")
     operation_user_id: Optional[int] = Field(None, description="所属运营")
     source_label: Optional[str] = Field(None, description="来源描述 (用户手填)")

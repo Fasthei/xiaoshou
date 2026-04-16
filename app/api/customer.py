@@ -14,7 +14,9 @@ from app.schemas.customer import (
     CustomerContactResponse
 )
 
-VALID_STATUSES = {"potential", "active", "inactive", "frozen"}
+VALID_STATUSES = {"potential", "active", "formal", "inactive", "frozen"}
+# status 值只允许由工单同步 (system) 自动设置, 用户路径 (POST/PUT /api/customers) 拒绝
+SYSTEM_ONLY_STATUSES = {"formal"}
 
 
 def _attach_sales_user_name(customer: Customer, db: Session) -> Customer:
@@ -48,6 +50,9 @@ def create_customer(customer: CustomerCreateLite, db: Session = Depends(get_db))
     if status not in VALID_STATUSES:
         raise HTTPException(status_code=400,
                             detail=f"非法 customer_status: {status}, 允许值 {sorted(VALID_STATUSES)}")
+    if status in SYSTEM_ONLY_STATUSES:
+        raise HTTPException(status_code=400,
+                            detail="正式客户必须通过工单同步自动设置, 不能手动选择")
     payload["customer_status"] = status
 
     db_customer = Customer(**payload)
@@ -84,6 +89,17 @@ def update_customer(
         raise HTTPException(status_code=404, detail="客户不存在")
 
     update_data = customer_update.model_dump(exclude_unset=True)
+    if "customer_status" in update_data and update_data["customer_status"] is not None:
+        new_status = update_data["customer_status"].strip().lower()
+        if new_status == "prospect":
+            new_status = "potential"
+        if new_status not in VALID_STATUSES:
+            raise HTTPException(status_code=400,
+                                detail=f"非法 customer_status: {new_status}, 允许值 {sorted(VALID_STATUSES)}")
+        if new_status in SYSTEM_ONLY_STATUSES and customer.customer_status != new_status:
+            raise HTTPException(status_code=400,
+                                detail="正式客户必须通过工单同步自动设置, 不能手动选择")
+        update_data["customer_status"] = new_status
     for field, value in update_data.items():
         setattr(customer, field, value)
 
