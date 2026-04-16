@@ -4,6 +4,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeModeProvider, useThemeMode } from './contexts/ThemeContext';
 import PrivateRoute from './components/PrivateRoute';
+import RoleGuard from './components/RoleGuard';
 import AppLayout from './components/AppLayout';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
@@ -16,6 +17,7 @@ import Bills from './pages/Bills';
 import SalesTeam from './pages/SalesTeam';
 import ManagerDashboard from './pages/ManagerDashboard';
 import ManagerApprovals from './pages/ManagerApprovals';
+import SalesHome from './pages/SalesHome';
 
 function Shell() {
   const { mode } = useThemeMode();
@@ -34,16 +36,39 @@ function Shell() {
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/home" element={<SalesHome />} />
+              <Route path="/sales/home" element={<SalesHome />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/resources" element={<Resources />} />
               <Route path="/allocations" element={<Allocations />} />
               <Route path="/usage" element={<Navigate to="/bills" replace />} />
               <Route path="/alerts" element={<Alerts />} />
-              <Route path="/bills" element={<Bills />} />
+              <Route
+                path="/bills"
+                element={
+                  <RoleGuard allowed={['ops', 'sales-manager']}>
+                    <Bills />
+                  </RoleGuard>
+                }
+              />
               <Route path="/sales-team" element={<SalesTeam />} />
-              <Route path="/manager" element={<ManagerDashboard />} />
-              <Route path="/manager/approvals" element={<ManagerApprovals />} />
+              <Route
+                path="/manager"
+                element={
+                  <RoleGuard allowed={['sales-manager']}>
+                    <ManagerDashboard />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/manager/approvals"
+                element={
+                  <RoleGuard allowed={['sales-manager']}>
+                    <ManagerApprovals />
+                  </RoleGuard>
+                }
+              />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

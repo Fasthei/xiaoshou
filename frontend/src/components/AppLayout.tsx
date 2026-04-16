@@ -7,24 +7,45 @@ import {
   LineChartOutlined, LogoutOutlined, UserOutlined,
   SearchOutlined, BulbOutlined, BulbFilled,
   AlertOutlined, DollarOutlined, FundProjectionScreenOutlined,
+  RocketOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useThemeMode } from '../contexts/ThemeContext';
+import { getCurrentRoles } from '../api/axios';
 import CommandPalette from './CommandPalette';
 
 const { Header, Sider, Content } = Layout;
 
-const menuItems = [
+// roles 为 undefined 表示所有 authenticated user 可见。
+// 超管 (admin / root) 永远可见全部。
+type MenuEntry = {
+  key: string;
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  roles?: string[];
+};
+
+const ALL_MENU_ITEMS: MenuEntry[] = [
+  { key: '/home',        icon: <RocketOutlined />,     label: <Link to="/home">我的工作台</Link> },
   { key: '/dashboard',   icon: <DashboardOutlined />,  label: <Link to="/dashboard">总览</Link> },
-  { key: '/manager',     icon: <FundProjectionScreenOutlined />, label: <Link to="/manager">销售主管</Link> },
+  { key: '/manager',     icon: <FundProjectionScreenOutlined />, label: <Link to="/manager">销售主管</Link>, roles: ['sales-manager'] },
   { key: '/customers',   icon: <TeamOutlined />,       label: <Link to="/customers">客户管理</Link> },
   { key: '/resources',   icon: <InboxOutlined />,      label: <Link to="/resources">货源看板</Link> },
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
   { key: '/sales-team',  icon: <UserOutlined />,       label: <Link to="/sales-team">销售团队</Link> },
   { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link> },
-  { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link> },
+  { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link>, roles: ['ops', 'sales-manager'] },
 ];
+
+function filterMenuByRoles(roles: string[]): MenuEntry[] {
+  const isAdmin = roles.includes('admin') || roles.includes('root');
+  return ALL_MENU_ITEMS.filter((it) => {
+    if (!it.roles) return true;
+    if (isAdmin) return true;
+    return it.roles.some((r) => roles.includes(r));
+  });
+}
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
@@ -33,6 +54,7 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const { token } = theme.useToken();
+  const menuItems = filterMenuByRoles(getCurrentRoles());
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
