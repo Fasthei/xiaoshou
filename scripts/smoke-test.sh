@@ -152,7 +152,7 @@ check "GET /api/sales/rules?active_only=false" 200 "$BASE_URL/api/sales/rules?ac
 check "GET /api/enrich/leads?q=新能源&num=3"    200 "$BASE_URL/api/enrich/leads?q=%E6%96%B0%E8%83%BD%E6%BA%90&num=3" \
   -H "Authorization: Bearer $TOKEN"
 
-echo "[7/7] Cloudcost bridge (200 or acceptable 502)"
+echo "[7/9] Cloudcost bridge (200 or acceptable 502)"
 check_bridge "GET /api/bridge/alerts?month=$MONTH" \
   "$BASE_URL/api/bridge/alerts?month=$MONTH" \
   -H "Authorization: Bearer $TOKEN"
@@ -162,6 +162,62 @@ check_bridge "GET /api/bridge/bills?month=$MONTH&page_size=5" \
 check_bridge "GET /api/trend/daily?days=7" \
   "$BASE_URL/api/trend/daily?days=7" \
   -H "Authorization: Bearer $TOKEN"
+
+# ---------------------------------------------------------------------------
+# [8/9] Briefing + customer health/timeline  (added by Team C — post Bug-A/B fix)
+#
+# These routes compose data from sales/customers/enrich and — for /timeline —
+# depend on sales_user soft-delete working (Bug A). If /api/sales/users
+# crashes on FK after an admin hard-delete, /api/customers/:id/timeline
+# would also 500. A green run here is part of the post-fix contract.
+# ---------------------------------------------------------------------------
+echo "[8/9] Briefing & customer 360"
+check "GET /api/briefing" 200 \
+  "$BASE_URL/api/briefing" \
+  -H "Authorization: Bearer $TOKEN"
+check "GET /api/customers/2/health" 200 \
+  "$BASE_URL/api/customers/2/health" \
+  -H "Authorization: Bearer $TOKEN"
+check "GET /api/customers/2/timeline" 200 \
+  "$BASE_URL/api/customers/2/timeline" \
+  -H "Authorization: Bearer $TOKEN"
+
+# ---------------------------------------------------------------------------
+# [9/9] customer_resources — depends on cloudcost (reads service_accounts),
+# so it inherits the same "200 or acceptable-502" contract as bridge routes.
+# Additionally, 404 is legit when the customer has no cloudcost match at all.
+# ---------------------------------------------------------------------------
+echo "[9/9] customer_resources tolerant probe (200 / 404 / acceptable 502)"
+cr_code=$(curl -s -o /tmp/smoke.body -w '%{http_code}' \
+  -H "Authorization: Bearer $TOKEN" \
+  "$BASE_URL/api/customers/2/resources" || true)
+if [[ "$cr_code" == "200" || "$cr_code" == "404" ]]; then
+  green "  ok  GET /api/customers/2/resources  -> $cr_code (tolerated)"
+  PASS=$((PASS+1))
+elif [[ "$cr_code" == "502" ]]; then
+  body=$(head -c 500 /tmp/smoke.body || true)
+  if printf '%s' "$body" | python3 -c '
+import json,sys
+raw = sys.stdin.read()
+try:
+    obj = json.loads(raw)
+except Exception:
+    sys.exit(2)
+detail = str(obj.get("detail", "")).lower()
+sys.exit(0 if ("云管" in detail) or ("cloudcost" in detail) else 3)
+' 2>/dev/null; then
+    yellow "  ok  GET /api/customers/2/resources  -> 502 (acceptable: cloudcost upstream down)"
+    PASS=$((PASS+1))
+  else
+    red   "  FAIL  GET /api/customers/2/resources  -> 502 without friendly envelope"
+    red   "    body: $body"
+    FAIL=$((FAIL+1))
+  fi
+else
+  red   "  FAIL  GET /api/customers/2/resources  -> got $cr_code"
+  red   "    body: $(head -c 200 /tmp/smoke.body)"
+  FAIL=$((FAIL+1))
+fi
 
 echo
 echo "Pass: $PASS   Fail: $FAIL"
