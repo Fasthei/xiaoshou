@@ -42,7 +42,7 @@ def client(db_session):
 def test_create_customer_and_fetch(client):
     r = client.post("/api/customers", json={
         "customer_code": "C-1", "customer_name": "酷睿科技",
-        "customer_status": "prospect", "industry": "AI",
+        "customer_status": "potential", "industry": "AI",
     })
     assert r.status_code == 200, r.text
     cid = r.json()["id"]
@@ -65,7 +65,7 @@ def test_create_customer_duplicate_code_rejected(client):
 
 def test_update_customer(client):
     cid = client.post("/api/customers", json={
-        "customer_code": "C-UP", "customer_name": "Old", "customer_status": "prospect",
+        "customer_code": "C-UP", "customer_name": "Old", "customer_status": "potential",
     }).json()["id"]
 
     r = client.put(f"/api/customers/{cid}", json={"customer_name": "New", "industry": "金融"})
@@ -77,14 +77,14 @@ def test_update_customer(client):
 def test_list_filters(client):
     client.post("/api/customers", json={"customer_code": "A1", "customer_name": "AI1", "customer_status": "active", "industry": "AI"})
     client.post("/api/customers", json={"customer_code": "A2", "customer_name": "金融1", "customer_status": "active", "industry": "金融"})
-    client.post("/api/customers", json={"customer_code": "A3", "customer_name": "AI2", "customer_status": "prospect", "industry": "AI"})
+    client.post("/api/customers", json={"customer_code": "A3", "customer_name": "AI2", "customer_status": "potential", "industry": "AI"})
 
     # industry filter
     r = client.get("/api/customers?industry=AI").json()
     assert r["total"] == 2
 
     # status filter
-    r = client.get("/api/customers?customer_status=prospect").json()
+    r = client.get("/api/customers?customer_status=potential").json()
     assert r["total"] == 1
 
     # keyword

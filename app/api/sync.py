@@ -42,6 +42,7 @@ def sync_customers_from_ticket(
         remote = client.list_customers()
         log.pulled_count = len(remote)
 
+        overrides: list[str] = []
         for rc in remote:
             if not rc.customer_code or not rc.name:
                 skipped += 1
@@ -52,20 +53,44 @@ def sync_customers_from_ticket(
                     Customer.is_deleted == False,  # noqa: E712
                 ).first()
                 if existing:
-                    changed = False
-                    if existing.customer_name != rc.name:
-                        existing.customer_name = rc.name
-                        changed = True
                     if existing.source_system != "gongdan":
-                        existing.source_system = "gongdan"
-                        existing.source_id = rc.id
-                        changed = True
-                    if changed:
-                        updated += 1
+                        # 冲突: 本地手工建的与工单编号撞车 -> 以工单为准, 删本地
+                        overrides.append(
+                            f"{rc.customer_code}: local id={existing.id} "
+                            f"source_system={existing.source_system!r} "
+                            f"name={existing.customer_name!r} -> replaced by gongdan"
+                        )
                         if not dry_run:
+                            # 软删本地 + INSERT 新工单记录
+                            existing.is_deleted = True
+                            existing.customer_code = (
+                                f"{existing.customer_code}__overridden_{existing.id}"
+                            )
                             db.add(existing)
+                            db.flush()
+                            db.add(Customer(
+                                customer_code=rc.customer_code,
+                                customer_name=rc.name,
+                                customer_status="active",
+                                source_system="gongdan",
+                                source_id=rc.id,
+                            ))
+                        updated += 1
                     else:
-                        skipped += 1
+                        # 本地已是工单来源: 走原来的 update 逻辑
+                        changed = False
+                        if existing.customer_name != rc.name:
+                            existing.customer_name = rc.name
+                            changed = True
+                        if existing.source_id != rc.id:
+                            existing.source_id = rc.id
+                            changed = True
+                        if changed:
+                            updated += 1
+                            if not dry_run:
+                                db.add(existing)
+                        else:
+                            skipped += 1
                 else:
                     created += 1
                     if not dry_run:
@@ -89,6 +114,9 @@ def sync_customers_from_ticket(
         log.error_count = errors
         log.status = "success" if errors == 0 else "failed"
         log.finished_at = datetime.utcnow()
+        if overrides:
+            audit = "[overrides] 本地手工客户被工单覆盖:\n" + "\n".join(overrides)
+            log.last_error = (audit[:2000])
         db.add(log); db.commit()
     except Exception as e:
         logger.exception("sync failed: %s", e)

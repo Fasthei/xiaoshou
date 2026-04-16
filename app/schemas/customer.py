@@ -33,9 +33,10 @@ class CustomerBase(BaseModel):
     industry: Optional[str] = Field(None, description="所属行业")
     region: Optional[str] = Field(None, description="所属地区")
     customer_level: Optional[str] = Field(None, description="客户级别")
-    customer_status: str = Field(..., description="客户状态")
+    customer_status: str = Field(..., description="客户状态 potential/active/inactive/frozen")
     sales_user_id: Optional[int] = Field(None, description="所属销售")
     operation_user_id: Optional[int] = Field(None, description="所属运营")
+    source_label: Optional[str] = Field(None, description="来源描述 (用户手填)")
     employee_size: Optional[int] = None
     annual_revenue: Optional[Decimal] = None
     last_meeting_at: Optional[datetime] = None
@@ -46,7 +47,21 @@ class CustomerBase(BaseModel):
 
 
 class CustomerCreate(CustomerBase):
-    pass
+    customer_status: str = Field("potential", description="客户状态, 默认潜在客户")
+
+
+class CustomerCreateLite(BaseModel):
+    """Relaxed create payload used by frontend new-customer form (status optional, defaults to potential)."""
+    customer_code: str
+    customer_name: str
+    customer_short_name: Optional[str] = None
+    industry: Optional[str] = None
+    region: Optional[str] = None
+    customer_level: Optional[str] = None
+    customer_status: Optional[str] = Field("potential")
+    sales_user_id: Optional[int] = None
+    operation_user_id: Optional[int] = None
+    source_label: Optional[str] = None
 
 
 class CustomerUpdate(BaseModel):
@@ -58,6 +73,7 @@ class CustomerUpdate(BaseModel):
     customer_status: Optional[str] = None
     sales_user_id: Optional[int] = None
     operation_user_id: Optional[int] = None
+    source_label: Optional[str] = None
     employee_size: Optional[int] = None
     annual_revenue: Optional[Decimal] = None
     last_meeting_at: Optional[datetime] = None

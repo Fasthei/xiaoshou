@@ -29,6 +29,7 @@ class Customer(Base):
     next_month_forecast = Column(Numeric(15, 2), comment="预计下月消耗")
     source_system = Column(String(50), comment="来源系统")
     source_id = Column(String(100), comment="来源系统ID")
+    source_label = Column(String(50), comment="来源描述 (用户手填, 如 朋友推荐/展会)")
     # --- 扩展档案字段 (PR-7 客户档案四件套 / 字段扩展) ---
     employee_size = Column(Integer, comment="员工规模")
     annual_revenue = Column(Numeric(18, 2), comment="年营收 (RMB)")

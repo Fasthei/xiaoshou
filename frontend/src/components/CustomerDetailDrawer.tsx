@@ -8,7 +8,13 @@ import {
 import {
   CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined,
   UserSwitchOutlined, HistoryOutlined, FileTextOutlined, BarChartOutlined,
+<<<<<<< HEAD
   WarningOutlined, ProfileOutlined, CustomerServiceOutlined,
+=======
+  WarningOutlined, ProfileOutlined,
+  FullscreenOutlined, FullscreenExitOutlined,
+  ZoomInOutlined, ZoomOutOutlined, CloseOutlined,
+>>>>>>> 5c84654 (feat(customer): 生命周期(potential/active)+drawer全屏+商机本地潜客)
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api } from '../api/axios';
@@ -40,6 +46,37 @@ export default function CustomerDetailDrawer({
   customer: Customer | null;
   onClose: () => void;
 }) {
+  // 抽屉尺寸 / 全屏 控制
+  const DEFAULT_W = 640;
+  const MIN_W = 480;
+  const STEP = 200;
+  const [drawerWidth, setDrawerWidth] = useState<number | string>(DEFAULT_W);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  const resetSize = () => { setDrawerWidth(DEFAULT_W); setFullscreen(false); };
+  const zoomOut = () => {
+    if (fullscreen) { setFullscreen(false); setDrawerWidth(DEFAULT_W); return; }
+    setDrawerWidth((w) =>
+      typeof w === 'number' ? Math.max(MIN_W, w - STEP) : DEFAULT_W
+    );
+  };
+  const zoomIn = () => {
+    if (fullscreen) return;
+    setDrawerWidth((w) => {
+      const maxPx = window.innerWidth;
+      const next = typeof w === 'number' ? Math.min(maxPx, w + STEP) : DEFAULT_W + STEP;
+      if (next >= maxPx) { setFullscreen(true); return '100vw'; }
+      return next;
+    });
+  };
+  const toggleFullscreen = () => {
+    if (fullscreen) { setFullscreen(false); setDrawerWidth(DEFAULT_W); }
+    else { setFullscreen(true); setDrawerWidth('100vw'); }
+  };
+
+  // 每次重新打开时回到默认尺寸
+  useEffect(() => { if (open) resetSize(); /* eslint-disable-next-line */ }, [open]);
+
   const [loading, setLoading] = useState(false);
   const [resources, setResources] = useState<CloudCostResource[]>([]);
   const [matchField, setMatchField] = useState('');
@@ -290,7 +327,30 @@ export default function CustomerDetailDrawer({
           </Space>
         ) : '客户详情'
       }
-      open={open} onClose={onClose} width={640} destroyOnClose
+      extra={
+        <Space size={4}>
+          <Button
+            size="small" type="text" icon={<ZoomOutOutlined />}
+            onClick={zoomOut} title="缩小" disabled={!fullscreen && typeof drawerWidth === 'number' && drawerWidth <= MIN_W}
+          />
+          <Button
+            size="small" type="text" icon={<ZoomInOutlined />}
+            onClick={zoomIn} title="放大" disabled={fullscreen}
+          />
+          <Button
+            size="small" type="text"
+            icon={fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+            onClick={toggleFullscreen} title={fullscreen ? '退出全屏' : '全屏'}
+          />
+          <Button
+            size="small" type="text" icon={<CloseOutlined />}
+            onClick={onClose} title="关闭"
+          />
+        </Space>
+      }
+      open={open} onClose={onClose} width={drawerWidth} destroyOnClose
+      closable={false}
+      maskClosable={!fullscreen}
     >
       {customer && (
         <Tabs
@@ -306,10 +366,24 @@ export default function CustomerDetailDrawer({
                   <Descriptions.Item label="行业">{customer.industry || '-'}</Descriptions.Item>
                   <Descriptions.Item label="地区">{customer.region || '-'}</Descriptions.Item>
                   <Descriptions.Item label="状态">
-                    <Tag color={customer.customer_status === 'active' ? 'green' : 'default'}>
-                      {customer.customer_status}
-                    </Tag>
+                    {(() => {
+                      const s = customer.customer_status;
+                      const colorMap: Record<string, string> = {
+                        active: 'green', potential: 'purple', prospect: 'purple',
+                        inactive: 'default', frozen: 'red',
+                      };
+                      const labelMap: Record<string, string> = {
+                        active: '客户池', potential: '潜在', prospect: '潜在',
+                        inactive: '停用', frozen: '冻结',
+                      };
+                      return <Tag color={colorMap[s] || 'default'}>{labelMap[s] || s}</Tag>;
+                    })()}
                   </Descriptions.Item>
+                  {customer.source_label ? (
+                    <Descriptions.Item label="来源">
+                      <Tag color="magenta">{customer.source_label}</Tag>
+                    </Descriptions.Item>
+                  ) : null}
                   <Descriptions.Item label="当月消耗">{customer.current_month_consumption ?? 0}</Descriptions.Item>
                   <Descriptions.Item label="创建时间">{customer.created_at || '-'}</Descriptions.Item>
                 </Descriptions>
