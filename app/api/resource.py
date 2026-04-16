@@ -31,46 +31,32 @@ def get_resource_summary(db: Session = Depends(get_db)):
         key = it.resource_status or "UNKNOWN"
         by_status[key] = by_status.get(key, 0) + 1
 
-    def _avail(it: Resource) -> int:
-        if it.available_quantity is not None:
-            return int(it.available_quantity)
-        tot = int(it.total_quantity or 0)
-        alloc = int(it.allocated_quantity or 0)
-        return max(tot - alloc, 0)
+    # 以云管 (cloudcost) 的 ServiceAccount 为准 —— 云管那边每个云账号就是一个资源单元,
+    # 没有配额/数量字段 (total_quantity / allocated_quantity / available_quantity 在
+    # xiaoshou 本地都是 NULL, 不能拿来乱加乘). 看板只按 status 维度聚合账号数.
 
-    # by provider aggregation
+    # by provider aggregation: total 数 + 按 status 桶分
     prov_map: dict[str, dict] = {}
     for it in all_items:
         p = it.cloud_provider or "UNKNOWN"
-        row = prov_map.setdefault(p, {"provider": p, "total": 0, "available": 0, "allocated": 0})
+        row = prov_map.setdefault(p, {"provider": p, "total": 0, "by_status": {}})
         row["total"] += 1
-        row["available"] += _avail(it)
-        row["allocated"] += int(it.allocated_quantity or 0)
+        st = it.resource_status or "UNKNOWN"
+        row["by_status"][st] = row["by_status"].get(st, 0) + 1
 
-    by_provider = []
-    for row in prov_map.values():
-        denom = row["available"] + row["allocated"]
-        rate = (row["allocated"] / denom) if denom > 0 else 0.0
-        by_provider.append({
-            "provider": row["provider"],
-            "total": row["total"],
-            "available": row["available"],
-            "allocated": row["allocated"],
-            "allocation_rate": round(rate, 4),
-        })
-    by_provider.sort(key=lambda r: r["total"], reverse=True)
+    by_provider = sorted(prov_map.values(), key=lambda r: r["total"], reverse=True)
 
-    # Top 10 available (by computed available quantity desc)
+    # Top 10 最新同步的 AVAILABLE 账号 (仅作下拉/参考用途, 不返回 available_quantity
+    # 因为云管没这个字段, 本地凑的值没意义).
     top_items = sorted(
         [it for it in all_items if it.resource_status == "AVAILABLE"],
-        key=_avail, reverse=True,
+        key=lambda it: it.last_sync_time or it.created_at, reverse=True,
     )[:10]
     top_available = [{
         "id": it.id,
         "resource_code": it.resource_code,
         "account_name": it.account_name,
         "provider": it.cloud_provider,
-        "available_quantity": _avail(it),
     } for it in top_items]
 
     return {

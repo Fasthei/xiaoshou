@@ -30,9 +30,7 @@ const STATUS_PIE_COLOR: Record<string, string> = {
 interface ProviderRow {
   provider: string;
   total: number;
-  available: number;
-  allocated: number;
-  allocation_rate: number;
+  by_status: Record<string, number>;
 }
 
 interface TopAvailable {
@@ -40,7 +38,6 @@ interface TopAvailable {
   resource_code: string;
   account_name?: string | null;
   provider?: string | null;
-  available_quantity: number;
 }
 
 interface SummaryData {
@@ -148,25 +145,26 @@ export default function Resources() {
   }, [view, page, pageSize, availOnly]);
 
   const stats = useMemo(() => {
-    if (!summary) return { total: 0, available: 0, allocated: 0, abnormal: 0 };
+    if (!summary) return { total: 0, available: 0, standby: 0, abnormal: 0 };
     const bs = summary.by_status || {};
-    const abnormal = (bs.EXPIRED || 0) + (bs.FROZEN || 0) + (bs.EXHAUSTED || 0);
+    const known = (bs.AVAILABLE || 0) + (bs.STANDBY || 0);
+    // 异常 = 非 AVAILABLE 非 STANDBY 的其它桶 (EXPIRED / FROZEN / EXHAUSTED / UNKNOWN 等)
+    const abnormal = Math.max(summary.total - known, 0);
     return {
       total: summary.total,
       available: bs.AVAILABLE || 0,
-      allocated: bs.ALLOCATED || 0,
+      standby: bs.STANDBY || 0,
       abnormal,
     };
   }, [summary]);
 
+  // 注: 不展示 total_quantity / allocated_quantity / available_quantity ——
+  // 云管 ServiceAccount 模型没有数量字段, xiaoshou 本地列全是 NULL, 展示会误导.
   const columns = [
     { title: '货源编号', dataIndex: 'resource_code', width: 170 },
     { title: '类型', dataIndex: 'resource_type', width: 100 },
     { title: '云厂商', dataIndex: 'cloud_provider', width: 100 },
     { title: '账号', dataIndex: 'account_name' },
-    { title: '总量', dataIndex: 'total_quantity', width: 80 },
-    { title: '已订购', dataIndex: 'allocated_quantity', width: 80 },
-    { title: '可用', dataIndex: 'available_quantity', width: 80 },
     { title: '单位成本', dataIndex: 'unit_cost', width: 100 },
     { title: '建议价', dataIndex: 'suggested_price', width: 100 },
     {
@@ -182,7 +180,6 @@ export default function Resources() {
       title: '云厂商', dataIndex: 'provider', width: 100,
       render: (p?: string | null) => p ? <Tag color={PROVIDER_COLOR[p] || 'default'}>{p}</Tag> : '-',
     },
-    { title: '可用数量', dataIndex: 'available_quantity', width: 110 },
   ];
 
   return (
@@ -254,7 +251,7 @@ export default function Resources() {
             </Col>
             <Col xs={12} md={6}>
               <Card size="small" loading={summaryLoading}>
-                <Statistic title="已订购" value={stats.allocated} valueStyle={{ color: '#1677ff' }} />
+                <Statistic title="停用 (STANDBY)" value={stats.standby} valueStyle={{ color: '#8c8c8c' }} />
               </Card>
             </Col>
             <Col xs={12} md={6}>
@@ -281,11 +278,12 @@ export default function Resources() {
                             <Tag color={PROVIDER_COLOR[p.provider] || 'default'}>{p.provider}</Tag>
                             <Text type="secondary">{p.total} 条</Text>
                           </Space>
-                          <Text>可用: <b>{p.available}</b></Text>
-                          <Text>已订购: <b>{p.allocated}</b></Text>
-                          <Text type="secondary">
-                            订购率: {(p.allocation_rate * 100).toFixed(1)}%
-                          </Text>
+                          {Object.entries(p.by_status || {}).map(([st, n]) => (
+                            <Space key={st} style={{ justifyContent: 'space-between', width: '100%' }}>
+                              <Tag color={STATUS_COLOR[st] || 'default'} style={{ margin: 0 }}>{st}</Tag>
+                              <b>{n}</b>
+                            </Space>
+                          ))}
                         </Space>
                       </Card>
                     </Col>
@@ -303,7 +301,7 @@ export default function Resources() {
             </Col>
           </Row>
 
-          <Card size="small" title="Top 10 可用货源" loading={summaryLoading}>
+          <Card size="small" title="Top 10 最近可用账号 (AVAILABLE)" loading={summaryLoading}>
             <Table<TopAvailable>
               rowKey="id"
               size="small"
