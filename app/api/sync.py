@@ -71,7 +71,7 @@ def sync_customers_from_ticket(
                             db.add(Customer(
                                 customer_code=rc.customer_code,
                                 customer_name=rc.name,
-                                customer_status="active",
+                                customer_status="formal",
                                 source_system="gongdan",
                                 source_id=rc.id,
                             ))
@@ -97,7 +97,7 @@ def sync_customers_from_ticket(
                         db.add(Customer(
                             customer_code=rc.customer_code,
                             customer_name=rc.name,
-                            customer_status="active",
+                            customer_status="formal",
                             source_system="gongdan",
                             source_id=rc.id,
                         ))

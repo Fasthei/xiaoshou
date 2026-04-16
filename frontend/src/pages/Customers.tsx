@@ -18,23 +18,27 @@ const { Title } = Typography;
 const STATUS_COLOR: Record<string, string> = {
   active: 'green', inactive: 'default', frozen: 'red',
   potential: 'purple', prospect: 'purple', // prospect 兼容旧值
+  formal: 'gold',
 };
 
 const STATUS_LABEL: Record<string, string> = {
   potential: '潜在', prospect: '潜在',
   active: '客户池', inactive: '停用', frozen: '冻结',
+  formal: '正式',
 };
 
-// 新建客户表单只给 2 个选项; 其它状态是后台/流程推进才产生
-const CREATE_STATUS_OPTIONS = [
+// 新建/编辑 Modal Select 选项: formal 始终 disabled (只允许工单同步自动设置)
+const FORM_STATUS_OPTIONS = [
   { value: 'potential', label: '潜在客户' },
   { value: 'active', label: '客户池' },
+  { value: 'formal', label: '正式客户（工单系统同步自动设置）', disabled: true },
 ];
 
-// 筛选下拉仍暴露全部状态
+// 筛选下拉暴露全部状态 (含 formal, 方便筛选)
 const FILTER_STATUS_OPTIONS = [
   { value: 'potential', label: '潜在客户' },
   { value: 'active', label: '客户池' },
+  { value: 'formal', label: '正式客户' },
   { value: 'inactive', label: '停用' },
   { value: 'frozen', label: '冻结' },
 ];
@@ -252,8 +256,11 @@ export default function Customers() {
             <Form.Item name="industry" label="行业"><Input /></Form.Item>
             <Form.Item name="region" label="地区"><Input /></Form.Item>
             <Form.Item name="customer_status" label="状态" rules={[{ required: true }]} initialValue="potential"
-              tooltip="新建默认为潜在客户; 需要推进时改为客户池">
-              <Select options={editing ? FILTER_STATUS_OPTIONS : CREATE_STATUS_OPTIONS} />
+              tooltip="新建默认为潜在客户; 需要推进时改为客户池; 正式客户由工单系统同步自动设置, 用户不能手动选">
+              <Select
+                options={FORM_STATUS_OPTIONS}
+                disabled={editing?.customer_status === 'formal'}
+              />
             </Form.Item>
             <Form.Item name="source_label" label="来源"
               tooltip="该客户从哪里来的? 如 朋友推荐 / 展会 / 老带新">
