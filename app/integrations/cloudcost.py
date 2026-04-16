@@ -181,6 +181,24 @@ class CloudCostClient:
         except Exception:
             return None
 
+    def get_customer_usage(self, account_id: int, days: int = 30) -> Any:
+        """Pull per-service-account cost breakdown for last N days.
+
+        Calls cloudcost `/api/service-accounts/{id}/costs?start_date=&end_date=`.
+        Returns raw JSON (shape varies; callers must tolerate both list and dict).
+        """
+        from datetime import datetime, timedelta
+        end = datetime.utcnow().date()
+        start = end - timedelta(days=max(1, int(days)))
+        params = {
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        }
+        with self._client() as c:
+            r = c.get(f"{self.base}/api/service-accounts/{account_id}/costs", params=params)
+            r.raise_for_status()
+            return self._parse_json(r)
+
     def resources_for_customer(self, customer_code: str) -> List[ServiceAccount]:
         """Return 货源 entries whose `match_field` equals the given customer_code.
 

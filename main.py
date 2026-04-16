@@ -8,7 +8,7 @@ from app.api import (
     allocation, auth, customer, resource, usage, sync, customer_resources,
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
     customer_insight_agent, sales, external, follow_up, contract, ticket,
-    alert_rule, payment,
+    alert_rule, payment, cc_sync,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -105,6 +105,8 @@ app.include_router(ticket.sync_router, dependencies=protected_deps)
 app.include_router(ticket.customer_scoped, dependencies=protected_deps)
 app.include_router(alert_rule.router, dependencies=protected_deps)
 app.include_router(payment.router, dependencies=protected_deps)
+app.include_router(cc_sync.sync_router, dependencies=protected_deps)
+app.include_router(cc_sync.local_router, dependencies=protected_deps)
 
 
 @app.get("/")
