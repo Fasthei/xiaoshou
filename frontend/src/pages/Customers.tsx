@@ -112,24 +112,15 @@ export default function Customers() {
         : <span style={{ color: '#94a3b8' }}>—</span>,
     },
     {
-      title: '操作', width: 220, fixed: 'right' as const,
-      render: (_: unknown, r: Customer) => {
-        const ticketBase = (import.meta.env.VITE_TICKET_FRONT as string) ||
-          'https://gongdan-b5fzbtgteqd5gzfb.eastasia-01.azurewebsites.net';
-        return (
-          <Space size={4}>
-            <Button size="small" type="link" icon={<EyeOutlined />}
-              onClick={() => setDetail(r)}>详情</Button>
-            <Button size="small" type="link" icon={<EditOutlined />}
-              onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true); }}>编辑</Button>
-            <a
-              href={`${ticketBase}/tickets?customerCode=${encodeURIComponent(r.customer_code)}`}
-              target="_blank" rel="noreferrer"
-              style={{ fontSize: 12 }}
-            >工单</a>
-          </Space>
-        );
-      },
+      title: '操作', width: 180, fixed: 'right' as const,
+      render: (_: unknown, r: Customer) => (
+        <Space size={4}>
+          <Button size="small" type="link" icon={<EyeOutlined />}
+            onClick={() => setDetail(r)}>详情</Button>
+          <Button size="small" type="link" icon={<EditOutlined />}
+            onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true); }}>编辑</Button>
+        </Space>
+      ),
     },
   ];
 

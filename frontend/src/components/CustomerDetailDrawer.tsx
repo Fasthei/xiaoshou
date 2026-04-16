@@ -8,7 +8,7 @@ import {
 import {
   CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined,
   UserSwitchOutlined, HistoryOutlined, FileTextOutlined, BarChartOutlined,
-  WarningOutlined, ProfileOutlined,
+  WarningOutlined, ProfileOutlined, CustomerServiceOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api } from '../api/axios';
@@ -66,6 +66,47 @@ export default function CustomerDetailDrawer({
   const [historyMonth, setHistoryMonth] = useState<Dayjs | null>(dayjs());
   const [historyDate, setHistoryDate] = useState<Dayjs | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | undefined>(undefined);
+
+  // --- Ticket mirror tab state ---
+  interface LocalTicket {
+    id: number;
+    ticket_code: string;
+    title: string | null;
+    status: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+  }
+  const [tickets, setTickets] = useState<LocalTicket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketsSyncing, setTicketsSyncing] = useState(false);
+
+  const loadTickets = async () => {
+    if (!customer) return;
+    setTicketsLoading(true);
+    try {
+      const { data } = await api.get<LocalTicket[]>(`/api/customers/${customer.id}/tickets`);
+      setTickets(Array.isArray(data) ? data : []);
+    } catch {
+      setTickets([]);
+    } finally {
+      setTicketsLoading(false);
+    }
+  };
+
+  const syncTickets = async () => {
+    setTicketsSyncing(true);
+    try {
+      const { data } = await api.post('/api/sync/tickets/from-gongdan');
+      antdMessage.success(
+        `同步完成：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`
+      );
+      loadTickets();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '同步失败');
+    } finally {
+      setTicketsSyncing(false);
+    }
+  };
 
   const currentMonth = () => {
     const d = new Date();
@@ -192,6 +233,7 @@ export default function CustomerDetailDrawer({
       loadUsage();
       loadBridge();
       loadHistoryBills();
+      loadTickets();
     }
     // eslint-disable-next-line
   }, [open, customer?.id]);
@@ -686,6 +728,93 @@ export default function CustomerDetailDrawer({
                       }
                     />
                   )}
+                </Space>
+              ),
+            },
+            {
+              key: 'tickets',
+              label: (
+                <Space>
+                  <CustomerServiceOutlined />
+                  工单 <Tag color="orange">{tickets.length}</Tag>
+                </Space>
+              ),
+              children: (
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      来源：本地镜像 (gongdan) · 匹配字段
+                      <Tag style={{ marginLeft: 6 }} color="geekblue">customer_code</Tag>
+                    </Text>
+                    <Space>
+                      <Button
+                        size="small"
+                        icon={<SyncOutlined spin={ticketsSyncing} />}
+                        loading={ticketsSyncing}
+                        onClick={syncTickets}
+                      >
+                        🔄 同步工单
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<SyncOutlined />}
+                        loading={ticketsLoading}
+                        onClick={loadTickets}
+                      >
+                        刷新
+                      </Button>
+                    </Space>
+                  </Space>
+                  <Table<LocalTicket>
+                    size="small"
+                    rowKey="id"
+                    loading={ticketsLoading}
+                    dataSource={tickets}
+                    pagination={tickets.length > 10 ? { pageSize: 10, size: 'small' } : false}
+                    locale={{
+                      emptyText: (
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description={
+                            <Space direction="vertical" size={4}>
+                              <Text>该客户暂无工单</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                如果 gongdan 侧有新工单，点击「🔄 同步工单」拉取
+                              </Text>
+                            </Space>
+                          }
+                        />
+                      ),
+                    }}
+                    columns={[
+                      {
+                        title: '工单编号', dataIndex: 'ticket_code', width: 170,
+                        render: (v: string) => <code style={{ color: '#f97316' }}>{v}</code>,
+                      },
+                      {
+                        title: '标题', dataIndex: 'title', ellipsis: true,
+                        render: (v: string | null) => v || <Text type="secondary">—</Text>,
+                      },
+                      {
+                        title: '状态', dataIndex: 'status', width: 110,
+                        render: (s: string | null) => {
+                          if (!s) return <Tag>—</Tag>;
+                          const color =
+                            s === 'CLOSED' ? 'default' :
+                            s === 'IN_PROGRESS' ? 'processing' :
+                            s === 'OPEN' ? 'blue' :
+                            s === 'PENDING' ? 'gold' :
+                            s === 'RESOLVED' ? 'green' : 'cyan';
+                          return <Tag color={color}>{s}</Tag>;
+                        },
+                      },
+                      {
+                        title: '创建时间', dataIndex: 'created_at', width: 160,
+                        render: (v: string | null) =>
+                          v ? new Date(v).toLocaleString() : <Text type="secondary">—</Text>,
+                      },
+                    ]}
+                  />
                 </Space>
               ),
             },
