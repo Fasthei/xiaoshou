@@ -6,12 +6,15 @@ from app.models.customer import Customer, CustomerContact
 from app.models.sales import SalesUser
 from app.schemas.customer import (
     CustomerCreate,
+    CustomerCreateLite,
     CustomerUpdate,
     CustomerResponse,
     CustomerListResponse,
     CustomerContactCreate,
     CustomerContactResponse
 )
+
+VALID_STATUSES = {"potential", "active", "inactive", "frozen"}
 
 
 def _attach_sales_user_name(customer: Customer, db: Session) -> Customer:
@@ -29,9 +32,8 @@ router = APIRouter(prefix="/api/customers", tags=["客户管理"])
 
 
 @router.post("", response_model=CustomerResponse, summary="创建客户")
-def create_customer(customer: CustomerCreate, db: Session = Depends(get_db)):
-    """创建新客户"""
-    # 检查客户编号是否已存在
+def create_customer(customer: CustomerCreateLite, db: Session = Depends(get_db)):
+    """创建新客户 (status 默认 potential / 潜在客户)"""
     existing = db.query(Customer).filter(
         Customer.customer_code == customer.customer_code,
         Customer.is_deleted == False
@@ -39,7 +41,16 @@ def create_customer(customer: CustomerCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="客户编号已存在")
 
-    db_customer = Customer(**customer.model_dump())
+    payload = customer.model_dump(exclude_unset=False)
+    status = (payload.get("customer_status") or "potential").strip().lower()
+    if status == "prospect":  # 兼容老值, 统一到 potential
+        status = "potential"
+    if status not in VALID_STATUSES:
+        raise HTTPException(status_code=400,
+                            detail=f"非法 customer_status: {status}, 允许值 {sorted(VALID_STATUSES)}")
+    payload["customer_status"] = status
+
+    db_customer = Customer(**payload)
     db.add(db_customer)
     db.commit()
     db.refresh(db_customer)

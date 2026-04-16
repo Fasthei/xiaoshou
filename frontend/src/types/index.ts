@@ -20,6 +20,7 @@ export interface Customer {
   next_month_forecast?: string | number | null;
   source_system?: string | null;
   source_id?: string | null;
+  source_label?: string | null;
   employee_size?: number | null;
   annual_revenue?: string | number | null;
   last_meeting_at?: string | null;

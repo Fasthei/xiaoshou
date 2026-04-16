@@ -18,11 +18,38 @@ settings = get_settings()
 logger = logging.getLogger("xiaoshou")
 
 
+def _ensure_customer_source_label_column():
+    """Best-effort additive migration: ensure customer.source_label exists.
+
+    Idempotent; safe on Postgres (IF NOT EXISTS) and SQLite (checks pragma first).
+    """
+    from sqlalchemy import text, inspect
+    try:
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(text(
+                    "ALTER TABLE customer ADD COLUMN IF NOT EXISTS source_label VARCHAR(50)"
+                ))
+            else:
+                insp = inspect(conn)
+                if "customer" in insp.get_table_names():
+                    cols = {c["name"] for c in insp.get_columns("customer")}
+                    if "source_label" not in cols:
+                        conn.execute(text(
+                            "ALTER TABLE customer ADD COLUMN source_label VARCHAR(50)"
+                        ))
+        logger.info("ensured customer.source_label column")
+    except Exception as e:
+        logger.warning("ensure source_label column failed: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("DB tables ensured via metadata.create_all")
+        _ensure_customer_source_label_column()
     except Exception as e:
         logger.error("DB init failed: %s", e)
     yield

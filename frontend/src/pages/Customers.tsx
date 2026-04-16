@@ -16,8 +16,28 @@ import CustomerDetailDrawer from '../components/CustomerDetailDrawer';
 const { Title } = Typography;
 
 const STATUS_COLOR: Record<string, string> = {
-  active: 'green', inactive: 'default', frozen: 'red', prospect: 'blue',
+  active: 'green', inactive: 'default', frozen: 'red',
+  potential: 'purple', prospect: 'purple', // prospect 兼容旧值
 };
+
+const STATUS_LABEL: Record<string, string> = {
+  potential: '潜在', prospect: '潜在',
+  active: '客户池', inactive: '停用', frozen: '冻结',
+};
+
+// 新建客户表单只给 2 个选项; 其它状态是后台/流程推进才产生
+const CREATE_STATUS_OPTIONS = [
+  { value: 'potential', label: '潜在客户' },
+  { value: 'active', label: '客户池' },
+];
+
+// 筛选下拉仍暴露全部状态
+const FILTER_STATUS_OPTIONS = [
+  { value: 'potential', label: '潜在客户' },
+  { value: 'active', label: '客户池' },
+  { value: 'inactive', label: '停用' },
+  { value: 'frozen', label: '冻结' },
+];
 
 export default function Customers() {
   const [data, setData] = useState<Customer[]>([]);
@@ -96,13 +116,16 @@ export default function Customers() {
     { title: '地区', dataIndex: 'region', width: 100 },
     {
       title: '状态', dataIndex: 'customer_status', width: 100,
-      render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{s}</Tag>,
+      render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{STATUS_LABEL[s] || s}</Tag>,
     },
     {
-      title: '来源', dataIndex: 'source_system', width: 110,
-      render: (v: string) => v
-        ? <Tag color="geekblue">{v}</Tag>
-        : <Tag>手工</Tag>,
+      title: '来源', dataIndex: 'source_system', width: 160,
+      render: (v: string, r: Customer) => (
+        <Space size={4} wrap>
+          {v ? <Tag color="geekblue">{v}</Tag> : <Tag>手工</Tag>}
+          {r.source_label ? <Tag color="magenta">{r.source_label}</Tag> : null}
+        </Space>
+      ),
     },
     { title: '当月消耗', dataIndex: 'current_month_consumption', width: 110 },
     {
@@ -141,10 +164,10 @@ export default function Customers() {
             />
             <Select
               placeholder="状态"
-              allowClear style={{ width: 120 }}
+              allowClear style={{ width: 140 }}
               value={status}
               onChange={(v) => { setStatus(v); setPage(1); load(); }}
-              options={['active', 'inactive', 'frozen', 'prospect'].map((v) => ({ value: v, label: v }))}
+              options={FILTER_STATUS_OPTIONS}
             />
             <Button
               type={onlyUnassigned ? 'primary' : 'default'}
@@ -228,8 +251,13 @@ export default function Customers() {
             <Form.Item name="customer_short_name" label="简称"><Input /></Form.Item>
             <Form.Item name="industry" label="行业"><Input /></Form.Item>
             <Form.Item name="region" label="地区"><Input /></Form.Item>
-            <Form.Item name="customer_status" label="状态" rules={[{ required: true }]} initialValue="active">
-              <Select options={['active', 'inactive', 'frozen', 'prospect'].map((v) => ({ value: v, label: v }))} />
+            <Form.Item name="customer_status" label="状态" rules={[{ required: true }]} initialValue="potential"
+              tooltip="新建默认为潜在客户; 需要推进时改为客户池">
+              <Select options={editing ? FILTER_STATUS_OPTIONS : CREATE_STATUS_OPTIONS} />
+            </Form.Item>
+            <Form.Item name="source_label" label="来源"
+              tooltip="该客户从哪里来的? 如 朋友推荐 / 展会 / 老带新">
+              <Input placeholder="如: 朋友推荐 / 展会 / 老带新 / CSV 导入" maxLength={50} />
             </Form.Item>
           </Form>
         </Modal>

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   Button, Card, Input, List, Space, Tag, Typography, Empty, Modal, Form, message,
-  Select, Alert,
+  Select, Alert, Tabs, Table,
 } from 'antd';
 import {
   SearchOutlined, BulbFilled, RocketOutlined, LinkOutlined,
   UserSwitchOutlined, ThunderboltOutlined,
+  GlobalOutlined, TeamOutlined, ReloadOutlined, ArrowRightOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 
@@ -18,6 +19,21 @@ interface Lead {
   url: string;
   description: string;
   inferred_industry?: string | null;
+}
+
+interface LocalProspect {
+  id: number;
+  customer_code: string;
+  customer_name: string;
+  industry?: string | null;
+  region?: string | null;
+  source_system?: string | null;
+  source_label?: string | null;
+  source_id?: string | null;
+  note?: string | null;
+  website?: string | null;
+  created_at?: string | null;
+  last_follow_time?: string | null;
 }
 
 const HOT_KEYWORDS = [
@@ -35,9 +51,49 @@ export default function Leads() {
   const [salesUsers, setSalesUsers] = useState<SalesUserLite[]>([]);
   const [autoLoading, setAutoLoading] = useState(false);
 
+  // 本地潜客 Tab 状态
+  const [activeTab, setActiveTab] = useState<'web' | 'local'>('web');
+  const [localProspects, setLocalProspects] = useState<LocalProspect[]>([]);
+  const [localLoading, setLocalLoading] = useState(false);
+  const [localKeyword, setLocalKeyword] = useState('');
+  const [promotingId, setPromotingId] = useState<number | null>(null);
+
   useEffect(() => {
     api.get<SalesUserLite[]>('/api/sales/users').then((r) => setSalesUsers(r.data)).catch(() => setSalesUsers([]));
   }, []);
+
+  const loadLocalProspects = async () => {
+    setLocalLoading(true);
+    try {
+      const { data } = await api.get<LocalProspect[]>('/api/enrich/leads/local-prospects', {
+        params: { keyword: localKeyword || undefined },
+      });
+      setLocalProspects(data || []);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '加载本地潜客失败');
+      setLocalProspects([]);
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'local') loadLocalProspects();
+    // eslint-disable-next-line
+  }, [activeTab]);
+
+  const promoteToActive = async (row: LocalProspect) => {
+    setPromotingId(row.id);
+    try {
+      await api.put(`/api/customers/${row.id}`, { customer_status: 'active' });
+      message.success(`${row.customer_name} 已转入客户池`);
+      setLocalProspects((prev) => prev.filter((p) => p.id !== row.id));
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '转客户池失败');
+    } finally {
+      setPromotingId(null);
+    }
+  };
 
   const doSearch = async (kw?: string) => {
     const query = (kw ?? q).trim();
@@ -76,7 +132,7 @@ export default function Leads() {
         message.warning('客户已创建，但分配销售失败（可在客户详情页重试）');
       }
     }
-    message.success(`已添加 ${v.customer_name} 为潜在客户${sales_user_id ? ' 并分配销售' : ''}`);
+    message.success(`已添加 ${v.customer_name} 为潜在客户 (potential)${sales_user_id ? '，并分配销售' : ''}`);
     setOpenPromote(false);
   };
 
@@ -157,54 +213,127 @@ export default function Leads() {
       </Card>
 
       <Card bordered={false} style={{ borderRadius: 12 }}>
-        {!loading && leads.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入关键词开始搜索" />
-        ) : (
-          <List
-            loading={loading}
-            dataSource={leads}
-            renderItem={(l) => (
-              <List.Item
-                actions={[
-                  <Button
-                    key="open"
-                    icon={<LinkOutlined />}
-                    href={l.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    打开
-                  </Button>,
-                  <Button
-                    key="promote"
-                    type="primary"
-                    icon={<RocketOutlined />}
-                    onClick={() => openPromoteFor(l)}
-                  >
-                    转为客户
-                  </Button>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={
-                    <Space wrap>
-                      <Text strong>{l.title}</Text>
-                      {l.inferred_industry ? <Tag color="purple">{l.inferred_industry}</Tag> : null}
-                    </Space>
-                  }
-                  description={
-                    <Space direction="vertical" size={2}>
-                      <Text type="secondary" style={{ fontSize: 12 }} copyable={{ text: l.url }}>
-                        {l.url}
-                      </Text>
-                      <Text>{l.description || '—'}</Text>
-                    </Space>
-                  }
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as 'web' | 'local')}
+          items={[
+            {
+              key: 'web',
+              label: <Space><GlobalOutlined />Web 搜索</Space>,
+              children: !loading && leads.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入关键词开始搜索" />
+              ) : (
+                <List
+                  loading={loading}
+                  dataSource={leads}
+                  renderItem={(l) => (
+                    <List.Item
+                      actions={[
+                        <Button
+                          key="open" icon={<LinkOutlined />}
+                          href={l.url} target="_blank" rel="noreferrer"
+                        >打开</Button>,
+                        <Button
+                          key="promote" type="primary" icon={<RocketOutlined />}
+                          onClick={() => openPromoteFor(l)}
+                        >转为客户</Button>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={
+                          <Space wrap>
+                            <Text strong>{l.title}</Text>
+                            {l.inferred_industry ? <Tag color="purple">{l.inferred_industry}</Tag> : null}
+                          </Space>
+                        }
+                        description={
+                          <Space direction="vertical" size={2}>
+                            <Text type="secondary" style={{ fontSize: 12 }} copyable={{ text: l.url }}>{l.url}</Text>
+                            <Text>{l.description || '—'}</Text>
+                          </Space>
+                        }
+                      />
+                    </List.Item>
+                  )}
                 />
-              </List.Item>
-            )}
-          />
-        )}
+              ),
+            },
+            {
+              key: 'local',
+              label: (
+                <Space>
+                  <TeamOutlined />
+                  本地潜客
+                  <Tag color="purple">{localProspects.length}</Tag>
+                </Space>
+              ),
+              children: (
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Alert
+                    type="info" showIcon
+                    message="这里列的是本地状态 = 潜在客户 (potential) 的客户"
+                    description="包括手工录入的潜客、从商机挖掘 promote 进来的、以及从客户池回退的。可以直接一键转入客户池。"
+                  />
+                  <Space>
+                    <Input
+                      allowClear
+                      placeholder="按名称 / 编号过滤"
+                      prefix={<SearchOutlined />}
+                      value={localKeyword}
+                      onChange={(e) => setLocalKeyword(e.target.value)}
+                      onPressEnter={loadLocalProspects}
+                      style={{ width: 240 }}
+                    />
+                    <Button icon={<ReloadOutlined />} onClick={loadLocalProspects} loading={localLoading}>
+                      刷新
+                    </Button>
+                  </Space>
+                  <Table<LocalProspect>
+                    rowKey="id"
+                    size="small"
+                    loading={localLoading}
+                    dataSource={localProspects}
+                    pagination={{ pageSize: 20, showSizeChanger: true }}
+                    locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无本地潜在客户" /> }}
+                    columns={[
+                      { title: '客户名', dataIndex: 'customer_name', ellipsis: true,
+                        render: (v: string) => <Text strong>{v}</Text> },
+                      { title: '编号', dataIndex: 'customer_code', width: 150,
+                        render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
+                      { title: '行业', dataIndex: 'industry', width: 110,
+                        render: (v: string | null) => v ? <Tag color="purple">{v}</Tag> : '—' },
+                      { title: '来源', width: 180,
+                        render: (_: any, r: LocalProspect) => (
+                          <Space size={4} wrap>
+                            {r.source_system ? <Tag color="geekblue">{r.source_system}</Tag> : <Tag>手工</Tag>}
+                            {r.source_label ? <Tag color="magenta">{r.source_label}</Tag> : null}
+                          </Space>
+                        ),
+                      },
+                      { title: '创建时间', dataIndex: 'created_at', width: 160,
+                        render: (v: string | null) => v ? new Date(v).toLocaleString() : '—' },
+                      { title: '备注', dataIndex: 'note', ellipsis: true,
+                        render: (v: string | null) => v || <Text type="secondary">—</Text> },
+                      {
+                        title: '操作', width: 130, fixed: 'right' as const,
+                        render: (_: any, r: LocalProspect) => (
+                          <Button
+                            size="small" type="primary" icon={<ArrowRightOutlined />}
+                            loading={promotingId === r.id}
+                            onClick={() => promoteToActive(r)}
+                          >
+                            转客户池
+                          </Button>
+                        ),
+                      },
+                    ]}
+                    scroll={{ x: 900 }}
+                  />
+                </Space>
+              ),
+            },
+          ]}
+        />
       </Card>
 
       <Modal

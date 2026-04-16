@@ -99,6 +99,58 @@ def enrich_customer(
     )
 
 
+class LocalProspectItem(BaseModel):
+    id: int
+    customer_code: str
+    customer_name: str
+    industry: Optional[str] = None
+    region: Optional[str] = None
+    source_system: Optional[str] = None
+    source_label: Optional[str] = None
+    source_id: Optional[str] = None
+    note: Optional[str] = None
+    website: Optional[str] = None
+    created_at: Optional[str] = None
+    last_follow_time: Optional[str] = None
+
+
+@router.get("/leads/local-prospects", response_model=List[LocalProspectItem],
+            summary="列出本地潜在客户 (customer_status=potential) - 没谈成功的客户")
+def list_local_prospects(
+    keyword: Optional[str] = Query(None, description="名称 / 编号搜索"),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    q = db.query(Customer).filter(
+        Customer.is_deleted == False,  # noqa: E712
+        Customer.customer_status == "potential",
+    )
+    if keyword:
+        like = f"%{keyword}%"
+        q = q.filter(
+            (Customer.customer_name.ilike(like)) |
+            (Customer.customer_code.ilike(like))
+        )
+    items = q.order_by(Customer.created_at.desc()).limit(200).all()
+    return [
+        LocalProspectItem(
+            id=c.id,
+            customer_code=c.customer_code,
+            customer_name=c.customer_name,
+            industry=c.industry,
+            region=c.region,
+            source_system=c.source_system,
+            source_label=c.source_label,
+            source_id=c.source_id,
+            note=c.note,
+            website=c.website,
+            created_at=c.created_at.isoformat() if c.created_at else None,
+            last_follow_time=c.last_follow_time.isoformat() if c.last_follow_time else None,
+        )
+        for c in items
+    ]
+
+
 class LeadSearchItem(BaseModel):
     title: str
     url: str
@@ -146,7 +198,7 @@ def promote_lead(
         customer_code=body.customer_code,
         customer_name=body.customer_name,
         industry=body.industry,
-        customer_status="prospect",
+        customer_status="potential",
         source_system="jina-lead",
         source_id=body.source_url,
     )
