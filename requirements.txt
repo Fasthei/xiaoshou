@@ -13,3 +13,4 @@ alembic==1.13.1
 httpx==0.26.0
 cryptography==42.0.5
 openai>=1.40.0,<2.0.0
+azure-storage-blob>=12.19
