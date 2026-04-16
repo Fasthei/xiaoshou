@@ -40,6 +40,4 @@ class Ticket(Base):
     updated_at_remote = Column(DateTime, comment="gongdan updatedAt")
     sync_at = Column(DateTime, server_default=func.now(), comment="最近一次同步时间")
     raw = Column(JSON, comment="原始 gongdan ticket 结构 (便于后续扩字段)")
-
-
-Index("ix_ticket_customer_code", Ticket.customer_code)
+    # index on customer_code is auto-created by Column(index=True) above
