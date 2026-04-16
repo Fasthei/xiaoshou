@@ -1,7 +1,13 @@
 """Client for 云管 (cloudcost).
 
-Read-only per docs/AI-BRAIN-API.md. No auth currently. We only use the subset
-needed to resolve customer_code -> resource (货源) listings.
+Historically read-only and unauthenticated per docs/AI-BRAIN-API.md. Cloudcost
+has since started requiring auth on some deployments, so this client now
+optionally forwards credentials if provided via env:
+
+- ``CLOUDCOST_API_KEY``  → sent as ``X-Api-Key``
+- ``CLOUDCOST_M2M_TOKEN`` → sent as ``Authorization: Bearer``
+
+Both are optional: unset ⇒ anonymous calls (old behaviour).
 
 Canonical mapping (see SSO.md §data-model):
   xiaoshou.customer.customer_code   ← gongdan.customer.customerCode (source of truth)
@@ -13,9 +19,11 @@ CLOUDCOST_MATCH_FIELD env var.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -43,14 +51,44 @@ class SupplySource:
 
 
 class CloudCostClient:
-    def __init__(self, endpoint: str, timeout: float = 15.0, match_field: str = "external_project_id"):
+    def __init__(
+        self,
+        endpoint: str,
+        timeout: float = 15.0,
+        match_field: str = "external_project_id",
+        api_key: Optional[str] = None,
+        m2m_token: Optional[str] = None,
+    ):
         self.base = endpoint.rstrip("/")
         self.timeout = timeout
         # Which ServiceAccount attribute is matched against xiaoshou.customer_code
         self.match_field = match_field
+        # Optional credentials (fall back to env so callers don't need to plumb them).
+        self.api_key = api_key if api_key is not None else os.getenv("CLOUDCOST_API_KEY", "") or None
+        self.m2m_token = (
+            m2m_token if m2m_token is not None else os.getenv("CLOUDCOST_M2M_TOKEN", "") or None
+        )
+
+    def _headers(self) -> Dict[str, str]:
+        h: Dict[str, str] = {"Accept": "application/json"}
+        if self.api_key:
+            h["X-Api-Key"] = self.api_key
+        if self.m2m_token:
+            h["Authorization"] = f"Bearer {self.m2m_token}"
+        return h
 
     def _client(self) -> httpx.Client:
-        return httpx.Client(timeout=self.timeout)
+        return httpx.Client(timeout=self.timeout, headers=self._headers())
+
+    @staticmethod
+    def _parse_json(r: httpx.Response) -> Any:
+        """Parse JSON or raise a uniform error that upstream handlers can render cleanly."""
+        try:
+            return r.json()
+        except (json.JSONDecodeError, ValueError) as e:
+            # Mask body snippet at most 120 chars
+            snippet = (r.text or "")[:120].replace("\n", " ")
+            raise httpx.DecodingError(f"cloudcost returned non-JSON: {snippet}") from e
 
     def health(self) -> bool:
         try:
@@ -64,20 +102,28 @@ class CloudCostClient:
         with self._client() as c:
             r = c.get(f"{self.base}/api/suppliers/supply-sources/all")
             r.raise_for_status()
-            return [SupplySource(**{k: item.get(k) for k in SupplySource.__dataclass_fields__}) for item in r.json()]
+            data = self._parse_json(r) or []
+            return [
+                SupplySource(**{k: item.get(k) for k in SupplySource.__dataclass_fields__})
+                for item in data if isinstance(item, dict)
+            ]
 
     def list_service_accounts(
         self, provider: Optional[str] = None, page: int = 1, page_size: int = 200
     ) -> List[ServiceAccount]:
-        params = {"page": page, "page_size": page_size}
+        params: Dict[str, Any] = {"page": page, "page_size": page_size}
         if provider:
             params["provider"] = provider
         with self._client() as c:
             r = c.get(f"{self.base}/api/service-accounts/", params=params)
             r.raise_for_status()
+            data = self._parse_json(r) or []
+            # Cloudcost may return either a bare list or {"items": [...]} — tolerate both.
+            if isinstance(data, dict):
+                data = data.get("items") or data.get("data") or []
             return [
                 ServiceAccount(**{k: item.get(k) for k in ServiceAccount.__dataclass_fields__})
-                for item in r.json()
+                for item in data if isinstance(item, dict)
             ]
 
     # ---------- Alerts / Bills / Dashboard ----------
@@ -86,31 +132,40 @@ class CloudCostClient:
         with self._client() as c:
             r = c.get(f"{self.base}/api/alerts/rule-status", params=params)
             r.raise_for_status()
-            return r.json()
+            data = self._parse_json(r)
+            if isinstance(data, dict):
+                data = data.get("items") or data.get("data") or []
+            return data if isinstance(data, list) else []
 
     def bills(self, month: Optional[str] = None, status: Optional[str] = None,
-              page: int = 1, page_size: int = 50) -> list:
-        params = {"page": page, "page_size": page_size}
-        if month: params["month"] = month
-        if status: params["status"] = status
+              page: int = 1, page_size: int = 50) -> Any:
+        params: Dict[str, Any] = {"page": page, "page_size": page_size}
+        if month:
+            params["month"] = month
+        if status:
+            params["status"] = status
         with self._client() as c:
             r = c.get(f"{self.base}/api/bills/", params=params)
             r.raise_for_status()
-            return r.json()
+            return self._parse_json(r)
 
     def dashboard_bundle(self, month: str, granularity: str = "daily", service_limit: int = 10) -> dict:
         with self._client() as c:
             r = c.get(f"{self.base}/api/dashboard/bundle",
                       params={"month": month, "granularity": granularity, "service_limit": service_limit})
             r.raise_for_status()
-            return r.json()
+            data = self._parse_json(r)
+            return data if isinstance(data, dict) else {}
 
     def sync_last(self) -> Optional[str]:
         try:
             with self._client() as c:
                 r = c.get(f"{self.base}/api/sync/last")
                 r.raise_for_status()
-                return (r.json() or {}).get("last_sync")
+                data = self._parse_json(r) or {}
+                if not isinstance(data, dict):
+                    return None
+                return data.get("last_sync")
         except Exception:
             return None
 

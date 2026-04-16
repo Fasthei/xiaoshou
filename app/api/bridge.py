@@ -2,17 +2,29 @@
 
 These live in xiaoshou so the SPA has a single origin to talk to and shares the
 user's Casdoor token. Read-only.
+
+Error handling policy:
+  Cloudcost may be unreachable, slow, degraded, or return unexpected shapes. In
+  every such case we respond with HTTP 502 + a JSON body of
+  ``{"detail": "云管暂不可达: <ExceptionType>: <short message>"}`` so the SPA can
+  render a friendly banner instead of a blank Bad Gateway from the ingress.
 """
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app.auth import CurrentUser, require_auth
 from app.config import get_settings
 from app.integrations import CloudCostClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bridge", tags=["云管桥接"])
 
@@ -24,30 +36,58 @@ def _cloud() -> CloudCostClient:
     return CloudCostClient(s.CLOUDCOST_ENDPOINT, match_field=s.CLOUDCOST_MATCH_FIELD)
 
 
+def _bad_gateway(e: BaseException) -> JSONResponse:
+    """Uniform 502 JSON so the SPA doesn't see a blank Bad Gateway from ingress."""
+    msg = str(e) if str(e) else repr(e)
+    # Trim noisy httpx footers / long bodies.
+    if "\nFor more information" in msg:
+        msg = msg.split("\nFor more information", 1)[0]
+    msg = msg.strip()[:200]
+    logger.warning("bridge: cloudcost unavailable: %s: %s", type(e).__name__, msg)
+    return JSONResponse(
+        status_code=502,
+        content={"detail": f"云管暂不可达: {type(e).__name__}: {msg}"},
+    )
+
+
 @router.get("/alerts", summary="预警规则执行态（代理云管）")
-def alerts(month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
-           _: CurrentUser = Depends(require_auth)):
+def alerts(
+    month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    _: CurrentUser = Depends(require_auth),
+) -> Any:
     try:
         return _cloud().alerts_rule_status(month)
-    except Exception as e:
-        raise HTTPException(502, f"cloudcost alerts 查询失败: {e}")
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError, TypeError, Exception) as e:
+        return _bad_gateway(e)
 
 
 @router.get("/bills", summary="月度账单列表（代理云管）")
-def bills(month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
-          status: Optional[str] = None, page: int = 1, page_size: int = 50,
-          _: CurrentUser = Depends(require_auth)):
+def bills(
+    month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    status: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    _: CurrentUser = Depends(require_auth),
+) -> Any:
     try:
         return _cloud().bills(month=month, status=status, page=page, page_size=page_size)
-    except Exception as e:
-        raise HTTPException(502, f"cloudcost bills 查询失败: {e}")
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError, TypeError, Exception) as e:
+        return _bad_gateway(e)
 
 
 @router.get("/dashboard", summary="云管 dashboard bundle（代理）")
-def dashboard(month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
-              _: CurrentUser = Depends(require_auth)):
+def dashboard(
+    month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    _: CurrentUser = Depends(require_auth),
+) -> Any:
     m = month or datetime.utcnow().strftime("%Y-%m")
     try:
         return _cloud().dashboard_bundle(m)
-    except Exception as e:
-        raise HTTPException(502, f"cloudcost dashboard 查询失败: {e}")
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError, TypeError, Exception) as e:
+        return _bad_gateway(e)
