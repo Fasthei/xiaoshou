@@ -2,14 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Table, Tag, Typography, Space, DatePicker, Button, Select, Statistic,
   Row, Col, Empty, Skeleton, Divider, Result, Alert,
+  message as antdMessage,
 } from 'antd';
 import {
   ReloadOutlined, DollarOutlined, SearchOutlined, AppstoreOutlined,
-  TeamOutlined, LineChartOutlined,
+  TeamOutlined, LineChartOutlined, CalculatorOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { AxiosError } from 'axios';
 import { api } from '../api/axios';
+import DiscountCalculatorDrawer from '../components/DiscountCalculatorDrawer';
 
 const { Title, Text } = Typography;
 
@@ -56,6 +58,8 @@ export default function Bills() {
   const [month, setMonth] = useState<Dayjs | null>(dayjs());
   const [status, setStatus] = useState<string | undefined>();
   const [billsError, setBillsError] = useState<AxiosError<{ detail?: string }> | null>(null);
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // ---- customer/resource drill-down (merged from Usage page) ----
   const [mode, setMode] = useState<'customer' | 'resource'>('customer');
@@ -85,6 +89,43 @@ export default function Bills() {
   };
 
   useEffect(() => { loadBills(); /* eslint-disable-next-line */ }, [month, status]);
+
+  const handleExport = async () => {
+    const m = month?.format('YYYY-MM');
+    if (!m) {
+      antdMessage.warning('请先选择月份');
+      return;
+    }
+    setExporting(true);
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const resp = await fetch(`/api/bills/export?month=${encodeURIComponent(m)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (resp.status === 404) {
+        antdMessage.info('导出接口待上线 (GET /api/bills/export?month=YYYY-MM)');
+        return;
+      }
+      if (!resp.ok) {
+        antdMessage.error(`导出失败: HTTP ${resp.status}`);
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bills-${m}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      antdMessage.success(`导出完成: bills-${m}.csv`);
+    } catch (e: any) {
+      antdMessage.error('导出失败: ' + (e?.message || '网络错误'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const searchCustomers = async (kw: string) => {
     setSearchLoading(true);
@@ -189,6 +230,16 @@ export default function Bills() {
           </Col>
         </Row>
       </Card>
+
+      {/* 工具栏: 折扣计算器 + 导出 CSV */}
+      <Space style={{ marginBottom: 16 }}>
+        <Button icon={<CalculatorOutlined />} onClick={() => setCalcOpen(true)}>
+          折扣计算器
+        </Button>
+        <Button icon={<DownloadOutlined />} loading={exporting} onClick={handleExport}>
+          导出 CSV
+        </Button>
+      </Space>
 
       {/* 按客户 / 货源下钻 */}
       <Card
@@ -344,6 +395,8 @@ export default function Bills() {
           </>
         )}
       </Card>
+
+      <DiscountCalculatorDrawer open={calcOpen} onClose={() => setCalcOpen(false)} />
     </div>
   );
 }

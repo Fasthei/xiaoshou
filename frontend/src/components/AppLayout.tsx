@@ -5,8 +5,8 @@ import {
 import {
   TeamOutlined, InboxOutlined, AppstoreOutlined, DashboardOutlined,
   LineChartOutlined, LogoutOutlined, UserOutlined,
-  SearchOutlined, BulbOutlined, BulbFilled, ThunderboltOutlined,
-  AlertOutlined, DollarOutlined,
+  SearchOutlined, BulbOutlined, BulbFilled,
+  AlertOutlined, DollarOutlined, FundProjectionScreenOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,10 +17,10 @@ const { Header, Sider, Content } = Layout;
 
 const menuItems = [
   { key: '/dashboard',   icon: <DashboardOutlined />,  label: <Link to="/dashboard">总览</Link> },
+  { key: '/manager',     icon: <FundProjectionScreenOutlined />, label: <Link to="/manager">销售主管</Link> },
   { key: '/customers',   icon: <TeamOutlined />,       label: <Link to="/customers">客户管理</Link> },
   { key: '/resources',   icon: <InboxOutlined />,      label: <Link to="/resources">货源看板</Link> },
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
-  { key: '/leads',       icon: <ThunderboltOutlined />,label: <Link to="/leads">商机挖掘</Link> },
   { key: '/sales-team',  icon: <UserOutlined />,       label: <Link to="/sales-team">销售团队</Link> },
   { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link> },
   { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link> },

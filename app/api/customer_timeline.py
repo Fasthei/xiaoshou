@@ -1,7 +1,8 @@
 """GET /api/customers/{id}/timeline — chronological events for a customer.
 
-Sources: local allocation history + sync logs that touched customers + enrich
-operations (synthesised).
+Sources: local allocation history + enrich operations (synthesised).
+System-level gongdan sync events are intentionally excluded — timeline only
+surfaces real business actions, not background data-sync noise.
 """
 from __future__ import annotations
 
@@ -16,7 +17,6 @@ from app.auth import CurrentUser, require_auth
 from app.database import get_db
 from app.models.allocation import Allocation
 from app.models.customer import Customer
-from app.models.sync_log import SyncLog
 
 router = APIRouter(prefix="/api/customers", tags=["客户管理"])
 
@@ -69,17 +69,8 @@ def customer_timeline(
             color="purple",
         ))
 
-    # System-level sync logs touching "customers"
-    syncs = db.query(SyncLog).filter(SyncLog.sync_type == "customers") \
-        .order_by(SyncLog.id.desc()).limit(5).all()
-    for s in syncs:
-        events.append(TimelineEvent(
-            at=(s.started_at or datetime.utcnow()).isoformat(),
-            kind="sync",
-            title=f"从 {s.source_system} 同步客户",
-            detail=f"拉取 {s.pulled_count} · 新增 {s.created_count} · 状态 {s.status}",
-            color="cyan",
-        ))
+    # System-level sync events (e.g. "从 gongdan 同步客户") are deliberately
+    # omitted — users only want to see real business actions on the timeline.
 
     events.sort(key=lambda e: e.at, reverse=True)
     return events

@@ -11,10 +11,11 @@ import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Resources from './pages/Resources';
 import Allocations from './pages/Allocations';
-import Leads from './pages/Leads';
 import Alerts from './pages/Alerts';
 import Bills from './pages/Bills';
 import SalesTeam from './pages/SalesTeam';
+import ManagerDashboard from './pages/ManagerDashboard';
+import ManagerApprovals from './pages/ManagerApprovals';
 
 function Shell() {
   const { mode } = useThemeMode();
@@ -38,10 +39,11 @@ function Shell() {
               <Route path="/resources" element={<Resources />} />
               <Route path="/allocations" element={<Allocations />} />
               <Route path="/usage" element={<Navigate to="/bills" replace />} />
-              <Route path="/leads" element={<Leads />} />
               <Route path="/alerts" element={<Alerts />} />
               <Route path="/bills" element={<Bills />} />
               <Route path="/sales-team" element={<SalesTeam />} />
+              <Route path="/manager" element={<ManagerDashboard />} />
+              <Route path="/manager/approvals" element={<ManagerApprovals />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
