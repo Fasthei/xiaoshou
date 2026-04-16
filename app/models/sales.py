@@ -68,8 +68,10 @@ class LeadAssignmentLog(Base):
 
     id = Column(_PK, primary_key=True, index=True, autoincrement=True)
     customer_id = Column(BigInteger, ForeignKey("customer.id"), nullable=False, index=True)
-    from_user_id = Column(BigInteger, ForeignKey("sales_user.id"), nullable=True)
-    to_user_id = Column(BigInteger, ForeignKey("sales_user.id"), nullable=True)
+    # ON DELETE SET NULL so hard-deleting a sales_user doesn't violate the FK;
+    # the log row stays for audit trail with from/to going NULL (目标已删).
+    from_user_id = Column(BigInteger, ForeignKey("sales_user.id", ondelete="SET NULL"), nullable=True)
+    to_user_id = Column(BigInteger, ForeignKey("sales_user.id", ondelete="SET NULL"), nullable=True)
     reason = Column(Text, nullable=True)
     trigger = Column(String(20), nullable=False, default="manual",
                      comment="manual | auto | import")

@@ -186,7 +186,27 @@ def hard_delete_user(
             db.add(r)
             rules_touched += 1
 
-    # 3) 删 sales_user
+    # 3) Nullify FK references on LeadAssignmentLog BEFORE deleting sales_user.
+    # Postgres enforces the FK; if we skip this we hit
+    #   ForeignKeyViolation: update or delete on table "sales_user" violates
+    #   foreign key constraint "lead_assignment_log_from_user_id_fkey"
+    # The audit trail is preserved via the `reason` text (which embeds the
+    # deleted user's id + name), and the model-level ondelete="SET NULL"
+    # kicks in for any legacy rows after the prod migration runs.
+    db.flush()  # make sure the recycle log rows from step (1) are persisted
+    nullified_from = (
+        db.query(LeadAssignmentLog)
+        .filter(LeadAssignmentLog.from_user_id == user_id)
+        .update({LeadAssignmentLog.from_user_id: None}, synchronize_session=False)
+    )
+    nullified_to = (
+        db.query(LeadAssignmentLog)
+        .filter(LeadAssignmentLog.to_user_id == user_id)
+        .update({LeadAssignmentLog.to_user_id: None}, synchronize_session=False)
+    )
+    logs_nullified = nullified_from + nullified_to
+
+    # 4) 删 sales_user
     name = su.name
     db.delete(su)
     db.commit()
@@ -196,6 +216,7 @@ def hard_delete_user(
         "deleted_name": name,
         "customers_recycled": recycled,
         "rules_touched": rules_touched,
+        "logs_nullified": logs_nullified,
     }
 
 
