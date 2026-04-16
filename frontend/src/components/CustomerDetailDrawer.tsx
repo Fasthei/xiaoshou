@@ -3,14 +3,18 @@ import {
   Drawer, Tabs, Descriptions, Tag, Space, Typography, List, Avatar, Empty,
   Skeleton, Button, Card, Timeline, Select, Input, Modal, Form, Table, Alert,
   Statistic, Row, Col, DatePicker,
+  Upload, InputNumber, Popconfirm,
   message as antdMessage,
 } from 'antd';
+import type { UploadFile } from 'antd/es/upload/interface';
 import {
   CloudServerOutlined, SyncOutlined, LinkOutlined, BulbOutlined,
   UserSwitchOutlined, HistoryOutlined, FileTextOutlined, BarChartOutlined,
   WarningOutlined, ProfileOutlined, CustomerServiceOutlined,
   FullscreenOutlined, FullscreenExitOutlined,
   ZoomInOutlined, ZoomOutOutlined, CloseOutlined,
+  UploadOutlined, DownloadOutlined,
+  DeleteOutlined, PlusOutlined, PaperClipOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api } from '../api/axios';
@@ -86,6 +90,11 @@ export default function CustomerDetailDrawer({
   // --- Milestone 2: 4 new tabs state ---
   const [contracts, setContracts] = useState<any[]>([]);
   const [contractsLoading, setContractsLoading] = useState(false);
+  // Contract create modal + file upload state
+  const [contractModalOpen, setContractModalOpen] = useState(false);
+  const [contractForm] = Form.useForm();
+  const [contractSaving, setContractSaving] = useState(false);
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
   const [usageSummary, setUsageSummary] = useState<any>(null);
   const [usageErr, setUsageErr] = useState(false);
   const [usageLoading, setUsageLoading] = useState(false);
@@ -157,6 +166,98 @@ export default function CustomerDetailDrawer({
     } finally {
       setContractsLoading(false);
     }
+  };
+
+  const openContractModal = () => {
+    contractForm.resetFields();
+    setContractModalOpen(true);
+  };
+
+  const submitContract = async () => {
+    if (!customer) return;
+    const v = await contractForm.validateFields();
+    setContractSaving(true);
+    try {
+      const payload: any = {
+        customer_id: customer.id,
+        contract_code: v.contract_code,
+        title: v.title || null,
+        amount: v.amount ?? null,
+        status: v.status || 'active',
+        notes: v.notes || null,
+        start_date: v.start_date ? dayjs(v.start_date).format('YYYY-MM-DD') : null,
+        end_date: v.end_date ? dayjs(v.end_date).format('YYYY-MM-DD') : null,
+      };
+      await api.post('/api/contracts', payload);
+      antdMessage.success('合同已创建，可在列表中上传附件');
+      setContractModalOpen(false);
+      loadContracts();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '创建合同失败');
+    } finally {
+      setContractSaving(false);
+    }
+  };
+
+  const uploadContractFile = async (contractId: number, file: File): Promise<boolean> => {
+    // antd Upload size/type hints — server is source of truth
+    const MAX = 10 * 1024 * 1024;
+    const OK_EXT = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'];
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!OK_EXT.includes(ext)) {
+      antdMessage.error('仅支持 PDF/Word/JPG/PNG');
+      return false;
+    }
+    if (file.size > MAX) {
+      antdMessage.error('文件大小不能超过 10MB');
+      return false;
+    }
+    setUploadingId(contractId);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await api.post(`/api/contracts/${contractId}/upload`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      antdMessage.success('上传成功');
+      loadContracts();
+      return true;
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '上传失败');
+      return false;
+    } finally {
+      setUploadingId(null);
+    }
+  };
+
+  const downloadContractFile = async (contractId: number) => {
+    try {
+      const { data } = await api.get(`/api/contracts/${contractId}/download`);
+      if (data?.url) {
+        window.open(data.url, '_blank', 'noopener');
+      } else {
+        antdMessage.error('下载链接不可用');
+      }
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '获取下载链接失败');
+    }
+  };
+
+  const removeContractFile = async (contractId: number) => {
+    try {
+      await api.delete(`/api/contracts/${contractId}/file`);
+      antdMessage.success('文件已删除');
+      loadContracts();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '删除文件失败');
+    }
+  };
+
+  const humanSize = (n?: number | null) => {
+    if (!n) return '';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(2)} MB`;
   };
 
   const loadUsage = async () => {
@@ -519,26 +620,85 @@ export default function CustomerDetailDrawer({
               key: 'contracts',
               label: (<Space><FileTextOutlined />合同 <Tag color="purple">{contracts.length}</Tag></Space>),
               children: (
-                <Table
-                  size="small"
-                  rowKey="id"
-                  loading={contractsLoading}
-                  dataSource={contracts}
-                  locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无合同" /> }}
-                  pagination={false}
-                  columns={[
-                    { title: '合同号', dataIndex: 'contract_code', width: 160,
-                      render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
-                    { title: '标题', dataIndex: 'title', ellipsis: true },
-                    { title: '金额', dataIndex: 'amount', width: 110,
-                      render: (v: any) => v ? `¥ ${v}` : '—' },
-                    { title: '起止', width: 200,
-                      render: (_: any, r: any) =>
-                        `${r.start_date || '—'} ~ ${r.end_date || '—'}` },
-                    { title: '状态', dataIndex: 'status', width: 90,
-                      render: (s: string) => <Tag color={s === 'active' ? 'green' : 'default'}>{s || 'active'}</Tag> },
-                  ]}
-                />
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                    <Text type="secondary">
+                      支持上传 PDF / Word / 图片 (≤10MB), 存储于 Azure Blob
+                    </Text>
+                    <Space>
+                      <Button size="small" icon={<SyncOutlined />} onClick={loadContracts} loading={contractsLoading}>
+                        刷新
+                      </Button>
+                      <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openContractModal}>
+                        新建合同
+                      </Button>
+                    </Space>
+                  </Space>
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    loading={contractsLoading}
+                    dataSource={contracts}
+                    locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无合同" /> }}
+                    pagination={false}
+                    scroll={{ x: 720 }}
+                    columns={[
+                      { title: '合同号', dataIndex: 'contract_code', width: 140, fixed: 'left' as const,
+                        render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
+                      { title: '标题', dataIndex: 'title', ellipsis: true },
+                      { title: '金额', dataIndex: 'amount', width: 100,
+                        render: (v: any) => v ? `¥ ${v}` : '—' },
+                      { title: '起止', width: 180,
+                        render: (_: any, r: any) =>
+                          `${r.start_date || '—'} ~ ${r.end_date || '—'}` },
+                      { title: '状态', dataIndex: 'status', width: 80,
+                        render: (s: string) => <Tag color={s === 'active' ? 'green' : 'default'}>{s || 'active'}</Tag> },
+                      {
+                        title: '文件', width: 180,
+                        render: (_: any, r: any) => r.file_url ? (
+                          <Space size={4}>
+                            <PaperClipOutlined style={{ color: '#4f46e5' }} />
+                            <Text style={{ fontSize: 12, maxWidth: 100 }} ellipsis={{ tooltip: r.file_name }}>
+                              {r.file_name || '附件'}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 11 }}>{humanSize(r.file_size)}</Text>
+                          </Space>
+                        ) : <Text type="secondary" style={{ fontSize: 12 }}>未上传</Text>,
+                      },
+                      {
+                        title: '操作', width: 200, fixed: 'right' as const,
+                        render: (_: any, r: any) => (
+                          <Space size={4}>
+                            <Upload
+                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                              maxCount={1}
+                              showUploadList={false}
+                              beforeUpload={(file: UploadFile & File) => {
+                                uploadContractFile(r.id, file as unknown as File);
+                                return false; // prevent default auto-upload
+                              }}
+                            >
+                              <Button size="small" type="link" icon={<UploadOutlined />}
+                                loading={uploadingId === r.id}>
+                                {r.file_url ? '替换' : '上传'}
+                              </Button>
+                            </Upload>
+                            {r.file_url ? (
+                              <>
+                                <Button size="small" type="link" icon={<DownloadOutlined />}
+                                  onClick={() => downloadContractFile(r.id)}>下载</Button>
+                                <Popconfirm title="确定删除该合同文件?" onConfirm={() => removeContractFile(r.id)}
+                                  okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
+                                  <Button size="small" type="link" danger icon={<DeleteOutlined />} />
+                                </Popconfirm>
+                              </>
+                            ) : null}
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                </Space>
               ),
             },
             {
@@ -966,6 +1126,48 @@ export default function CustomerDetailDrawer({
           ]}
         />
       )}
+      <Modal
+        title="新建合同"
+        open={contractModalOpen}
+        onOk={submitContract}
+        onCancel={() => setContractModalOpen(false)}
+        confirmLoading={contractSaving}
+        destroyOnClose
+        okText="创建"
+        cancelText="取消"
+      >
+        <Form form={contractForm} layout="vertical" initialValues={{ status: 'active' }}>
+          <Form.Item name="contract_code" label="合同编号" rules={[{ required: true, message: '请输入合同编号' }]}>
+            <Input placeholder="例: CN-2026-001" />
+          </Form.Item>
+          <Form.Item name="title" label="标题">
+            <Input placeholder="合同标题" />
+          </Form.Item>
+          <Space style={{ display: 'flex', width: '100%' }} align="start">
+            <Form.Item name="amount" label="金额" style={{ flex: 1 }}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="¥" />
+            </Form.Item>
+            <Form.Item name="status" label="状态" style={{ flex: 1 }}>
+              <Select options={[
+                { value: 'active', label: '生效中' },
+                { value: 'expired', label: '已过期' },
+                { value: 'terminated', label: '已终止' },
+              ]} />
+            </Form.Item>
+          </Space>
+          <Space style={{ display: 'flex', width: '100%' }} align="start">
+            <Form.Item name="start_date" label="开始日期" style={{ flex: 1 }}>
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="end_date" label="结束日期" style={{ flex: 1 }}>
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+          </Space>
+          <Form.Item name="notes" label="备注">
+            <Input.TextArea rows={2} placeholder="合同备注" />
+          </Form.Item>
+        </Form>
+      </Modal>
       <Modal
         title={currentSalesUser ? '再分配销售' : '分配销售'}
         open={assignOpen} onOk={submitAssign} onCancel={() => setAssignOpen(false)} destroyOnClose
