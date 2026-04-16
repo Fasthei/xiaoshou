@@ -98,13 +98,21 @@ export default function CustomerDetailDrawer({
   const [usageSummary, setUsageSummary] = useState<any>(null);
   const [usageErr, setUsageErr] = useState(false);
   const [usageLoading, setUsageLoading] = useState(false);
+  const [usageSyncing, setUsageSyncing] = useState(false);
+  const [usageLastSync, setUsageLastSync] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [bills, setBills] = useState<any[]>([]);
   const [bridgeErr, setBridgeErr] = useState<string | null>(null);
   const [bridgeLoading, setBridgeLoading] = useState(false);
+  const [alertsSyncing, setAlertsSyncing] = useState(false);
+  const [billsSyncing, setBillsSyncing] = useState(false);
+  const [alertsLastSync, setAlertsLastSync] = useState<string | null>(null);
+  const [billsLastSync, setBillsLastSync] = useState<string | null>(null);
   const [historyBills, setHistoryBills] = useState<any[]>([]);
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySyncing, setHistorySyncing] = useState(false);
+  const [historyLastSync, setHistoryLastSync] = useState<string | null>(null);
   const [historyMonth, setHistoryMonth] = useState<Dayjs | null>(dayjs());
   const [historyDate, setHistoryDate] = useState<Dayjs | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | undefined>(undefined);
@@ -265,13 +273,40 @@ export default function CustomerDetailDrawer({
     setUsageLoading(true);
     setUsageErr(false);
     try {
-      const { data } = await api.get(`/api/usage/customer/${customer.id}/summary`);
+      const { data } = await api.get(`/api/customers/${customer.id}/local-usage`, {
+        params: { days: 30 },
+      });
       setUsageSummary(data);
+      setUsageLastSync(data?.last_sync_at || null);
     } catch {
       setUsageSummary(null);
       setUsageErr(true);
     } finally {
       setUsageLoading(false);
+    }
+  };
+
+  const syncUsage = async () => {
+    if (!customer) return;
+    setUsageSyncing(true);
+    try {
+      const { data } = await api.post('/api/sync/cloudcost/usage', null, {
+        params: { customer_id: customer.id, days: 30 },
+      });
+      if (data?.warning) {
+        antdMessage.warning(
+          `同步完成 (命中 ${data.matched_accounts} 货源, 新增 ${data.created}, 更新 ${data.updated}): ${data.warning}`
+        );
+      } else {
+        antdMessage.success(
+          `同步完成：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`
+        );
+      }
+      loadUsage();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '同步用量失败');
+    } finally {
+      setUsageSyncing(false);
     }
   };
 
@@ -282,32 +317,64 @@ export default function CustomerDetailDrawer({
     const month = currentMonth();
     try {
       const [aResp, bResp] = await Promise.allSettled([
-        api.get('/api/bridge/alerts', { params: { month } }),
-        api.get('/api/bridge/bills', { params: { month } }),
+        api.get(`/api/customers/${customer.id}/local-alerts`, { params: { month } }),
+        api.get(`/api/customers/${customer.id}/local-bills`, { params: { month } }),
       ]);
-      const code = (customer.customer_code || '').toString();
       if (aResp.status === 'fulfilled') {
-        const items = Array.isArray(aResp.value.data) ? aResp.value.data
-          : (aResp.value.data?.items || []);
-        setAlerts(items.filter((x: any) =>
-          JSON.stringify(x).includes(code) || x.customer_code === code || x.customer_id === customer.id
-        ));
+        const payload = aResp.value.data;
+        setAlerts(Array.isArray(payload?.items) ? payload.items : []);
+        setAlertsLastSync(payload?.last_sync_at || null);
       } else {
         setAlerts([]);
-        setBridgeErr('云管暂不可达');
+        setBridgeErr('本地预警读取失败');
       }
       if (bResp.status === 'fulfilled') {
-        const items = Array.isArray(bResp.value.data) ? bResp.value.data
-          : (bResp.value.data?.items || []);
-        setBills(items.filter((x: any) =>
-          JSON.stringify(x).includes(code) || x.customer_code === code || x.customer_id === customer.id
-        ));
+        const payload = bResp.value.data;
+        setBills(Array.isArray(payload?.items) ? payload.items : []);
+        setBillsLastSync(payload?.last_sync_at || null);
       } else {
         setBills([]);
-        if (!bridgeErr) setBridgeErr('云管暂不可达');
+        if (!bridgeErr) setBridgeErr('本地账单读取失败');
       }
     } finally {
       setBridgeLoading(false);
+    }
+  };
+
+  const syncAlerts = async () => {
+    if (!customer) return;
+    setAlertsSyncing(true);
+    try {
+      const { data } = await api.post('/api/sync/cloudcost/alerts', null, {
+        params: { month: currentMonth() },
+      });
+      antdMessage.success(
+        `同步完成：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`
+      );
+      loadBridge();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '同步预警失败');
+    } finally {
+      setAlertsSyncing(false);
+    }
+  };
+
+  const syncBills = async (month?: string) => {
+    if (!customer) return;
+    setBillsSyncing(true);
+    try {
+      const { data } = await api.post('/api/sync/cloudcost/bills', null, {
+        params: { month: month || currentMonth() },
+      });
+      antdMessage.success(
+        `同步完成：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`
+      );
+      loadBridge();
+      loadHistoryBills();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '同步账单失败');
+    } finally {
+      setBillsSyncing(false);
     }
   };
 
@@ -316,20 +383,35 @@ export default function CustomerDetailDrawer({
     setHistoryLoading(true);
     setHistoryErr(null);
     const monthArg = monthOverride === undefined ? historyMonth : monthOverride;
-    const params: Record<string, any> = { page_size: 200 };
+    const params: Record<string, any> = {};
     if (monthArg) params.month = monthArg.format('YYYY-MM');
     try {
-      const { data } = await api.get('/api/bridge/bills', { params });
-      const items = Array.isArray(data) ? data : (data?.items || []);
-      const code = (customer.customer_code || '').toString();
-      setHistoryBills(items.filter((x: any) =>
-        JSON.stringify(x).includes(code) || x.customer_code === code || x.customer_id === customer.id
-      ));
+      const { data } = await api.get(`/api/customers/${customer.id}/local-bills`, { params });
+      setHistoryBills(Array.isArray(data?.items) ? data.items : []);
+      setHistoryLastSync(data?.last_sync_at || null);
     } catch {
       setHistoryBills([]);
-      setHistoryErr('云管暂不可达');
+      setHistoryErr('本地账单读取失败');
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const syncHistoryBills = async () => {
+    const month = historyMonth ? historyMonth.format('YYYY-MM') : currentMonth();
+    setHistorySyncing(true);
+    try {
+      const { data } = await api.post('/api/sync/cloudcost/bills', null, {
+        params: { month },
+      });
+      antdMessage.success(
+        `同步完成 (${month})：拉取 ${data.pulled} · 新增 ${data.created} · 更新 ${data.updated}`
+      );
+      loadHistoryBills();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '同步账单失败');
+    } finally {
+      setHistorySyncing(false);
     }
   };
 
@@ -704,9 +786,35 @@ export default function CustomerDetailDrawer({
             {
               key: 'usage',
               label: (<Space><BarChartOutlined />用量</Space>),
-              children: usageLoading ? <Skeleton active /> : (usageErr || !usageSummary) ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无用量数据" />
-              ) : (() => {
+              children: (
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      来源：本地 cc_usage 表
+                      {usageLastSync ? (
+                        <Tag style={{ marginLeft: 6 }} color="geekblue">
+                          上次同步 {new Date(usageLastSync).toLocaleString()}
+                        </Tag>
+                      ) : <Tag style={{ marginLeft: 6 }}>未同步</Tag>}
+                    </Text>
+                    <Space>
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<SyncOutlined spin={usageSyncing} />}
+                        loading={usageSyncing}
+                        onClick={syncUsage}
+                      >
+                        🔄 同步本月
+                      </Button>
+                      <Button size="small" icon={<SyncOutlined />} onClick={loadUsage} loading={usageLoading}>
+                        刷新
+                      </Button>
+                    </Space>
+                  </Space>
+                  {usageLoading ? <Skeleton active /> : (usageErr || !usageSummary) ? (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无用量数据（请点击 “🔄 同步本月”）" />
+                  ) : (() => {
                 const totalUsage = Number(usageSummary.total_usage ?? 0);
                 const totalCost = Number(usageSummary.total_cost ?? 0);
                 const recordCount = Number(usageSummary.record_count ?? 0);
@@ -797,7 +905,9 @@ export default function CustomerDetailDrawer({
                     ) : null}
                   </Space>
                 );
-              })(),
+              })()}
+                </Space>
+              ),
             },
             {
               key: 'alerts-bills',
@@ -807,10 +917,36 @@ export default function CustomerDetailDrawer({
                   {bridgeErr ? (
                     <Alert message={bridgeErr} type="warning" showIcon closable={false} />
                   ) : null}
-                  <Card size="small" title={<Space>预警 <Tag>{alerts.length}</Tag></Space>}
-                    extra={<Button size="small" icon={<SyncOutlined />} loading={bridgeLoading} onClick={loadBridge}>刷新</Button>}>
+                  <Card
+                    size="small"
+                    title={
+                      <Space>
+                        预警 <Tag>{alerts.length}</Tag>
+                        {alertsLastSync ? (
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            · 上次同步 {new Date(alertsLastSync).toLocaleString()}
+                          </Text>
+                        ) : null}
+                      </Space>
+                    }
+                    extra={
+                      <Space>
+                        <Button
+                          size="small" type="primary"
+                          icon={<SyncOutlined spin={alertsSyncing} />}
+                          loading={alertsSyncing}
+                          onClick={syncAlerts}
+                        >
+                          🔄 同步本月
+                        </Button>
+                        <Button size="small" icon={<SyncOutlined />} loading={bridgeLoading} onClick={loadBridge}>
+                          刷新
+                        </Button>
+                      </Space>
+                    }
+                  >
                     {alerts.length === 0 ? (
-                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本月暂无预警" />
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本月暂无预警（请点击“🔄 同步本月”）" />
                     ) : (
                       <List
                         size="small"
@@ -818,10 +954,19 @@ export default function CustomerDetailDrawer({
                         renderItem={(a: any) => (
                           <List.Item>
                             <Space direction="vertical" size={2}>
-                              <Text strong>{a.title || a.alert_type || '预警'}</Text>
+                              <Space>
+                                <Text strong>{a.rule_name || a.title || '预警'}</Text>
+                                {a.triggered ? <Tag color="red">已触发</Tag> : <Tag color="default">未触发</Tag>}
+                                {a.threshold_type ? <Tag color="orange">{a.threshold_type}</Tag> : null}
+                              </Space>
                               <Text type="secondary" style={{ fontSize: 12 }}>
-                                {a.level ? <Tag color="orange">{a.level}</Tag> : null}
-                                {a.message || a.detail || ''}
+                                {a.account_name ? `账号 ${a.account_name} · ` : ''}
+                                {a.provider ? `${a.provider} · ` : ''}
+                                {a.actual !== null && a.actual !== undefined
+                                  ? `实际 ${a.actual}` : ''}
+                                {a.threshold_value !== null && a.threshold_value !== undefined
+                                  ? ` / 阈值 ${a.threshold_value}` : ''}
+                                {a.pct !== null && a.pct !== undefined ? ` · ${a.pct}%` : ''}
                               </Text>
                             </Space>
                           </List.Item>
@@ -829,9 +974,31 @@ export default function CustomerDetailDrawer({
                       />
                     )}
                   </Card>
-                  <Card size="small" title={<Space>本月账单 <Tag>{bills.length}</Tag></Space>}>
+                  <Card
+                    size="small"
+                    title={
+                      <Space>
+                        本月账单 <Tag>{bills.length}</Tag>
+                        {billsLastSync ? (
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            · 上次同步 {new Date(billsLastSync).toLocaleString()}
+                          </Text>
+                        ) : null}
+                      </Space>
+                    }
+                    extra={
+                      <Button
+                        size="small" type="primary"
+                        icon={<SyncOutlined spin={billsSyncing} />}
+                        loading={billsSyncing}
+                        onClick={() => syncBills()}
+                      >
+                        🔄 同步本月
+                      </Button>
+                    }
+                  >
                     {bills.length === 0 ? (
-                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本月暂无账单" />
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本月暂无账单（请点击“🔄 同步本月”）" />
                     ) : (
                       <List
                         size="small"
@@ -839,8 +1006,15 @@ export default function CustomerDetailDrawer({
                         renderItem={(b: any) => (
                           <List.Item>
                             <Space direction="vertical" size={2}>
-                              <Text>{b.month || b.period || '—'} · ¥ {b.amount ?? b.total_amount ?? '—'}</Text>
-                              {b.status ? <Tag>{b.status}</Tag> : null}
+                              <Text>
+                                {b.month || '—'} · ¥ {b.final_cost ?? b.amount ?? '—'}
+                                {b.original_cost !== null && b.original_cost !== undefined
+                                  ? ` (原始 ¥${b.original_cost})` : ''}
+                              </Text>
+                              <Space size={4}>
+                                {b.provider ? <Tag color="blue">{b.provider}</Tag> : null}
+                                {b.status ? <Tag>{b.status}</Tag> : null}
+                              </Space>
                             </Space>
                           </List.Item>
                         )}
@@ -900,6 +1074,15 @@ export default function CustomerDetailDrawer({
                       </Space>
                       <Button
                         size="small"
+                        type="primary"
+                        icon={<SyncOutlined spin={historySyncing} />}
+                        loading={historySyncing}
+                        onClick={syncHistoryBills}
+                      >
+                        🔄 同步{historyMonth ? historyMonth.format('YYYY-MM') : '本月'}
+                      </Button>
+                      <Button
+                        size="small"
                         icon={<SyncOutlined />}
                         loading={historyLoading}
                         onClick={() => loadHistoryBills()}
@@ -907,6 +1090,19 @@ export default function CustomerDetailDrawer({
                         刷新
                       </Button>
                     </Space>
+                    {historyLastSync ? (
+                      <div style={{ marginTop: 6 }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          来源：本地 cc_bill · 上次同步 {new Date(historyLastSync).toLocaleString()}
+                        </Text>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 6 }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          来源：本地 cc_bill (未同步, 请点击 “🔄 同步” 按钮)
+                        </Text>
+                      </div>
+                    )}
                   </Card>
                   {historyErr ? <Alert message={historyErr} type="warning" showIcon /> : null}
                   {historyLoading ? (

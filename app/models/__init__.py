@@ -12,6 +12,9 @@ from app.models.contract import Contract
 from app.models.ticket import Ticket
 from app.models.alert_rule import AlertRule
 from app.models.payment import Payment
+from app.models.cc_usage import CCUsage
+from app.models.cc_alert import CCAlert
+from app.models.cc_bill import CCBill
 
 __all__ = [
     "Customer", "CustomerContact", "Resource", "Allocation", "UsageRecord", "SyncLog",
@@ -20,4 +23,5 @@ __all__ = [
     "AllocationHistory", "CustomerFollowUp",
     "Contract", "Ticket",
     "AlertRule", "Payment",
+    "CCUsage", "CCAlert", "CCBill",
 ]
