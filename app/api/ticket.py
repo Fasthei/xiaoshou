@@ -9,10 +9,11 @@ Admin trigger reuses ``sync_log`` for auditability (source='gongdan', type='tick
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, require_auth
@@ -202,3 +203,71 @@ def list_customer_tickets(
         }
         for t in rows
     ]
+
+
+@customer_scoped.get(
+    "/{customer_id}/tickets/stats",
+    summary="该客户工单聚合统计 (总数/按状态/近30天)",
+)
+def customer_tickets_stats(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+) -> Dict[str, Any]:
+    """Aggregate stats over the local ticket mirror.
+
+    Shape::
+
+        {
+          "total": int,
+          "by_status": {"OPEN": 3, "CLOSED": 12, ...},  # 原始 status 值, null 合并到 "UNKNOWN"
+          "last_30d_count": int,                         # 最近 30 天新建 (按 created_at_remote)
+        }
+
+    `by_status` 使用工单系统返回的原始状态字符串作键,前端自己做本地化映射。
+    未知客户返回 404；无 customer_code 或无工单则全部 0 / 空字典。
+    """
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.is_deleted == False,  # noqa: E712
+    ).first()
+    if not customer:
+        raise HTTPException(404, "客户不存在")
+
+    empty: Dict[str, Any] = {"total": 0, "by_status": {}, "last_30d_count": 0}
+    if not customer.customer_code:
+        return empty
+
+    code = customer.customer_code
+    total = db.query(func.count(Ticket.id)).filter(Ticket.customer_code == code).scalar() or 0
+    if total == 0:
+        return empty
+
+    status_rows = (
+        db.query(Ticket.status, func.count(Ticket.id))
+        .filter(Ticket.customer_code == code)
+        .group_by(Ticket.status)
+        .all()
+    )
+    by_status: Dict[str, int] = {}
+    for status, cnt in status_rows:
+        key = status if status else "UNKNOWN"
+        by_status[key] = int(cnt or 0)
+
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    last_30d = (
+        db.query(func.count(Ticket.id))
+        .filter(
+            Ticket.customer_code == code,
+            Ticket.created_at_remote.isnot(None),
+            Ticket.created_at_remote >= cutoff,
+        )
+        .scalar()
+        or 0
+    )
+
+    return {
+        "total": int(total),
+        "by_status": by_status,
+        "last_30d_count": int(last_30d),
+    }
