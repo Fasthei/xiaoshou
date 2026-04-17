@@ -49,7 +49,7 @@ function Shell() {
               <Route
                 path="/bills"
                 element={
-                  <RoleGuard allowed={['ops', 'sales-manager']}>
+                  <RoleGuard allowed={['sales', 'sales-manager']}>
                     <Bills />
                   </RoleGuard>
                 }

@@ -12,10 +12,6 @@ ADMIN = "admin"
 SALES = "sales"
 SALES_MANAGER = "sales_manager"
 
-# Ops org
-OPS = "ops"
-OPS_MANAGER = "ops_manager"
-
 # Cross-functional
 FINANCE = "finance"
 SUPPORT = "support"
@@ -23,11 +19,11 @@ AUDITOR = "auditor"
 READONLY = "readonly"
 
 ALL_ROLES = {
-    ADMIN, SALES, SALES_MANAGER, OPS, OPS_MANAGER,
+    ADMIN, SALES, SALES_MANAGER,
     FINANCE, SUPPORT, AUDITOR, READONLY,
 }
 
 # Convenience groups
-WRITE_ROLES = {ADMIN, SALES, SALES_MANAGER, OPS, OPS_MANAGER}
+WRITE_ROLES = {ADMIN, SALES, SALES_MANAGER}
 READ_ROLES = ALL_ROLES  # 所有角色都至少能读
-MANAGER_ROLES = {ADMIN, SALES_MANAGER, OPS_MANAGER}
+MANAGER_ROLES = {ADMIN, SALES_MANAGER}
