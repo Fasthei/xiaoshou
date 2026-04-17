@@ -15,7 +15,7 @@ interface Props {
  *   - user 有 admin 或 root 角色 (系统超管): 即便不在 allowed 里也放行（降级通道，避免 Casdoor role 未同步时锁死）
  *   - 其余: 显示 403
  *
- * 未来 Casdoor 同步 'sales-manager' / 'sales' / 'ops' 三种业务 role 后，该守卫自然生效。
+ * 未来 Casdoor 同步 'sales-manager' / 'sales' 两种业务 role 后，该守卫自然生效。
  */
 export default function RoleGuard({ allowed, children }: Props) {
   const userStr = localStorage.getItem('xs_user');

@@ -18,6 +18,7 @@ class SalesUserBase(BaseModel):
     is_active: bool = True
     note: Optional[str] = None
     annual_profit_target: Optional[Decimal] = Field(None, description="年度毛利目标")
+    annual_sales_target: Optional[Decimal] = Field(None, description="年度销售额目标")
     target_year: Optional[int] = Field(None, description="目标年份, 例 2026")
 
 
@@ -35,6 +36,9 @@ class SalesUserUpdate(BaseModel):
     max_customers: Optional[int] = None
     is_active: Optional[bool] = None
     note: Optional[str] = None
+    annual_profit_target: Optional[Decimal] = None
+    annual_sales_target: Optional[Decimal] = None
+    target_year: Optional[int] = None
 
 
 class SalesLoadItem(BaseModel):

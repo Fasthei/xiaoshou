@@ -31,13 +31,62 @@ services:
       SECRET_KEY: dev-secret-change-me
       DEBUG: "True"
       CASDOOR_ENDPOINT: ${CASDOOR_ENDPOINT:-https://casdoor.ashyglacier-8207efd2.eastasia.azurecontainerapps.io}
-      CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-}
+      CASDOOR_CLIENT_ID: ${CASDOOR_CLIENT_ID:-d886e62a3d88caa515c1}
       CASDOOR_CLIENT_SECRET: ${CASDOOR_CLIENT_SECRET:-}
-      CASDOOR_ORG: ${CASDOOR_ORG:-built-in}
-      CASDOOR_APP_NAME: ${CASDOOR_APP_NAME:-xiaoshou}
-      CASDOOR_REDIRECT_URI: ${CASDOOR_REDIRECT_URI:-http://localhost:8000/api/auth/callback}
+      CASDOOR_ORG: ${CASDOOR_ORG:-operation}
+      CASDOOR_APP_NAME: ${CASDOOR_APP_NAME:-sales}
+      CASDOOR_REDIRECT_URI: ${CASDOOR_REDIRECT_URI:-http://localhost:5173/auth/callback}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      CLOUDCOST_ENDPOINT: ${CLOUDCOST_ENDPOINT:-}
+      CLOUDCOST_API_KEY: ${CLOUDCOST_API_KEY:-}
+      CLOUDCOST_MATCH_FIELD: ${CLOUDCOST_MATCH_FIELD:-external_project_id}
+      CASDOOR_CERT: |
+        -----BEGIN CERTIFICATE-----
+        MIIE3TCCAsWgAwIBAgIDAeJAMA0GCSqGSIb3DQEBCwUAMCgxDjAMBgNVBAoTBWFk
+        bWluMRYwFAYDVQQDEw1jZXJ0LWJ1aWx0LWluMB4XDTI2MDQxNDA4NDgzMVoXDTQ2
+        MDQxNDA4NDgzMVowKDEOMAwGA1UEChMFYWRtaW4xFjAUBgNVBAMTDWNlcnQtYnVp
+        bHQtaW4wggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDQC3kLUoUV5TSv
+        1rAkC4TUUa82tl4Nq8alb1EclSdx64J4mbxFC1qsCAyHxp+d1mw7qReVyOLeAXe6
+        NlKTTRooNuUhxO0VMXqBQ5n0QXdsXMLM1DDPlPVv3em6vudNsfIUVVSzSLfiJvJo
+        4t3u9hvZMXzuK2qXvGIwJCke6nJdqFgfrsphb+S9gG4OSy33SP6Yloxowaa7cThP
+        GVWMbt39m7ZfT9vkQb9FN9GBumv5asx1qMHd3OyMAESUdv4yJltycHWrQ8QkOSpD
+        f6h8vGqvwHCfv6jlG0w6zQfcwWGLcRXQ3unWeX4K0IvaLhzEt6F4rLg0a40k76ph
+        xA2rD8+EYU9zTIRxAzDvKgBRoWEYSHiM4SdUoVRRSUKgp1a9jCYRnyCPE4gWbMPq
+        CAz3EgwlzaaEkdPGrNp6795r86dsu/ra1jXFdqPgUdHcIzSOt0t0UBB7PofRoOx/
+        DohetbKDCRjvP7pz7kRqtXcOyy1q85p4pJ0DnIAkaKeQ6wxacvnT69jSd2ysO+qz
+        YHPmOaHd5SHQKSzrNQOXn4HkaWaa7YuNygBH6XvZiFZ7rf7It9d7BAbyBJTXh23z
+        Vk7L2cLCrFTeMYTWLWZ8WjLAL3oZL7fFv2sSj/mBOWvt6uOI7Vw3v9ROF+Cv+KUJ
+        HP/XpRw2S9VsMOyKQ6ihZXvm3o1b8wIDAQABoxAwDjAMBgNVHRMBAf8EAjAAMA0G
+        CSqGSIb3DQEBCwUAA4ICAQAyIxpbJoHBKvUu2nO/TaAV9FPQUsvr1R5Qk6XWw+b8
+        q4BzSer77UEOvTZiibDRPzicii2196+qAeAG6qqpeimSX1PrmOZG6NB9l4xNtvdM
+        r+HZ4XC0KOtAMbAZERGkv4dWBGesjfzFqhUfgbHVD457mDbNBYRIod0A0YZrVL5A
+        5X0To4OJpjWLzt3hl2tQo17g76XKiV2Lzx8NbMIlG2nrs4D6xFr8ReKOYuTH5cqD
+        fnV7sNxBoyGlmjR3+EenxHVR3qzZ9kUyo/CGnWZSRfkzApKRVH4j5uX8mjyGp3hU
+        D0kcPYIkDMEB07SdAapqN3yu/8OBLvNDOuFIkEBjiVuFaNcE3rCRkdM/SjXU1R+s
+        wKSDZyzihDOrQes0M3SCtEy10pBdlJoSW1Gc5Qeu2MGmsTDTF/4N0vOCpEjfRok3
+        zmthfT/dA8hXPNgsVcEk2LpQXbe7CjP7SAti2CAWJNVLieqIDHnpIJxR/zL4e8fd
+        NjcFLa+ORmRz3U7zti6mNvJCnI/OkAjF1vbBIi3JtH9wKEUH0B946/gv1K/5ac/X
+        Uf2CfZkk+eSsWiC2hCxi2GsoLH6CNXWuRktcTKnyI03eYqPTTxH82ZLzQ/1TMJ+Q
+        fQLiJHUPW+i7oAUUXVeSvm1OMDCV46RTsUR13GnzUFLpcAOBLp1X0dGj+040j0Lq
+        mg==
+        -----END CERTIFICATE-----
+      CASDOOR_INTERNAL_ALLOWED_CLIENTS: d886e62a3d88caa515c1
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
     ports: ["8000:8000"]
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8000}
+        VITE_CASDOOR_ENDPOINT: ${VITE_CASDOOR_ENDPOINT:-https://casdoor.ashyglacier-8207efd2.eastasia.azurecontainerapps.io}
+        VITE_CASDOOR_CLIENT_ID: ${VITE_CASDOOR_CLIENT_ID:-d886e62a3d88caa515c1}
+        VITE_CASDOOR_ORG: ${VITE_CASDOOR_ORG:-operation}
+        VITE_CASDOOR_APP: ${VITE_CASDOOR_APP:-sales}
+        VITE_CASDOOR_REDIRECT: ${VITE_CASDOOR_REDIRECT:-http://localhost:5173/auth/callback}
+    depends_on:
+      - api
+    ports: ["5173:5173"]
 
 volumes:
   pgdata:

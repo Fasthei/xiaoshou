@@ -27,6 +27,8 @@ export interface InsightRun {
   steps_done: number;
   error_message?: string | null;
   summary?: string | null;
+  fact_count?: number;
+  duration_ms?: number | null;
 }
 
 export interface InsightFact {
@@ -121,4 +123,9 @@ export async function fetchInsightFacts(customerId: number, category?: string): 
     params: category ? { category } : {},
   });
   return data;
+}
+
+export async function fetchInsightRunFacts(customerId: number, runId: number): Promise<InsightFact[]> {
+  const { data } = await api.get(`/api/customer/${customerId}/insight/runs/${runId}`);
+  return (data as { facts: InsightFact[] }).facts ?? [];
 }

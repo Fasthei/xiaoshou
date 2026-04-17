@@ -33,7 +33,12 @@ api.interceptors.response.use(
       // render its own friendly error state (Result / Empty) so the user
       // sees business context instead of a terse global message.
     } else if (status && status >= 400) {
-      const detail = err.response?.data?.detail || err.message;
+      const raw = err.response?.data?.detail;
+      const detail = typeof raw === 'string'
+        ? raw
+        : raw != null
+          ? JSON.stringify(raw)
+          : err.message;
       message.error(`${status}: ${detail}`);
     }
     return Promise.reject(err);

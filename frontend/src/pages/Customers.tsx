@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Card, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Typography,
+  Button, Card, Dropdown, Form, Input, Modal, Segmented, Select, Space, Table, Tag, Tooltip, Typography,
   message as antdMessage,
 } from 'antd';
 import {
@@ -12,45 +12,35 @@ import { api } from '../api/axios';
 import type { Customer, Pagination } from '../types';
 import CustomerDetailDrawer from '../components/CustomerDetailDrawer';
 import CustomerOrderWizardModal from '../components/CustomerOrderWizardModal';
-
+import { STAGE_META } from '../constants/stage';
 const { Title } = Typography;
 
-const STATUS_COLOR: Record<string, string> = {
-  active: 'green', inactive: 'default', frozen: 'red',
-  potential: 'purple', prospect: 'purple', // prospect 兼容旧值
-  formal: 'gold',
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  potential: '潜在', prospect: '潜在',
-  active: '客户池', inactive: '停用', frozen: '冻结',
-  formal: '正式',
-};
-
-// 新建/编辑 Modal Select 选项: formal 始终 disabled (只允许工单同步自动设置)
 const FORM_STATUS_OPTIONS = [
   { value: 'potential', label: '潜在客户' },
   { value: 'active', label: '客户池' },
   { value: 'formal', label: '正式客户（工单系统同步自动设置）', disabled: true },
 ];
 
-// 筛选下拉暴露全部状态 (含 formal, 方便筛选)
-const FILTER_STATUS_OPTIONS = [
-  { value: 'potential', label: '潜在客户' },
-  { value: 'active', label: '客户池' },
-  { value: 'formal', label: '正式客户' },
-  { value: 'inactive', label: '停用' },
-  { value: 'frozen', label: '冻结' },
-];
+// lifecycle_stage → group mapping
+const STAGE_GROUP: Record<string, 'active' | 'contacting' | 'lead'> = {
+  active: 'active',
+  contacting: 'contacting',
+  lead: 'lead',
+};
+
+type GroupKey = 'active' | 'contacting' | 'lead';
+
+const GROUP_META: Record<GroupKey, { label: string; emoji: string }> = {
+  active:     { label: '正式客户', emoji: '🎯' },
+  contacting: { label: '跟进客户', emoji: '📞' },
+  lead:       { label: '商机池',  emoji: '🧊' },
+};
 
 export default function Customers() {
-  const [data, setData] = useState<Customer[]>([]);
+  const [allData, setAllData] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [status, setStatus] = useState<string | undefined>();
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<Customer>();
@@ -58,16 +48,18 @@ export default function Customers() {
   const [syncing, setSyncing] = useState(false);
   const [detail, setDetail] = useState<Customer | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [group, setGroup] = useState<GroupKey>('active');
 
   const load = async () => {
     setLoading(true);
     try {
       const { data } = await api.get<Pagination<Customer>>('/api/customers', {
-        params: { page, page_size: pageSize, keyword: keyword || undefined, customer_status: status },
+        params: { page: 1, page_size: 100, keyword: keyword || undefined },
       });
-      const items = onlyUnassigned ? data.items.filter((c) => c.sales_user_id == null) : data.items;
-      setData(items);
-      setTotal(onlyUnassigned ? items.length : data.total);
+      const list = Array.isArray(data?.items) ? data.items : [];
+      const items = onlyUnassigned ? list.filter((c) => c.sales_user_id == null) : list;
+      setAllData(items);
+      setTotal(onlyUnassigned ? items.length : (data?.total ?? items.length));
     } catch (e: any) {
       antdMessage.error(e?.response?.data?.detail || '加载客户列表失败');
     } finally {
@@ -75,14 +67,26 @@ export default function Customers() {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize]);
+  useEffect(() => {
+    load();
+    /* eslint-disable-next-line */
+  }, []);
+
+  // Filtered data by selected group
+  const filteredData = useMemo(() => {
+    return allData.filter((c) => {
+      const g = STAGE_GROUP[c.lifecycle_stage || 'lead'] || 'lead';
+      return g === group;
+    });
+  }, [allData, group]);
 
   const onSubmit = async () => {
     const v = await form.validateFields();
     if (editing) {
       await api.put(`/api/customers/${editing.id}`, v);
     } else {
-      await api.post('/api/customers', v);
+      const customer_code = 'CUST-' + Math.random().toString(36).slice(2, 10).toUpperCase();
+      await api.post('/api/customers', { ...v, customer_code });
     }
     setOpen(false); setEditing(null); form.resetFields();
     load();
@@ -101,32 +105,50 @@ export default function Customers() {
     }
   };
 
+  const segmentedOptions = (['active', 'contacting', 'lead'] as GroupKey[]).map((key) => {
+    const { label, emoji } = GROUP_META[key];
+    return {
+      value: key,
+      label: `${emoji} ${label}`,
+    };
+  });
+
   const columns = [
     { title: '编号', dataIndex: 'customer_code', width: 160,
       render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
     { title: '名称', dataIndex: 'customer_name',
-      render: (v: string, r: Customer) => (
-        <Space>
-          <span
-            style={{
-              width: 28, height: 28, borderRadius: 8,
-              background: 'linear-gradient(135deg, #4f46e5, #ec4899)',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white', fontSize: 12, fontWeight: 600,
-            }}
-          >
-            {v?.[0] || '-'}
-          </span>
-          <span>{v}</span>
-        </Space>
-      ),
+      render: (v: string, r: Customer) => {
+        const isRecycled = !!r.recycled_from_stage;
+        const fromMeta = r.recycled_from_stage
+          ? (STAGE_META[r.recycled_from_stage] || { label: r.recycled_from_stage, emoji: '' })
+          : null;
+        const tip = fromMeta
+          ? `从 ${fromMeta.emoji} ${fromMeta.label} 回流${r.recycle_reason ? ` · 原因: ${r.recycle_reason}` : ''}`
+          : '';
+        return (
+          <Space size={4}>
+            <span
+              style={{
+                width: 28, height: 28, borderRadius: 8,
+                background: 'linear-gradient(135deg, #4f46e5, #ec4899)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                color: 'white', fontSize: 12, fontWeight: 600,
+              }}
+            >
+              {v?.[0] || '-'}
+            </span>
+            <span>{v}</span>
+            {isRecycled && (
+              <Tooltip title={tip}>
+                <Tag color="orange" style={{ cursor: 'default', marginLeft: 2 }}>🔄</Tag>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
     { title: '行业', dataIndex: 'industry', width: 100 },
     { title: '地区', dataIndex: 'region', width: 100 },
-    {
-      title: '状态', dataIndex: 'customer_status', width: 100,
-      render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{STATUS_LABEL[s] || s}</Tag>,
-    },
     {
       title: '来源', dataIndex: 'source_system', width: 160,
       render: (v: string, r: Customer) => (
@@ -159,7 +181,7 @@ export default function Customers() {
   return (
     <div className="page-fade">
       <Card bordered={false} style={{ borderRadius: 12 }}>
-        <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
+        <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }} wrap>
           <Title level={4} style={{ margin: 0 }}>客户管理</Title>
           <Space wrap>
             <Input
@@ -168,23 +190,16 @@ export default function Customers() {
               prefix={<SearchOutlined />}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              onPressEnter={() => { setPage(1); load(); }}
+              onPressEnter={() => load()}
               style={{ width: 220 }}
-            />
-            <Select
-              placeholder="状态"
-              allowClear style={{ width: 140 }}
-              value={status}
-              onChange={(v) => { setStatus(v); setPage(1); load(); }}
-              options={FILTER_STATUS_OPTIONS}
             />
             <Button
               type={onlyUnassigned ? 'primary' : 'default'}
-              onClick={() => { setOnlyUnassigned(!onlyUnassigned); setPage(1); setTimeout(load, 0); }}
+              onClick={() => { setOnlyUnassigned(!onlyUnassigned); setTimeout(load, 0); }}
             >
               {onlyUnassigned ? '✓ 只看未分配' : '只看未分配'}
             </Button>
-            <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => load()}>刷新</Button>
             <Button icon={<DownloadOutlined />} onClick={async () => {
               const resp = await fetch('/api/customers/bulk/export.csv', {
                 headers: {
@@ -217,7 +232,7 @@ export default function Customers() {
                 } catch (e: any) {
                   antdMessage.error(e?.response?.data?.detail || '导入失败');
                 }
-                return false; // prevent default upload
+                return false;
               }}
             >
               <Button icon={<UploadOutlined />}>导入CSV</Button>
@@ -249,16 +264,25 @@ export default function Customers() {
           </Space>
         </Space>
 
+        <div style={{ marginBottom: 16 }}>
+          <Segmented
+            value={group}
+            onChange={(v) => setGroup(v as GroupKey)}
+            options={segmentedOptions}
+            size="middle"
+          />
+        </div>
+
         <Table<Customer>
           rowKey="id"
           loading={loading}
           columns={columns}
-          dataSource={data}
+          dataSource={filteredData}
           scroll={{ x: 1200 }}
           pagination={{
-            current: page, pageSize, total,
-            showSizeChanger: true, showTotal: (t) => `共 ${t} 条`,
-            onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+            pageSize: 20,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
           }}
         />
 
@@ -268,9 +292,6 @@ export default function Customers() {
           destroyOnClose width={560}
         >
           <Form form={form} layout="vertical">
-            <Form.Item name="customer_code" label="客户编号" rules={[{ required: true }]}>
-              <Input disabled={!!editing} />
-            </Form.Item>
             <Form.Item name="customer_name" label="客户名称" rules={[{ required: true }]}>
               <Input />
             </Form.Item>

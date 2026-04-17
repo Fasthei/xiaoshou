@@ -161,7 +161,6 @@ export default function Resources() {
   // 注: 不展示 total_quantity / allocated_quantity / available_quantity ——
   // 云管 ServiceAccount 模型没有数量字段, xiaoshou 本地列全是 NULL, 展示会误导.
   const columns = [
-    { title: '货源编号', dataIndex: 'resource_code', width: 170 },
     { title: '类型', dataIndex: 'resource_type', width: 100 },
     { title: '云厂商', dataIndex: 'cloud_provider', width: 100 },
     { title: '账号', dataIndex: 'account_name' },
@@ -174,7 +173,6 @@ export default function Resources() {
   ];
 
   const topColumns = [
-    { title: '货源编号', dataIndex: 'resource_code', width: 160 },
     { title: '账号', dataIndex: 'account_name' },
     {
       title: '云厂商', dataIndex: 'provider', width: 100,
@@ -196,7 +194,7 @@ export default function Resources() {
         {view === '列表' ? (
           <Space>
             <Input
-              placeholder="货源编号/账号"
+              placeholder="账号/标识"
               prefix={<SearchOutlined />}
               allowClear
               value={keyword}

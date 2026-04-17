@@ -29,6 +29,8 @@ class SalesUser(Base):
     note = Column(Text, nullable=True)
     annual_profit_target = Column(Numeric(15, 2), nullable=True,
                                   comment="年度毛利目标金额")
+    annual_sales_target = Column(Numeric(15, 2), nullable=True,
+                                 comment="年度销售额目标金额")
     target_year = Column(Integer, nullable=True, comment="目标年份")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

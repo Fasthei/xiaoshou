@@ -31,6 +31,10 @@ export interface Customer {
   note?: string | null;
   created_at?: string;
   updated_at?: string;
+  // lifecycle stage fields
+  lifecycle_stage?: string | null;
+  recycled_from_stage?: string | null;
+  recycle_reason?: string | null;
 }
 
 export interface Resource {

@@ -99,6 +99,22 @@ export default function Allocations() {
       title: '状态', dataIndex: 'allocation_status', width: 110,
       render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{s}</Tag>,
     },
+    {
+      title: '审批状态', dataIndex: 'approval_status', width: 100,
+      render: (s: string) => {
+        const color: Record<string, string> = { pending: 'orange', approved: 'green', rejected: 'red' };
+        const label: Record<string, string> = { pending: '待审批', approved: '已审批', rejected: '已拒绝' };
+        return s ? <Tag color={color[s] || 'default'}>{label[s] || s}</Tag> : '-';
+      },
+    },
+    {
+      title: '发起人', dataIndex: 'allocated_by', width: 90,
+      render: (v: any) => v ?? '-',
+    },
+    {
+      title: '审批人', dataIndex: 'approver_id', width: 90,
+      render: (v: any) => v ?? '-',
+    },
     { title: '创建时间', dataIndex: 'created_at', width: 170 },
     {
       title: '操作', width: 200, fixed: 'right',
@@ -129,7 +145,7 @@ export default function Allocations() {
         </Space>
       </Space>
 
-      <Alert type="info" showIcon message="订单由云管同步自动生成，不支持手动新建" style={{ marginBottom: 12 }} />
+      <Alert type="info" showIcon message="订单管理 · 在客户详情里创建订单，经主管审批后生效，在此查看所有进行中 / 已生效订单" style={{ marginBottom: 12 }} />
 
       <Tabs
         activeKey={tab}

@@ -124,13 +124,25 @@ def list_runs(
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ):
-    return (
-        db.query(CustomerInsightRun)
+    from sqlalchemy import func as sqlfunc
+    rows = (
+        db.query(CustomerInsightRun, sqlfunc.count(CustomerInsightFact.id).label("fact_count"))
+        .outerjoin(CustomerInsightFact, CustomerInsightFact.run_id == CustomerInsightRun.id)
         .filter(CustomerInsightRun.customer_id == customer_id)
+        .group_by(CustomerInsightRun.id)
         .order_by(CustomerInsightRun.id.desc())
         .limit(limit)
         .all()
     )
+    result = []
+    for run, fact_count in rows:
+        out = InsightRunOut.model_validate(run)
+        out.fact_count = fact_count or 0
+        if run.started_at and run.completed_at:
+            delta = run.completed_at - run.started_at
+            out.duration_ms = int(delta.total_seconds() * 1000)
+        result.append(out)
+    return result
 
 
 @router.get("/{customer_id}/insight/runs/{run_id}", response_model=InsightRunDetail,

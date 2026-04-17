@@ -30,6 +30,16 @@ class Customer(Base):
     source_system = Column(String(50), comment="来源系统")
     source_id = Column(String(100), comment="来源系统ID")
     source_label = Column(String(50), comment="来源描述 (用户手填, 如 朋友推荐/展会)")
+    # --- 生命周期 stage (PR-8 客户生命周期重构) ---
+    # 3 个 stage: lead / contacting / active
+    # 旧 customer_status 字段保留但弃用，新代码只读 lifecycle_stage
+    lifecycle_stage = Column(String(20), nullable=False, default='lead',
+                             server_default='lead',
+                             comment='生命周期 stage: lead/contacting/active')
+    recycled_from_stage = Column(String(20), nullable=True,
+                                 comment='上次从哪个 stage 回流到 lead')
+    recycle_reason = Column(Text, nullable=True, comment='回流原因')
+    recycled_at = Column(DateTime, nullable=True, comment='回流时间')
     # --- 扩展档案字段 (PR-7 客户档案四件套 / 字段扩展) ---
     employee_size = Column(Integer, comment="员工规模")
     annual_revenue = Column(Numeric(18, 2), comment="年营收 (RMB)")

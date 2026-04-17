@@ -47,6 +47,11 @@ class CustomerBase(BaseModel):
     customer_type: Optional[str] = Field(None, description="direct(直客) / channel(渠道), 默认 direct")
     referrer: Optional[str] = Field(None, description="转介绍来源文本")
     channel_notes: Optional[str] = Field(None, description="渠道客户专属 free text")
+    # 生命周期 stage (新权威字段, 前端展示用)
+    lifecycle_stage: Optional[str] = Field(None, description="lead/contacting/active")
+    recycled_from_stage: Optional[str] = Field(None, description="上次回流前的 stage")
+    recycle_reason: Optional[str] = Field(None, description="回流原因")
+    recycled_at: Optional[datetime] = Field(None, description="回流时间")
 
 
 class CustomerCreate(CustomerBase):

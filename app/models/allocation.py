@@ -21,6 +21,7 @@ class Allocation(Base):
     total_price = Column(Numeric(15, 2), comment="总售价")
     profit_amount = Column(Numeric(15, 2), comment="毛利金额")
     profit_rate = Column(Numeric(5, 2), comment="毛利率")
+    discount_rate = Column(Numeric(5, 2), nullable=True, comment="折扣率 % (可负表示加价)")
     allocation_status = Column(String(20), nullable=False, comment="分配状态")
     allocated_by = Column(BigInteger, comment="分配人")
     allocated_at = Column(DateTime, comment="分配时间")

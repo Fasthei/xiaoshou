@@ -28,6 +28,8 @@ class InsightRunOut(BaseModel):
     steps_done: int
     error_message: Optional[str] = None
     summary: Optional[str] = None
+    fact_count: int = 0
+    duration_ms: Optional[int] = None
 
     class Config:
         from_attributes = True

@@ -185,3 +185,108 @@ lead 派 frontend-dev 任务时默认把 qa 复查作为下一步，不要漏。
 - worker preamble 在 `/tmp/xs-dev-team-preamble.txt`（临时文件，agent 启动时读，不进 git）
 - agent 跑 tsc / pytest 大概率会被权限拦；lead 统一在本 session 跑 + 记录结果
 - prod URL: 前端 `https://purple-rock-072562e00.7.azurestaticapps.net` / 后端 `https://xiaoshou-api.braveglacier-e1a32a70.eastasia.azurecontainerapps.io/api`
+
+---
+
+## 七、V2 业务流程重构（2026-04-17 日落）
+
+### 已完成（commit `2707650` on branch `feat/v2-lifecycle-rebuild`）
+
+**lifecycle_stage 3 阶段**（替代老 customer_status）：
+- `lead` 商机池 🧊 / `contacting` 沟通中 📞 / `active` 正式服务中 🎯 / `lost` 瞬态（审批通过自动回 lead 带回流标记）
+- 自动化：首次跟进 lead→contacting；gongdan sync 正式编号 contacting→active
+- 手动改走 stage_request 审批流（申请修改 Stage Modal + 主管审批中心）
+
+**UI 瘦身**：
+- 客户抽屉 12+ Tab → 6 Tab：基本信息 / 时间线(含 stage history) / 分配(含健康分) / 档案(Collapse: 基本资料/工单/过往账单/AI洞察/合同) / 跟进 / 关联货源
+- 销售菜单 8 项 `/home`(代办+KPI) / `/customers` / `/follow-ups` / `/resources` / `/allocations` / `/alerts` / `/bills`
+- 主管菜单 7 项 `/dashboard`(全景图) / `/manager`(Tab 销售团队+审批中心) / `/customers` / `/follow-ups` / `/resources` / `/allocations` / `/bills`
+- 删除：订单审批中 / 订单生效 stage，预警中心的云管预警 Tab，客户抽屉的退回商机池按钮，销售团队成员邮箱/电话/区域/行业列
+
+**订单审批**：
+- 销售发起 `/api/allocations/batch`（支持折扣明细多行：货源/数量/原价/折扣率/折后单价/小计）
+- 主管审批 `/api/allocations/{id}/approval`（require_roles('sales-manager','admin')）
+- 审批 approved 不再自动升客户 stage（与 lifecycle 解耦）
+- 订单管理页仅查看，入口在客户管理
+
+**账单中心**：
+- 月度账单（本地聚合）`/api/bills/by-customer`：按 customer_resource 关联的货源聚合 cc_bill
+- CSV 导出 `/api/bills/export`：8 列含折前金额/折扣率/折后金额/毛利
+- 删「月度账单(云管代理)」整块
+
+**跟进**：
+- 全局列表 `/api/follow-ups`
+- 收件箱 `/api/follow-ups/inbox`（to_sales_user_id=我）
+- 留言 + 回复（parent_follow_up_id 线程）
+- 🔁 转分配 仅 sales-manager / admin 可见
+- 销售默认筛选自己（casdoor_user_id=my.sub 匹配）
+
+**主管 dashboard / 团队目标**：
+- ManagerPanorama: 5 KPI(新增商机/转化率/签单率/增长率/回款率) + 团队漏斗对比(3 段) + 异常告警
+- 新「销售团队利润 概览」区块：利润率目标 vs 实际 / 销售额 YTD vs 目标 / 利润 YTD vs 目标
+- `/api/metrics/team-profit`、`/api/metrics/my-kpi`、`/api/metrics/my-todos` 新端点
+- 销售团队 Tab 每行编辑 annual_sales_target / annual_profit_target
+
+**AI 洞察**：
+- 历史记录 Timeline + 单次 run 展开 facts
+- `/api/customer/{id}/insight/runs` 带 fact_count / duration_ms
+
+**客户关联货源**：
+- customer_resource 表（FK customer_id + resource_id + end_user_label）
+- 客户抽屉「关联货源」Tab 多选 Modal（按厂商筛选 + 搜索）
+
+**本地 dev 基建**：
+- Docker stack: postgres / redis / api / web
+- nginx `/api/` 反代到 api:8000（固化进 `frontend/Dockerfile`）
+- `AUTH_ENABLED=false` 本地绕过认证（线上仍 true）
+- AuthContext `local-dev` token 短路**仅 import.meta.env.DEV 时启用**（prod build 关闭）
+- 删除 `frontend/public/as-*.html` dev 入口（避免线上角色提权漏洞）
+- 本地 DB 数据：从线上 pg_dump 同步（18 formal 客户），脚本见 notepad
+
+### 遗留 TODO（下次 agent 接手）
+
+#### 1. CI/CD 强制走 Docker（用户明确要求 "CI 必须在 docker 中实现，不是本机"）
+- 现有 `.github/workflows/ci.yml` / `deploy*.yml` 可能用的是 `runs-on: ubuntu-latest` + 直接 python/npm
+- 改成：`docker compose -f docker-compose.ci.yml up --build --exit-code-from runner`（或 GitHub Actions 的 `services: docker` 模式）
+- 后端 pytest 跑在 api container 里；前端 build 跑在 web builder stage
+- 参考：既有 `Dockerfile` + `frontend/Dockerfile` 已能满足
+
+#### 2. 测试漏补
+- `/api/allocations/batch` 测试未加
+- `/api/customer_stage/approve` lost 瞬态分支未覆盖
+- ManagerPanorama 团队目标（annual_sales_target 聚合）测试未加
+- 跟进 inbox / reply 流程测试未加
+
+#### 3. 后端 schema 瘦身
+- `app/schemas/customer.py` 仍含老 `customer_status` 字段（向后兼容期；未来删）
+- pydantic v1 class Config → v2 ConfigDict 迁移（一批 deprecation 警告）
+
+#### 4. 用量激增预警（用户让先展示不实现，已有调研但代码未落）
+- `.omc/usage-design.md` 有完整设计
+- 方案 A：service 级聚合（不含 sku）+ usage_surge alert_rule
+- 触发逻辑补到 `/api/alert-rules/triggered`
+
+#### 5. 合同上传闭环
+- 当前 wizard Step 2 的合同文件只 console.debug，没真实上传到 Azure Blob
+- 需要后端 `POST /api/contracts/{id}/upload` 已有但 wizard 未调用
+
+#### 6. 数据迁移 SQL
+- 上生产前必须跑：`UPDATE customer SET lifecycle_stage='contacting' WHERE lifecycle_stage IN ('order_pending','order_approved')`
+- `ALTER TABLE allocation ADD COLUMN IF NOT EXISTS discount_rate NUMERIC(5,2)`
+- `ALTER TABLE customer_follow_up ADD COLUMN IF NOT EXISTS to_sales_user_id BIGINT`
+- `ALTER TABLE customer_follow_up ADD COLUMN IF NOT EXISTS parent_follow_up_id BIGINT`
+- `ALTER TABLE sales_user ADD COLUMN IF NOT EXISTS annual_sales_target NUMERIC(15,2)`
+- 本地已跑；线上 alembic 003 迁移需要写
+
+#### 7. Casdoor 角色
+- 线上 operation 组织有 `sales`、`sales-manager`、`ops`、`admin`、`customer`、`engineer-l1/2/3` 角色
+- 本地测试账号：`admin / Admin@123456`(超管, 已改过密码)、`sales01 / Sales@123456`、`manager01 / Manager@123456`
+- 线上 admin 回调 URI 已含 `http://localhost:5173/auth/callback` 如需本地真实登录
+
+### 合并到 main 前的验收清单
+
+- [ ] CI 改 Docker 后跑绿
+- [ ] 线上 DB 迁移脚本写好（alembic 003）
+- [ ] 线上部署前 dev 入口（.html + AUTH_ENABLED=false）确认已清
+- [ ] 核心路径回归测试：新建客户+订单 / 审批 / 跟进留言 / 账单导出
+- [ ] 产品负责人验收 5 个关键视图：销售 /home、主管 /dashboard、/manager Tab、客户抽屉、/bills

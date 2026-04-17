@@ -21,7 +21,7 @@ interface Props {
 /**
  * MultiResourceSelector — 订单多货源行编辑器。
  *
- * - 一次性拉取 resources (page_size=200)。
+ * - 一次性拉取 resources (page_size=100)。
  * - 每行: 货源 Select + quantity InputNumber + (渠道客户) end_user_label Input + 删除。
  * - 至少 1 行，否则下方显示 warning Text（仅提示；真正 required 由外层 Form.Item rules 控制）。
  * - 调用方自行用 <Form.Item> 包裹（取 value/onChange）。
@@ -34,7 +34,7 @@ export default function MultiResourceSelector({ value, onChange, customerType }:
   useEffect(() => {
     setLoading(true);
     api
-      .get('/api/resources', { params: { page_size: 200 } })
+      .get('/api/resources', { params: { page_size: 100 } })
       .then(({ data }) => setResources(data.items || []))
       .catch(() => message.error('货源列表加载失败'))
       .finally(() => setLoading(false));
