@@ -7,7 +7,7 @@ import {
   LineChartOutlined, LogoutOutlined, UserOutlined,
   SearchOutlined, BulbOutlined, BulbFilled,
   AlertOutlined, DollarOutlined, FundProjectionScreenOutlined,
-  RocketOutlined,
+  RocketOutlined, ScheduleOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -31,6 +31,7 @@ const ALL_MENU_ITEMS: MenuEntry[] = [
   { key: '/dashboard',   icon: <DashboardOutlined />,  label: <Link to="/dashboard">总览</Link> },
   { key: '/manager',     icon: <FundProjectionScreenOutlined />, label: <Link to="/manager">销售主管</Link>, roles: ['sales-manager'] },
   { key: '/customers',   icon: <TeamOutlined />,       label: <Link to="/customers">客户管理</Link> },
+  { key: '/follow-ups',  icon: <ScheduleOutlined />,   label: <Link to="/follow-ups">跟进</Link> },
   { key: '/resources',   icon: <InboxOutlined />,      label: <Link to="/resources">货源看板</Link> },
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
   { key: '/sales-team',  icon: <UserOutlined />,       label: <Link to="/sales-team">销售团队</Link> },

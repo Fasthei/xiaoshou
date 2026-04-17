@@ -18,6 +18,7 @@ import SalesTeam from './pages/SalesTeam';
 import ManagerDashboard from './pages/ManagerDashboard';
 import ManagerApprovals from './pages/ManagerApprovals';
 import SalesHome from './pages/SalesHome';
+import FollowUps from './pages/FollowUps';
 
 function Shell() {
   const { mode } = useThemeMode();
@@ -40,6 +41,7 @@ function Shell() {
               <Route path="/sales/home" element={<SalesHome />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/customers" element={<Customers />} />
+              <Route path="/follow-ups" element={<FollowUps />} />
               <Route path="/resources" element={<Resources />} />
               <Route path="/allocations" element={<Allocations />} />
               <Route path="/usage" element={<Navigate to="/bills" replace />} />

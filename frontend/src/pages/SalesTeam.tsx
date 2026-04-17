@@ -344,13 +344,13 @@ export default function SalesTeam() {
                   rowKey="id" loading={loading} dataSource={users} pagination={{ pageSize: 20 }}
                   columns={[
                     { title: 'ID', dataIndex: 'id', width: 60 },
-                    { title: '姓名', dataIndex: 'name', render: (v, r) => (
+                    { title: '姓名', dataIndex: 'name', width: 140, ellipsis: { showTitle: true }, render: (v, r) => (
                       <Space><Text strong>{v}</Text>{!r.is_active && <Tag>已停用</Tag>}</Space>
                     )},
-                    { title: '邮箱', dataIndex: 'email' },
-                    { title: '电话', dataIndex: 'phone' },
-                    { title: '区域', dataIndex: 'regions', render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="blue">{x}</Tag>) },
-                    { title: '行业', dataIndex: 'industries', render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="purple">{x}</Tag>) },
+                    { title: '邮箱', dataIndex: 'email', width: 200, ellipsis: { showTitle: true } },
+                    { title: '电话', dataIndex: 'phone', width: 130, ellipsis: { showTitle: true } },
+                    { title: '区域', dataIndex: 'regions', width: 160, ellipsis: { showTitle: true }, render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="blue">{x}</Tag>) },
+                    { title: '行业', dataIndex: 'industries', width: 160, ellipsis: { showTitle: true }, render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="purple">{x}</Tag>) },
                     { title: '容量', dataIndex: 'max_customers', width: 80,
                       render: (v: number | null) => v ? <Tag color="orange">{v} 上限</Tag> : <Tag>不限</Tag> },
                     { title: '年度目标', width: 140, render: (_: any, r: SalesUser) => {
