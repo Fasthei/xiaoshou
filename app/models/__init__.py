@@ -15,6 +15,8 @@ from app.models.payment import Payment
 from app.models.cc_usage import CCUsage
 from app.models.cc_alert import CCAlert
 from app.models.cc_bill import CCBill
+from app.models.customer_resource import CustomerResource
+from app.models.customer_stage_request import CustomerStageRequest
 
 __all__ = [
     "Customer", "CustomerContact", "Resource", "Allocation", "UsageRecord", "SyncLog",
@@ -24,4 +26,6 @@ __all__ = [
     "Contract", "Ticket",
     "AlertRule", "Payment",
     "CCUsage", "CCAlert", "CCBill",
+    "CustomerResource",
+    "CustomerStageRequest",
 ]

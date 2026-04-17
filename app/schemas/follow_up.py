@@ -6,16 +6,18 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-FOLLOW_UP_KINDS = {"call", "meeting", "email", "wechat", "note", "other"}
+FOLLOW_UP_KINDS = {"call", "meeting", "email", "wechat", "note", "other", "comment"}
 OUTCOMES = {"positive", "neutral", "negative", "needs_followup"}
 
 
 class FollowUpCreate(BaseModel):
-    kind: str = Field("note", description="call|meeting|email|wechat|note|other")
+    kind: str = Field("note", description="call|meeting|email|wechat|note|other|comment")
     title: str
     content: Optional[str] = None
     outcome: Optional[str] = None
     next_action_at: Optional[datetime] = None
+    to_sales_user_id: Optional[int] = None
+    parent_follow_up_id: Optional[int] = None
 
 
 class FollowUpOut(BaseModel):
@@ -28,6 +30,8 @@ class FollowUpOut(BaseModel):
     next_action_at: Optional[datetime] = None
     operator_casdoor_id: Optional[str] = None
     created_at: datetime
+    to_sales_user_id: Optional[int] = None
+    parent_follow_up_id: Optional[int] = None
 
     class Config:
         from_attributes = True

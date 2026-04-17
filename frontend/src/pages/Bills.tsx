@@ -1,111 +1,103 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Card, Table, Tag, Typography, Space, DatePicker, Button, Select, Statistic,
-  Row, Col, Empty, Skeleton, Divider, Result, Alert,
+  Card, Table, Tag, Typography, Space, DatePicker, Button, Statistic,
+  Row, Col, Empty, Alert, Modal,
   message as antdMessage,
 } from 'antd';
 import {
-  ReloadOutlined, DollarOutlined, SearchOutlined, AppstoreOutlined,
-  TeamOutlined, LineChartOutlined, CalculatorOutlined, DownloadOutlined,
+  ReloadOutlined, DollarOutlined, DownloadOutlined, CalculatorOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import { AxiosError } from 'axios';
 import { api } from '../api/axios';
 import DiscountCalculatorDrawer from '../components/DiscountCalculatorDrawer';
 
 const { Title, Text } = Typography;
 
-interface Bill {
-  id: number;
+interface ResourceBill {
+  resource_id: number;
+  resource_code: string | null;
+  cloud_provider: string | null;
+  account_name: string | null;
+  cost: number;
+}
+
+interface CustomerBill {
+  customer_id: number;
+  customer_name: string;
+  customer_code: string | null;
   month: string;
-  category_id?: number;
-  provider: string;
-  original_cost: number;
-  markup_rate: number;
-  final_cost: number;
-  adjustment: number;
-  status: string;
-  confirmed_at?: string | null;
-  notes?: string | null;
-  created_at: string;
+  total_cost: number;
+  resource_count: number;
+  resources: ResourceBill[];
 }
 
-interface CustomerLite { id: number; customer_name: string; customer_code: string; industry?: string | null }
-interface ResourceLite { id: number; resource_name: string; provider?: string }
-
-interface UsageRecord {
-  id: number; customer_id: number; resource_id: number;
-  usage_date: string; usage_amount: string | number; usage_cost: string | number;
-  unit?: string;
+interface DayItem {
+  date: string;
+  total_cost: number;
+  total_usage: number;
+  record_count: number;
 }
-
-interface UsageSummary {
-  customer_id?: number;
-  total_usage?: string | number;
-  total_cost?: string | number;
-  record_count?: number;
-  start_date?: string; end_date?: string;
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  draft: 'default', confirmed: 'blue', paid: 'green',
-};
 
 export default function Bills() {
-  // ---- cloudcost bills (existing) ----
-  const [rows, setRows] = useState<Bill[]>([]);
-  const [loading, setLoading] = useState(false);
   const [month, setMonth] = useState<Dayjs | null>(dayjs());
-  const [status, setStatus] = useState<string | undefined>();
-  const [billsError, setBillsError] = useState<AxiosError<{ detail?: string }> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState<CustomerBill[]>([]);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
   const [calcOpen, setCalcOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  // ---- customer/resource drill-down (merged from Usage page) ----
-  const [mode, setMode] = useState<'customer' | 'resource'>('customer');
-  const [customerId, setCustomerId] = useState<number | null>(null);
-  const [resourceId, setResourceId] = useState<number | null>(null);
-  const [customerOpts, setCustomerOpts] = useState<CustomerLite[]>([]);
-  const [resourceOpts, setResourceOpts] = useState<ResourceLite[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [summary, setSummary] = useState<UsageSummary | null>(null);
-  const [records, setRecords] = useState<UsageRecord[]>([]);
-  const [detailLoading, setDetailLoading] = useState(false);
+  // 下钻状态: expandedRowKeys 控制客户行展开 → 子表 (按货源)
+  // 再点某货源 → 弹出 drawer 级别的按日明细
+  const [dayDrill, setDayDrill] = useState<{
+    customer_id: number; customer_name: string; items: DayItem[]; loading: boolean;
+  } | null>(null);
 
-  const loadBills = async () => {
+  const loadData = async () => {
+    const m = month?.format('YYYY-MM');
+    if (!m) return;
     setLoading(true);
-    setBillsError(null);
+    setErrMsg(null);
     try {
-      const { data } = await api.get<Bill[]>('/api/bridge/bills', {
-        params: { month: month?.format('YYYY-MM'), status, page_size: 100 },
+      const { data } = await api.get<CustomerBill[]>('/api/bills/by-customer', {
+        params: { month: m },
       });
-      setRows(data);
-    } catch (err) {
-      setBillsError(err as AxiosError<{ detail?: string }>);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setErrMsg(e?.response?.data?.detail || e?.message || '加载失败');
       setRows([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadBills(); /* eslint-disable-next-line */ }, [month, status]);
+  useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [month]);
 
-  const handleExport = async () => {
+  const loadDayDrill = async (customer_id: number, customer_name: string) => {
     const m = month?.format('YYYY-MM');
-    if (!m) {
-      antdMessage.warning('请先选择月份');
-      return;
+    if (!m) return;
+    setDayDrill({ customer_id, customer_name, items: [], loading: true });
+    try {
+      const { data } = await api.get(
+        `/api/bills/by-customer/${customer_id}`,
+        { params: { month: m, granularity: 'day' } },
+      );
+      setDayDrill({
+        customer_id, customer_name,
+        items: data?.items || [], loading: false,
+      });
+    } catch (e: any) {
+      antdMessage.error('加载日明细失败: ' + (e?.message || ''));
+      setDayDrill(null);
     }
+  };
+
+  const doExport = async (m: string) => {
     setExporting(true);
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-      const resp = await fetch(`/api/bills/export?month=${encodeURIComponent(m)}`, {
+      const resp = await fetch(`/api/bills/export?month=${encodeURIComponent(m)}&format=csv`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
-      if (resp.status === 404) {
-        antdMessage.info('导出接口待上线 (GET /api/bills/export?month=YYYY-MM)');
-        return;
-      }
       if (!resp.ok) {
         antdMessage.error(`导出失败: HTTP ${resp.status}`);
         return;
@@ -127,74 +119,84 @@ export default function Bills() {
     }
   };
 
-  const searchCustomers = async (kw: string) => {
-    setSearchLoading(true);
-    try {
-      const { data } = await api.get('/api/customers', { params: { keyword: kw || undefined, page: 1, page_size: 20 } });
-      setCustomerOpts(data.items || []);
-    } finally {
-      setSearchLoading(false);
+  const handleExport = () => {
+    const m = month?.format('YYYY-MM');
+    if (!m) {
+      antdMessage.warning('请先选择月份');
+      return;
     }
+    Modal.info({
+      title: '导出账单 CSV',
+      content: (
+        <div>
+          <p>导出 <strong>{m}</strong> 账单，包含以下列：</p>
+          <ul style={{ paddingLeft: 20, margin: '8px 0' }}>
+            <li>月份 / 客户名</li>
+            <li>货源厂商 / 货源账号</li>
+            <li>折前金额（cloudcost 原价）</li>
+            <li>折扣率</li>
+            <li>折后金额</li>
+            <li>毛利</li>
+          </ul>
+          <p style={{ color: '#888', fontSize: 12 }}>
+            如 cc_bill 数据未同步，CSV 将为空行（后端日志有告警）。
+          </p>
+        </div>
+      ),
+      okText: '确认导出',
+      onOk: () => doExport(m),
+    });
   };
 
-  const searchResources = async (kw: string) => {
-    setSearchLoading(true);
-    try {
-      const { data } = await api.get('/api/resources', { params: { keyword: kw || undefined, page: 1, page_size: 20 } });
-      setResourceOpts(data.items || []);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
-  const loadCustomerDrill = async (id: number) => {
-    setDetailLoading(true);
-    try {
-      const startOfMonth = month?.startOf('month').format('YYYY-MM-DD');
-      const endOfMonth = month?.endOf('month').format('YYYY-MM-DD');
-      const [sumR, listR] = await Promise.all([
-        api.get(`/api/usage/customer/${id}/summary`, { params: { start_date: startOfMonth, end_date: endOfMonth } }),
-        api.get(`/api/usage/customer/${id}`, { params: { start_date: startOfMonth, end_date: endOfMonth, page_size: 100 } }),
-      ]);
-      setSummary(sumR.data);
-      setRecords(Array.isArray(listR.data) ? listR.data : (listR.data?.items || []));
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const loadResourceDrill = async (id: number) => {
-    setDetailLoading(true);
-    try {
-      const startOfMonth = month?.startOf('month').format('YYYY-MM-DD');
-      const endOfMonth = month?.endOf('month').format('YYYY-MM-DD');
-      const { data } = await api.get(`/api/usage/resource/${id}`, {
-        params: { start_date: startOfMonth, end_date: endOfMonth, page_size: 100 },
-      });
-      setSummary(null);
-      setRecords(Array.isArray(data) ? data : (data?.items || []));
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (mode === 'customer' && customerId) loadCustomerDrill(customerId);
-    if (mode === 'resource' && resourceId) loadResourceDrill(resourceId);
-    // eslint-disable-next-line
-  }, [mode, customerId, resourceId, month]);
-
-  const total = rows.reduce((s, b) => s + Number(b.final_cost || 0), 0);
-  const confirmed = rows.filter((b) => b.status === 'confirmed' || b.status === 'paid')
-    .reduce((s, b) => s + Number(b.final_cost || 0), 0);
-
-  const drillCost = useMemo(
-    () => records.reduce((s, r) => s + Number(r.usage_cost || 0), 0),
-    [records],
+  const totalAll = useMemo(
+    () => rows.reduce((s, r) => s + Number(r.total_cost || 0), 0),
+    [rows],
   );
-  const drillAmount = useMemo(
-    () => records.reduce((s, r) => s + Number(r.usage_amount || 0), 0),
-    [records],
+  const customerCount = rows.length;
+  const resourceLinkCount = useMemo(
+    () => rows.reduce((s, r) => s + r.resource_count, 0),
+    [rows],
+  );
+
+  const customerColumns = [
+    { title: '客户名称', dataIndex: 'customer_name', width: 220,
+      render: (v: string, r: CustomerBill) => (
+        <Space>
+          <Text strong>{v}</Text>
+          {r.customer_code && <Tag color="default">{r.customer_code}</Tag>}
+        </Space>
+      ),
+    },
+    { title: '关联货源数', dataIndex: 'resource_count', width: 120,
+      render: (v: number) => <Tag color={v > 0 ? 'blue' : 'default'}>{v}</Tag> },
+    { title: '本月总费用', dataIndex: 'total_cost', width: 160,
+      render: (v: number) => <Text strong style={{ color: '#ec4899' }}>¥{Number(v).toFixed(2)}</Text> },
+    { title: '操作', width: 140, render: (_: any, r: CustomerBill) => (
+      <Button size="small" type="link"
+        onClick={() => loadDayDrill(r.customer_id, r.customer_name)}>
+        按日明细
+      </Button>
+    )},
+  ];
+
+  const renderResourceSubTable = (row: CustomerBill) => (
+    <Table<ResourceBill>
+      rowKey="resource_id"
+      size="small"
+      pagination={false}
+      dataSource={row.resources}
+      locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description="该客户暂无关联货源" /> }}
+      columns={[
+        { title: '货源编号', dataIndex: 'resource_code', width: 180 },
+        { title: '云厂商', dataIndex: 'cloud_provider', width: 100,
+          render: (v: string | null) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
+        { title: '账号', dataIndex: 'account_name', width: 220,
+          render: (v: string | null) => v || '-' },
+        { title: '本月费用', dataIndex: 'cost', width: 140,
+          render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
+      ]}
+    />
   );
 
   return (
@@ -210,191 +212,105 @@ export default function Bills() {
       >
         <Row gutter={24}>
           <Col xs={24} md={12}>
-            <Text style={{ color: 'rgba(255,255,255,0.8)', letterSpacing: 4 }}>BILLS · 账单与用量</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.8)', letterSpacing: 4 }}>BILLS · 本地聚合</Text>
             <Title level={2} style={{ color: 'white', margin: '4px 0 0' }}>
               <DollarOutlined /> 账单中心
             </Title>
             <Text style={{ color: 'rgba(255,255,255,0.8)' }}>
-              月度账单（云管代理） + 按客户 / 货源下钻查用量明细
+              按客户本地关联货源聚合 (customer_resource) · 不再直接展示云管原始费用
             </Text>
           </Col>
-          <Col xs={24} md={6}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>本月应收</span>}
-              value={total} precision={2} prefix="¥"
+          <Col xs={24} md={4}>
+            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>客户数</span>}
+              value={customerCount}
               valueStyle={{ color: '#fff', fontWeight: 700 }} />
           </Col>
-          <Col xs={24} md={6}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>已确认 / 已付</span>}
-              value={confirmed} precision={2} prefix="¥"
+          <Col xs={24} md={4}>
+            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>关联货源</span>}
+              value={resourceLinkCount}
+              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+          </Col>
+          <Col xs={24} md={4}>
+            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>本月总金额</span>}
+              value={totalAll} precision={2} prefix="¥"
               valueStyle={{ color: '#fff', fontWeight: 700 }} />
           </Col>
         </Row>
       </Card>
 
-      {/* 工具栏: 折扣计算器 + 导出 CSV */}
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<CalculatorOutlined />} onClick={() => setCalcOpen(true)}>
-          折扣计算器
-        </Button>
-        <Button icon={<DownloadOutlined />} loading={exporting} onClick={handleExport}>
-          导出 CSV
-        </Button>
-      </Space>
-
-      {/* 按客户 / 货源下钻 */}
       <Card
         bordered={false}
-        style={{ borderRadius: 12, marginBottom: 16 }}
-        title={<Space><SearchOutlined /> 按客户 / 货源下钻</Space>}
-        extra={<Text type="secondary" style={{ fontSize: 12 }}>选中后显示当月费用 + 使用明细</Text>}
+        style={{ borderRadius: 12 }}
+        title={<Title level={4} style={{ margin: 0 }}>月度账单</Title>}
+        extra={
+          <Space wrap>
+            <DatePicker picker="month" value={month} onChange={setMonth} allowClear={false} />
+            <Button icon={<ReloadOutlined />} onClick={loadData}>刷新</Button>
+            <Button icon={<CalculatorOutlined />} onClick={() => setCalcOpen(true)}>
+              折扣计算器
+            </Button>
+            <Button icon={<DownloadOutlined />} loading={exporting} onClick={handleExport}>
+              导出 CSV
+            </Button>
+          </Space>
+        }
       >
-        <Space wrap size="middle" style={{ width: '100%' }}>
-          <Select
-            value={mode}
-            onChange={(v) => { setMode(v); setCustomerId(null); setResourceId(null); setRecords([]); setSummary(null); }}
-            style={{ width: 130 }}
-            options={[
-              { value: 'customer', label: <Space><TeamOutlined /> 客户</Space> },
-              { value: 'resource', label: <Space><AppstoreOutlined /> 货源</Space> },
+        {errMsg && (
+          <Alert type="error" showIcon style={{ marginBottom: 12 }}
+            message="加载失败" description={errMsg} />
+        )}
+        {rows.length === 0 && !loading && !errMsg && (
+          <Alert
+            type="info" showIcon style={{ marginBottom: 12 }}
+            message="本月暂无账单数据"
+            description="确认客户详情「关联货源」已勾选, 且云管账单已同步到本地 cc_bill 表。"
+          />
+        )}
+        <Table<CustomerBill>
+          rowKey="customer_id"
+          loading={loading}
+          dataSource={rows}
+          pagination={{ pageSize: 20, showSizeChanger: true }}
+          columns={customerColumns}
+          expandable={{
+            expandedRowRender: renderResourceSubTable,
+            rowExpandable: (r) => r.resources.length > 0,
+          }}
+        />
+      </Card>
+
+      {/* 按日明细 - 简易内嵌展示 */}
+      {dayDrill && (
+        <Card
+          bordered={false}
+          style={{ borderRadius: 12, marginTop: 16 }}
+          title={
+            <Space>
+              <Text strong>按日明细 · {dayDrill.customer_name}</Text>
+              <Text type="secondary">{month?.format('YYYY-MM')}</Text>
+            </Space>
+          }
+          extra={<Button size="small" onClick={() => setDayDrill(null)}>关闭</Button>}
+        >
+          <Table<DayItem>
+            rowKey="date"
+            size="small"
+            loading={dayDrill.loading}
+            dataSource={dayDrill.items}
+            pagination={{ pageSize: 31 }}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="当月无每日用量数据 (cc_usage 可能为空)" /> }}
+            columns={[
+              { title: '日期', dataIndex: 'date', width: 140 },
+              { title: '当日费用', dataIndex: 'total_cost', width: 140,
+                render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
+              { title: '当日用量', dataIndex: 'total_usage', width: 140,
+                render: (v: number) => Number(v).toFixed(4) },
+              { title: '明细条数', dataIndex: 'record_count', width: 120 },
             ]}
           />
-          {mode === 'customer' ? (
-            <Select
-              showSearch allowClear
-              placeholder="搜索客户（名称 / 编号）"
-              style={{ minWidth: 300 }}
-              filterOption={false}
-              loading={searchLoading}
-              onSearch={searchCustomers}
-              onChange={setCustomerId}
-              onFocus={() => !customerOpts.length && searchCustomers('')}
-              value={customerId || undefined}
-              options={customerOpts.map((c) => ({
-                value: c.id,
-                label: `${c.customer_name} (${c.customer_code})${c.industry ? ' · ' + c.industry : ''}`,
-              }))}
-            />
-          ) : (
-            <Select
-              showSearch allowClear
-              placeholder="搜索货源（名称）"
-              style={{ minWidth: 300 }}
-              filterOption={false}
-              loading={searchLoading}
-              onSearch={searchResources}
-              onChange={setResourceId}
-              onFocus={() => !resourceOpts.length && searchResources('')}
-              value={resourceId || undefined}
-              options={resourceOpts.map((r) => ({
-                value: r.id,
-                label: `${r.resource_name}${r.provider ? ' · ' + r.provider : ''}`,
-              }))}
-            />
-          )}
-          <DatePicker picker="month" value={month} onChange={setMonth} placeholder="月份" />
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => {
-              if (mode === 'customer' && customerId) loadCustomerDrill(customerId);
-              if (mode === 'resource' && resourceId) loadResourceDrill(resourceId);
-            }}
-          >刷新</Button>
-        </Space>
-
-        {(mode === 'customer' && !customerId) || (mode === 'resource' && !resourceId) ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={`请先选择一个${mode === 'customer' ? '客户' : '货源'}`}
-            style={{ marginTop: 24 }}
-          />
-        ) : detailLoading ? (
-          <Skeleton active style={{ marginTop: 24 }} />
-        ) : (
-          <>
-            <Divider />
-            <Row gutter={16} style={{ marginBottom: 16 }}>
-              <Col xs={24} md={8}>
-                <Statistic title="当月总费用" value={drillCost} precision={2} prefix="¥"
-                  valueStyle={{ color: '#ec4899' }} />
-              </Col>
-              <Col xs={24} md={8}>
-                <Statistic title="用量合计" value={drillAmount} precision={2}
-                  valueStyle={{ color: '#4f46e5' }} />
-              </Col>
-              <Col xs={24} md={8}>
-                <Statistic title="明细条数" value={records.length}
-                  prefix={<LineChartOutlined />} valueStyle={{ color: '#10b981' }} />
-              </Col>
-            </Row>
-            <Table<UsageRecord>
-              rowKey="id" size="small" dataSource={records}
-              pagination={{ pageSize: 20, showSizeChanger: true }}
-              locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当月无用量" /> }}
-              columns={[
-                { title: '日期', dataIndex: 'usage_date', width: 120 },
-                { title: '用量', dataIndex: 'usage_amount', width: 120,
-                  render: (v: any, r) => `${Number(v).toFixed(2)}${r.unit ? ' ' + r.unit : ''}` },
-                { title: '费用', dataIndex: 'usage_cost', width: 120,
-                  render: (v: any) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
-                { title: '货源ID', dataIndex: 'resource_id', width: 100 },
-                { title: '客户ID', dataIndex: 'customer_id', width: 100 },
-              ]}
-            />
-          </>
-        )}
-      </Card>
-
-      {/* 月度账单明细 */}
-      <Card bordered={false} style={{ borderRadius: 12 }}>
-        <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-          <Title level={4} style={{ margin: 0 }}>月度账单（云管代理）</Title>
-          <Space>
-            <DatePicker picker="month" value={month} onChange={setMonth} />
-            <Select placeholder="状态" allowClear style={{ width: 120 }} value={status} onChange={setStatus}
-              options={['draft', 'confirmed', 'paid'].map((v) => ({ value: v, label: v }))} />
-            <Button icon={<ReloadOutlined />} onClick={loadBills}>刷新</Button>
-          </Space>
-        </Space>
-        {billsError ? (
-          <Result
-            status="500"
-            title="云管账单暂不可达"
-            subTitle={
-              `${billsError.response?.status ? billsError.response.status + ' · ' : ''}` +
-              `${billsError.response?.data?.detail || billsError.message || '稍后再试'}`
-            }
-            extra={<Button type="primary" icon={<ReloadOutlined />} onClick={loadBills}>重试</Button>}
-          />
-        ) : (
-          <>
-            {rows.length === 0 && !loading && (
-              <Alert
-                type="info" showIcon style={{ marginBottom: 12 }}
-                message="本月暂无账单" description="若云管已切分月度账单仍无数据, 可稍后刷新重试。"
-              />
-            )}
-            <Table<Bill>
-              rowKey="id" loading={loading} dataSource={rows} pagination={{ pageSize: 20 }}
-              columns={[
-                { title: '月份', dataIndex: 'month', width: 110 },
-                { title: '云厂商', dataIndex: 'provider', width: 100,
-                  render: (v: string) => <Tag color="blue">{v}</Tag> },
-                { title: '原始成本', dataIndex: 'original_cost', width: 120,
-                  render: (v: number) => `¥${Number(v).toFixed(2)}` },
-                { title: '加价倍率', dataIndex: 'markup_rate', width: 110,
-                  render: (v: number) => `${Number(v).toFixed(2)}x` },
-                { title: '调整', dataIndex: 'adjustment', width: 100,
-                  render: (v: number) => `¥${Number(v).toFixed(2)}` },
-                { title: '最终', dataIndex: 'final_cost', width: 120,
-                  render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
-                { title: '状态', dataIndex: 'status', width: 110,
-                  render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{s}</Tag> },
-                { title: '创建', dataIndex: 'created_at', width: 170 },
-              ]}
-            />
-          </>
-        )}
-      </Card>
+        </Card>
+      )}
 
       <DiscountCalculatorDrawer open={calcOpen} onClose={() => setCalcOpen(false)} />
     </div>

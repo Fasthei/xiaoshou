@@ -27,6 +27,12 @@ class CustomerFollowUp(Base):
     next_action_at = Column(DateTime, nullable=True, comment="下一步动作时间")
     operator_casdoor_id = Column(String(100), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    # 定向留言 / 回复线程
+    to_sales_user_id = Column(BigInteger, nullable=True, index=True,
+                              comment="定向留言的目标销售 sales_user.id（null=普通跟进）")
+    parent_follow_up_id = Column(BigInteger, ForeignKey("customer_follow_up.id"),
+                                 nullable=True,
+                                 comment="回复时指向上一条 comment 的 id")
 
     __table_args__ = (
         Index("ix_follow_up_customer_created", "customer_id", "created_at"),

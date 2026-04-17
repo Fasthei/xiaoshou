@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
-from app.auth import CurrentUser, require_auth
+from app.auth import CurrentUser, require_auth, require_roles
 from app.database import get_db
 from app.models.allocation import Allocation
 from app.models.allocation_history import AllocationHistory
@@ -17,9 +17,12 @@ from app.schemas.allocation import (
     AllocationListResponse,
     AllocationProfitResponse,
     AllocationApprovalRequest,
+    AllocationBatchCreate,
+    AllocationBatchResponse,
 )
 from app.schemas.allocation_history import AllocationHistoryOut, CancelAllocationBody
 from app.models.sales import SalesUser
+from app.api.customer_stage import auto_advance_stage
 from typing import List as _List
 
 router = APIRouter(prefix="/api/allocations", tags=["分配管理"])
@@ -45,7 +48,8 @@ def calculate_profit(unit_cost: Decimal, unit_price: Decimal, quantity: int):
     }
 
 
-@router.post("", response_model=AllocationResponse, summary="创建分配")
+@router.post("", response_model=AllocationResponse, summary="创建分配",
+             dependencies=[Depends(require_roles("sales", "sales_manager", "admin"))])
 def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db)):
     """创建货源分配"""
     # 验证客户存在
@@ -103,6 +107,67 @@ def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db
     db.commit()
     db.refresh(db_allocation)
     return db_allocation
+
+
+@router.post("/batch", response_model=AllocationBatchResponse, summary="批量创建分配（折扣明细）",
+             dependencies=[Depends(require_roles("sales", "sales_manager", "admin"))])
+def create_allocations_batch(payload: AllocationBatchCreate, db: Session = Depends(get_db)):
+    """批量创建订单明细。每个 line 写入一条 allocation 记录，
+    共享相同的 batch 前缀 allocation_code，便于按批次聚合。"""
+    if not payload.lines:
+        raise HTTPException(status_code=400, detail="lines 不能为空")
+
+    customer = db.query(Customer).filter(
+        Customer.id == payload.customer_id,
+        Customer.is_deleted == False  # noqa: E712
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+
+    batch_suffix = secrets.token_hex(2).upper()
+    batch_code = f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{batch_suffix}"
+
+    created: list[Allocation] = []
+    for idx, line in enumerate(payload.lines):
+        resource = db.query(Resource).filter(
+            Resource.id == line.resource_id,
+            Resource.is_deleted == False  # noqa: E712
+        ).first()
+        if not resource:
+            raise HTTPException(status_code=404, detail=f"货源不存在 (line {idx}, resource_id={line.resource_id})")
+
+        unit_cost = line.unit_cost if line.unit_cost is not None else (resource.unit_cost or Decimal(0))
+        unit_price = line.unit_price
+        quantity = line.quantity
+        profit_data = calculate_profit(unit_cost, unit_price, quantity)
+
+        alloc_code = f"{batch_code}-{idx + 1:02d}"
+        db_alloc = Allocation(
+            allocation_code=alloc_code,
+            customer_id=payload.customer_id,
+            resource_id=line.resource_id,
+            allocated_quantity=quantity,
+            unit_cost=unit_cost,
+            unit_price=unit_price,
+            total_cost=profit_data["total_cost"],
+            total_price=profit_data["total_price"],
+            profit_amount=profit_data["profit_amount"],
+            profit_rate=profit_data["profit_rate"],
+            discount_rate=line.discount_rate,
+            allocation_status="PENDING",
+            allocated_at=datetime.now(),
+            remark=line.remark,
+            approval_status="pending",
+            end_user_label=line.end_user_label,
+        )
+        db.add(db_alloc)
+        created.append(db_alloc)
+
+    customer.current_resource_count = (customer.current_resource_count or 0) + len(created)
+    db.commit()
+    for a in created:
+        db.refresh(a)
+    return {"batch_code": batch_code, "created": created}
 
 
 @router.get("/{allocation_id}", response_model=AllocationResponse, summary="查询分配详情")
@@ -233,7 +298,8 @@ def list_allocations(
     return {"total": total, "items": items}
 
 
-@router.patch("/{allocation_id}/approval", response_model=AllocationResponse, summary="审批分配")
+@router.patch("/{allocation_id}/approval", response_model=AllocationResponse, summary="审批分配",
+              dependencies=[Depends(require_roles("sales_manager", "admin"))])
 def approve_allocation(
     allocation_id: int,
     body: AllocationApprovalRequest,
@@ -263,6 +329,10 @@ def approve_allocation(
     allocation.approver_id = approver_id
     allocation.approved_at = datetime.utcnow()
     allocation.approval_note = body.approval_note
+
+    # allocation.approval_status tracks the order's own approval state.
+    # customer.lifecycle_stage is NOT changed here; it advances to 'active'
+    # only when gongdan sync detects a formal order number.
 
     db.commit()
     db.refresh(allocation)

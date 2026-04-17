@@ -4,22 +4,138 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Response
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, require_auth
 from app.database import get_db
 from app.models.customer import Customer, CustomerContact
 from app.models.follow_up import CustomerFollowUp
+from app.models.sales import SalesUser
 from app.schemas.follow_up import (
     CompletenessOut, FollowUpCreate, FollowUpOut, FOLLOW_UP_KINDS, OUTCOMES,
 )
+from app.api.customer_stage import auto_advance_stage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/customers", tags=["客户档案 / 跟进日志"])
+global_router = APIRouter(prefix="/api", tags=["客户档案 / 跟进日志"])
+
+
+# ---------- global follow-up list ----------
+
+def _sales_name_map(db: Session) -> dict[int, str]:
+    """Return {sales_user.id: sales_user.name} for all active sales users."""
+    rows = db.query(SalesUser.id, SalesUser.name).filter(SalesUser.is_active == True).all()  # noqa: E712
+    return {r.id: r.name for r in rows}
+
+
+@global_router.get("/follow-ups", summary="全局跟进列表")
+def list_all_follow_ups(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    days: int = Query(30, ge=1, le=365, description="近 N 天"),
+    sales_user_id: Optional[int] = Query(None),
+    customer_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    q = (
+        db.query(CustomerFollowUp, Customer.customer_code, Customer.customer_name)
+        .join(Customer, CustomerFollowUp.customer_id == Customer.id)
+        .filter(Customer.is_deleted == False)  # noqa: E712
+    )
+    if days:
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        q = q.filter(CustomerFollowUp.created_at >= cutoff)
+    if sales_user_id:
+        q = q.filter(Customer.sales_user_id == sales_user_id)
+    if customer_id:
+        q = q.filter(CustomerFollowUp.customer_id == customer_id)
+    q = q.order_by(CustomerFollowUp.created_at.desc())
+    total = q.count()
+    rows = q.offset((page - 1) * page_size).limit(page_size).all()
+    name_map = _sales_name_map(db)
+    items = [
+        {
+            "id": f.id,
+            "customer_id": f.customer_id,
+            "customer_code": code,
+            "customer_name": name,
+            "follow_type": f.kind,
+            "content": f.content,
+            "title": f.title,
+            "outcome": f.outcome,
+            "next_action_date": f.next_action_at.isoformat() if f.next_action_at else None,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+            "operator_casdoor_id": f.operator_casdoor_id,
+            "to_sales_user_id": f.to_sales_user_id,
+            "parent_follow_up_id": f.parent_follow_up_id,
+            "from_sales_name": None,  # resolved below via casdoor_map
+            "to_sales_name": name_map.get(f.to_sales_user_id),
+        }
+        for (f, code, name) in rows
+    ]
+    # resolve from_sales_name via operator_casdoor_id matching sales_user.casdoor_user_id
+    casdoor_map = {
+        su.casdoor_user_id: su.name
+        for su in db.query(SalesUser).filter(SalesUser.casdoor_user_id.isnot(None)).all()
+    }
+    for item, (f, _code, _name) in zip(items, rows):
+        item["from_sales_name"] = casdoor_map.get(f.operator_casdoor_id)
+    return {"total": total, "items": items}
+
+
+@global_router.get("/follow-ups/inbox", summary="收件箱: 定向发给我的留言")
+def follow_ups_inbox(
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    """返回 to_sales_user_id = 当前登录用户对应 sales_user 的所有 comment 留言（不做已读过滤）。"""
+    # Find current user's sales_user by casdoor_user_id
+    my_sales = db.query(SalesUser).filter(SalesUser.casdoor_user_id == user.sub).first()
+    if not my_sales:
+        return {"total": 0, "items": []}
+
+    q = (
+        db.query(CustomerFollowUp, Customer.customer_code, Customer.customer_name)
+        .join(Customer, CustomerFollowUp.customer_id == Customer.id)
+        .filter(
+            CustomerFollowUp.to_sales_user_id == my_sales.id,
+            Customer.is_deleted == False,  # noqa: E712
+        )
+        .order_by(CustomerFollowUp.created_at.desc())
+    )
+    rows = q.all()
+    name_map = _sales_name_map(db)
+    casdoor_map = {
+        su.casdoor_user_id: su.name
+        for su in db.query(SalesUser).filter(SalesUser.casdoor_user_id.isnot(None)).all()
+    }
+    items = [
+        {
+            "id": f.id,
+            "customer_id": f.customer_id,
+            "customer_code": code,
+            "customer_name": name,
+            "follow_type": f.kind,
+            "content": f.content,
+            "title": f.title,
+            "outcome": f.outcome,
+            "next_action_date": f.next_action_at.isoformat() if f.next_action_at else None,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+            "operator_casdoor_id": f.operator_casdoor_id,
+            "to_sales_user_id": f.to_sales_user_id,
+            "parent_follow_up_id": f.parent_follow_up_id,
+            "from_sales_name": casdoor_map.get(f.operator_casdoor_id),
+            "to_sales_name": name_map.get(f.to_sales_user_id),
+        }
+        for (f, code, name) in rows
+    ]
+    return {"total": len(items), "items": items}
 
 
 # ---------- follow-up log ----------
@@ -63,11 +179,19 @@ def create_follow_up(
         kind=body.kind, title=body.title, content=body.content,
         outcome=body.outcome, next_action_at=body.next_action_at,
         operator_casdoor_id=getattr(user, "sub", None) if user else None,
+        to_sales_user_id=body.to_sales_user_id,
+        parent_follow_up_id=body.parent_follow_up_id,
     )
     # Bump customer.last_follow_time so 过期回收引擎能正确判断
     customer.last_follow_time = datetime.now()
     if body.kind == "meeting":
         customer.last_meeting_at = datetime.now()
+    # Auto lifecycle: lead -> contacting on first follow-up
+    auto_advance_stage(
+        db, customer, "contacting",
+        reason="首次跟进, 自动从 lead 升至 contacting",
+        only_if_in=("lead",),
+    )
     db.add(fu); db.add(customer); db.commit(); db.refresh(fu)
     return fu
 

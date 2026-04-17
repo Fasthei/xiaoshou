@@ -17,7 +17,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.auth import CurrentUser, require_auth
+from app.auth import CurrentUser, require_auth, require_roles
 from app.database import get_db
 from app.models.customer import Customer
 from app.models.sales import LeadAssignmentLog, LeadAssignmentRule, SalesUser
@@ -361,7 +361,7 @@ def assign_customer(
     customer_id: int,
     body: AssignBody,
     db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_auth),
+    user: CurrentUser = Depends(require_roles("sales-manager", "admin", "root")),
 ):
     customer = db.query(Customer).filter(
         Customer.id == customer_id, Customer.is_deleted == False,  # noqa: E712

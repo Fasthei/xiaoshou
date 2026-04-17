@@ -3,6 +3,7 @@ import { Modal, Input, List, Tag, Space, Typography, Empty } from 'antd';
 import {
   SearchOutlined, TeamOutlined, InboxOutlined, AppstoreOutlined,
   DashboardOutlined, LineChartOutlined, SyncOutlined, LogoutOutlined,
+  FunnelPlotOutlined, FundProjectionScreenOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/axios';
@@ -33,6 +34,9 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
     { key: 'nav:resources',   icon: <InboxOutlined />,      title: '货源看板', hint: '货源池',      action: () => nav('/resources') },
     { key: 'nav:allocations', icon: <AppstoreOutlined />,   title: '订单管理', hint: '毛利 / 状态', action: () => nav('/allocations') },
     { key: 'nav:usage',       icon: <LineChartOutlined />,  title: '用量查询', hint: '按客户查用量', action: () => nav('/usage') },
+    { key: 'nav:manager-center', icon: <FundProjectionScreenOutlined />, title: '主管中心', hint: '销售团队 / 审批中心', action: () => nav('/manager') },
+    { key: 'nav:home-funnel', icon: <FunnelPlotOutlined />, title: '切到漏斗',   hint: '销售漏斗概览',  action: () => nav('/home?view=funnel') },
+    { key: 'nav:home-kanban', icon: <AppstoreOutlined />,   title: '切到 Kanban', hint: '客户看板视图', action: () => nav('/home?view=kanban') },
     { key: 'act:sync',        icon: <SyncOutlined />,       title: '从工单同步客户', tag: '动作',
       action: async () => {
         try { await api.post('/api/sync/customers/from-ticket'); } finally { /* noop */ }

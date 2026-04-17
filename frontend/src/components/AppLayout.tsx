@@ -4,7 +4,7 @@ import {
 } from 'antd';
 import {
   TeamOutlined, InboxOutlined, AppstoreOutlined, DashboardOutlined,
-  LineChartOutlined, LogoutOutlined, UserOutlined,
+  LogoutOutlined, UserOutlined,
   SearchOutlined, BulbOutlined, BulbFilled,
   AlertOutlined, DollarOutlined, FundProjectionScreenOutlined,
   RocketOutlined, ScheduleOutlined,
@@ -24,24 +24,26 @@ type MenuEntry = {
   icon: React.ReactNode;
   label: React.ReactNode;
   roles?: string[];
+  hideForRoles?: string[];
 };
 
 const ALL_MENU_ITEMS: MenuEntry[] = [
-  { key: '/home',        icon: <RocketOutlined />,     label: <Link to="/home">我的工作台</Link> },
-  { key: '/dashboard',   icon: <DashboardOutlined />,  label: <Link to="/dashboard">总览</Link> },
-  { key: '/manager',     icon: <FundProjectionScreenOutlined />, label: <Link to="/manager">销售主管</Link>, roles: ['sales-manager'] },
-  { key: '/customers',   icon: <TeamOutlined />,       label: <Link to="/customers">客户管理</Link> },
+  { key: '/home',        icon: <RocketOutlined />,     label: <Link to="/home">我的工作台</Link>, hideForRoles: ['sales-manager'] },
+  { key: '/dashboard',   icon: <DashboardOutlined />,  label: <Link to="/dashboard">总览</Link>, hideForRoles: ['sales'] },
+  { key: '/manager',     icon: <FundProjectionScreenOutlined />, label: <Link to="/manager">主管中心</Link>, roles: ['sales-manager'] },
   { key: '/follow-ups',  icon: <ScheduleOutlined />,   label: <Link to="/follow-ups">跟进</Link> },
+  { key: '/customers',   icon: <TeamOutlined />,       label: <Link to="/customers">客户管理</Link> },
   { key: '/resources',   icon: <InboxOutlined />,      label: <Link to="/resources">货源看板</Link> },
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
-  { key: '/sales-team',  icon: <UserOutlined />,       label: <Link to="/sales-team">销售团队</Link>, roles: ['sales-manager'] },
-  { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link> },
+  { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link>, hideForRoles: ['sales-manager'] },
   { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link>, roles: ['sales', 'sales-manager'] },
 ];
 
 function filterMenuByRoles(roles: string[]): MenuEntry[] {
   const isAdmin = roles.includes('admin') || roles.includes('root');
   return ALL_MENU_ITEMS.filter((it) => {
+    // hideForRoles: hide when user has any of these roles (admin bypass)
+    if (!isAdmin && it.hideForRoles?.some((r) => roles.includes(r))) return false;
     if (!it.roles) return true;
     if (isAdmin) return true;
     return it.roles.some((r) => roles.includes(r));

@@ -25,8 +25,19 @@ interface SalesUser {
   is_active: boolean;
   note?: string | null;
   annual_profit_target?: number | string | null;
+  annual_sales_target?: number | string | null;
   target_year?: number | null;
   created_at: string;
+}
+
+interface TeamProfitAgg {
+  year: number;
+  team_annual_sales_target: number;
+  team_annual_sales_achieved: number;
+  team_annual_profit_target: number;
+  team_annual_profit_achieved: number;
+  team_profit_rate_target: number;
+  team_profit_rate_actual: number;
 }
 
 interface TargetProgress {
@@ -91,7 +102,8 @@ export default function SalesTeam() {
   const [progressMap, setProgressMap] = useState<Record<number, TargetProgress>>({});
   const [targetOpen, setTargetOpen] = useState(false);
   const [targetEditing, setTargetEditing] = useState<SalesUser | null>(null);
-  const [targetForm] = Form.useForm<{ target_year: number; annual_profit_target: number }>();
+  const [targetForm] = Form.useForm<{ target_year: number; annual_profit_target: number; annual_sales_target: number }>();
+  const [teamAgg, setTeamAgg] = useState<TeamProfitAgg | null>(null);
   const [planUser, setPlanUser] = useState<SalesUser | null>(null);
 
   const loadProgress = async (list: SalesUser[]) => {
@@ -117,8 +129,18 @@ export default function SalesTeam() {
       setUsers(u.data);
       setRules(r.data);
       loadProgress(u.data);
+      loadTeamAgg();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTeamAgg = async () => {
+    try {
+      const { data } = await api.get<TeamProfitAgg>('/api/metrics/team-profit');
+      setTeamAgg(data);
+    } catch {
+      setTeamAgg(null);
     }
   };
 
@@ -127,6 +149,7 @@ export default function SalesTeam() {
     targetForm.setFieldsValue({
       target_year: u.target_year || new Date().getFullYear(),
       annual_profit_target: u.annual_profit_target ? Number(u.annual_profit_target) : (undefined as any),
+      annual_sales_target: u.annual_sales_target ? Number(u.annual_sales_target) : (undefined as any),
     });
     setTargetOpen(true);
   };
@@ -134,10 +157,17 @@ export default function SalesTeam() {
   const submitTarget = async () => {
     if (!targetEditing) return;
     const v = await targetForm.validateFields();
+    // 1) 先通过专用端点保存 target_year + annual_profit_target
     await api.post(`/api/sales/users/${targetEditing.id}/target`, {
       target_year: v.target_year,
       annual_profit_target: v.annual_profit_target,
     });
+    // 2) PATCH 设置 annual_sales_target (专用端点暂未覆盖该字段)
+    if (v.annual_sales_target != null) {
+      await api.patch(`/api/sales/users/${targetEditing.id}`, {
+        annual_sales_target: v.annual_sales_target,
+      });
+    }
     antdMessage.success('年度目标已设定');
     setTargetOpen(false);
     loadAll();
@@ -145,14 +175,7 @@ export default function SalesTeam() {
 
   useEffect(() => { loadAll(); }, []);
 
-  const openNewUser = () => {
-    setUserEditing(null);
-    userForm.resetFields();
-    userForm.setFieldsValue({ is_active: true } as any);
-    setUserOpen(true);
-  };
-
-  const openEditUser = (u: SalesUser) => {
+const openEditUser = (u: SalesUser) => {
     setUserEditing(u);
     userForm.setFieldsValue({
       ...u,
@@ -326,7 +349,6 @@ export default function SalesTeam() {
                           onClick={() => syncFromCasdoor(false)}>
                     从 Casdoor 同步
                   </Button>
-                  <Button icon={<PlusOutlined />} onClick={openNewUser}>手动新增 (应急)</Button>
                 </Space>}
               >
                 {casdoorResult && (
@@ -340,6 +362,34 @@ export default function SalesTeam() {
                   type="warning" showIcon style={{ marginBottom: 12 }}
                   message="建议: 不要手动建销售, 用 '从 Casdoor 同步' 拉统一认证里的用户, 这样 casdoor_user_id 能对得上, 登录/退出会自动联动."
                 />
+                {teamAgg && (
+                  <Card
+                    size="small" style={{ marginBottom: 12, borderRadius: 12, background: '#fafafa' }}
+                    title={<Space><AimOutlined />团队总体目标 <Tag>{teamAgg.year} 年</Tag></Space>}
+                    extra={<Text type="secondary" style={{ fontSize: 12 }}>团队总体目标 = 每个销售目标之和</Text>}
+                  >
+                    <Space size="large" wrap>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>年度销售额目标</Text>
+                        <div><Text strong style={{ fontSize: 18 }}>¥{teamAgg.team_annual_sales_target.toLocaleString()}</Text></div>
+                      </div>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>年度利润目标</Text>
+                        <div><Text strong style={{ fontSize: 18 }}>¥{teamAgg.team_annual_profit_target.toLocaleString()}</Text></div>
+                      </div>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>目标利润率</Text>
+                        <div><Text strong style={{ fontSize: 18 }}>{(teamAgg.team_profit_rate_target * 100).toFixed(1)}%</Text></div>
+                      </div>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>YTD 实际利润率</Text>
+                        <div><Text strong style={{ fontSize: 18, color: teamAgg.team_profit_rate_actual >= teamAgg.team_profit_rate_target ? '#22c55e' : '#ef4444' }}>
+                          {(teamAgg.team_profit_rate_actual * 100).toFixed(1)}%
+                        </Text></div>
+                      </div>
+                    </Space>
+                  </Card>
+                )}
                 <Table<SalesUser>
                   rowKey="id" loading={loading} dataSource={users} pagination={{ pageSize: 20 }}
                   columns={[
@@ -347,18 +397,16 @@ export default function SalesTeam() {
                     { title: '姓名', dataIndex: 'name', width: 140, ellipsis: { showTitle: true }, render: (v, r) => (
                       <Space><Text strong>{v}</Text>{!r.is_active && <Tag>已停用</Tag>}</Space>
                     )},
-                    { title: '邮箱', dataIndex: 'email', width: 200, ellipsis: { showTitle: true } },
-                    { title: '电话', dataIndex: 'phone', width: 130, ellipsis: { showTitle: true } },
-                    { title: '区域', dataIndex: 'regions', width: 160, ellipsis: { showTitle: true }, render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="blue">{x}</Tag>) },
-                    { title: '行业', dataIndex: 'industries', width: 160, ellipsis: { showTitle: true }, render: (v: string[] | null) => (v || []).map((x) => <Tag key={x} color="purple">{x}</Tag>) },
-                    { title: '容量', dataIndex: 'max_customers', width: 80,
+{ title: '容量', dataIndex: 'max_customers', width: 80,
                       render: (v: number | null) => v ? <Tag color="orange">{v} 上限</Tag> : <Tag>不限</Tag> },
-                    { title: '年度目标', width: 140, render: (_: any, r: SalesUser) => {
-                      if (!r.annual_profit_target) return <Text type="secondary">未设</Text>;
-                      const amt = Number(r.annual_profit_target);
+                    { title: '年度目标', width: 180, render: (_: any, r: SalesUser) => {
+                      if (!r.annual_profit_target && !r.annual_sales_target) return <Text type="secondary">未设</Text>;
+                      const pAmt = r.annual_profit_target ? Number(r.annual_profit_target) : 0;
+                      const sAmt = r.annual_sales_target ? Number(r.annual_sales_target) : 0;
                       const y = r.target_year || '-';
                       return <Space direction="vertical" size={0}>
-                        <Text strong>¥{amt.toLocaleString()}</Text>
+                        {sAmt > 0 && <Text style={{ fontSize: 12 }}>销售额 ¥{sAmt.toLocaleString()}</Text>}
+                        {pAmt > 0 && <Text strong>利润 ¥{pAmt.toLocaleString()}</Text>}
                         <Text type="secondary" style={{ fontSize: 12 }}>{y} 年</Text>
                       </Space>;
                     }},
@@ -661,7 +709,18 @@ export default function SalesTeam() {
             />
           </Form.Item>
           <Form.Item
-            name="annual_profit_target" label="年度毛利目标金额"
+            name="annual_sales_target" label="年度销售额目标 (¥)"
+            tooltip="单位: 元。YTD 自动聚合该销售名下客户本年度 allocation.total_price"
+          >
+            <InputNumber
+              min={0} step={10000} style={{ width: 240 }}
+              formatter={(v) => `¥ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={(v) => (v ? Number(v.replace(/[^\d.]/g, '')) : 0) as any}
+              placeholder="例如 5000000"
+            />
+          </Form.Item>
+          <Form.Item
+            name="annual_profit_target" label="年度利润目标金额 (¥)"
             rules={[{ required: true, message: '请输入目标金额' }]}
             tooltip="单位: 元。YTD 自动聚合该销售名下客户本年度 allocation.profit_amount"
           >

@@ -8,7 +8,8 @@ from app.api import (
     allocation, auth, customer, resource, usage, sync, customer_resources,
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
     customer_insight_agent, sales, external, follow_up, contract, ticket,
-    alert_rule, payment, cc_sync, bills_export, manager, orders,
+    alert_rule, payment, cc_sync, bills_export, bills_local, manager, orders,
+    customer_stage, manager_metrics,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -118,6 +119,62 @@ def _ensure_customer_acquisition_columns():
         logger.warning("ensure customer acquisition columns failed: %s", e)
 
 
+def _ensure_customer_lifecycle_columns():
+    """Best-effort additive migration: customer lifecycle_stage + recycle fields.
+
+    Adds: lifecycle_stage (default 'lead'), recycled_from_stage, recycle_reason, recycled_at.
+    Also backfills lifecycle_stage from legacy customer_status (one-off).
+    """
+    from sqlalchemy import text, inspect
+    cols_spec = [
+        ("lifecycle_stage", "VARCHAR(20)"),
+        ("recycled_from_stage", "VARCHAR(20)"),
+        ("recycle_reason", "TEXT"),
+        ("recycled_at", "TIMESTAMP"),
+    ]
+    # legacy customer_status -> lifecycle_stage mapping
+    status_to_stage = {
+        "formal": "active",
+        "active": "contacting",
+        "potential": "lead",
+        "inactive": "lead",
+        "frozen": "lead",
+        "prospect": "lead",
+    }
+    try:
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                for name, typ in cols_spec:
+                    conn.execute(text(
+                        f"ALTER TABLE customer ADD COLUMN IF NOT EXISTS {name} {typ}"
+                    ))
+            else:
+                insp = inspect(conn)
+                if "customer" in insp.get_table_names():
+                    existing = {c["name"] for c in insp.get_columns("customer")}
+                    for name, typ in cols_spec:
+                        if name not in existing:
+                            conn.execute(text(
+                                f"ALTER TABLE customer ADD COLUMN {name} {typ}"
+                            ))
+            # Backfill: only rows where lifecycle_stage IS NULL or empty
+            for legacy, stage in status_to_stage.items():
+                conn.execute(text(
+                    "UPDATE customer SET lifecycle_stage = :stage "
+                    "WHERE (lifecycle_stage IS NULL OR lifecycle_stage = '') "
+                    "AND customer_status = :legacy"
+                ), {"stage": stage, "legacy": legacy})
+            # Any remaining NULL -> 'lead'
+            conn.execute(text(
+                "UPDATE customer SET lifecycle_stage = 'lead' "
+                "WHERE lifecycle_stage IS NULL OR lifecycle_stage = ''"
+            ))
+        logger.info("ensured customer lifecycle_stage columns + backfill done")
+    except Exception as e:
+        logger.warning("ensure customer lifecycle columns failed: %s", e)
+
+
 def _ensure_allocation_end_user_label_column():
     """Best-effort additive migration: ensure allocation.end_user_label exists."""
     from sqlalchemy import text, inspect
@@ -141,6 +198,29 @@ def _ensure_allocation_end_user_label_column():
         logger.warning("ensure allocation end_user_label column failed: %s", e)
 
 
+def _ensure_customer_resource_end_user_label_column():
+    """Best-effort additive migration: ensure customer_resource.end_user_label exists."""
+    from sqlalchemy import text, inspect
+    try:
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            if dialect == "postgresql":
+                conn.execute(text(
+                    "ALTER TABLE customer_resource ADD COLUMN IF NOT EXISTS end_user_label VARCHAR(200)"
+                ))
+            else:
+                insp = inspect(conn)
+                if "customer_resource" in insp.get_table_names():
+                    cols = {c["name"] for c in insp.get_columns("customer_resource")}
+                    if "end_user_label" not in cols:
+                        conn.execute(text(
+                            "ALTER TABLE customer_resource ADD COLUMN end_user_label VARCHAR(200)"
+                        ))
+        logger.info("ensured customer_resource.end_user_label column")
+    except Exception as e:
+        logger.warning("ensure customer_resource end_user_label column failed: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     try:
@@ -150,6 +230,8 @@ async def lifespan(_: FastAPI):
         _ensure_allocation_approval_columns()
         _ensure_customer_acquisition_columns()
         _ensure_allocation_end_user_label_column()
+        _ensure_customer_lifecycle_columns()
+        _ensure_customer_resource_end_user_label_column()
     except Exception as e:
         logger.error("DB init failed: %s", e)
     yield
@@ -198,6 +280,7 @@ app.include_router(customer_insight_agent.router, dependencies=protected_deps)
 app.include_router(sales.router, dependencies=protected_deps)
 app.include_router(sales.customer_scoped, dependencies=protected_deps)
 app.include_router(follow_up.router, dependencies=protected_deps)
+app.include_router(follow_up.global_router, dependencies=protected_deps)
 app.include_router(contract.router, dependencies=protected_deps)
 app.include_router(contract.customer_scoped, dependencies=protected_deps)
 app.include_router(ticket.sync_router, dependencies=protected_deps)
@@ -207,8 +290,12 @@ app.include_router(payment.router, dependencies=protected_deps)
 app.include_router(cc_sync.sync_router, dependencies=protected_deps)
 app.include_router(cc_sync.local_router, dependencies=protected_deps)
 app.include_router(bills_export.router, dependencies=protected_deps)
+app.include_router(bills_local.router, dependencies=protected_deps)
 app.include_router(manager.router, dependencies=protected_deps)
 app.include_router(orders.router, dependencies=protected_deps)
+app.include_router(customer_stage.customer_router, dependencies=protected_deps)
+app.include_router(customer_stage.request_router, dependencies=protected_deps)
+app.include_router(manager_metrics.router, dependencies=protected_deps)
 
 
 @app.get("/")

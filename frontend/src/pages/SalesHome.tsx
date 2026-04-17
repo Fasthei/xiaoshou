@@ -1,191 +1,336 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Empty, Progress, Row, Skeleton, Space, Statistic, Tag, Typography } from 'antd';
-import { Link } from 'react-router-dom';
-import { RocketOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import {
+  Card, Col, Row, Skeleton, Tag, Space, Typography, Button, Empty,
+  Table, Progress, Statistic, Alert,
+} from 'antd';
+import {
+  CheckSquareOutlined, AimOutlined, ClockCircleOutlined, FireOutlined,
+  RightOutlined, UserOutlined,
+} from '@ant-design/icons';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/axios';
-import { useAuth } from '../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 
-interface SalesPerf {
-  id: number;
-  name: string;
-  customer_count: number;
-  ytd_gmv: number;
-  target_gmv: number;
+interface TodoDue {
+  customer_id: number;
+  customer_code: string;
+  customer_name: string;
+  last_follow_at: string | null;
+  last_follow_title: string | null;
+  next_action_at: string | null;
+  next_action_hint: string | null;
+  overdue: boolean;
+}
+
+interface TodoStale {
+  customer_id: number;
+  customer_code: string;
+  customer_name: string;
+  last_follow_at: string | null;
+  days_since_follow: number | null;
+}
+
+interface TodosResp {
+  unbound: boolean;
+  sales_user_name?: string;
+  due: TodoDue[];
+  stale: TodoStale[];
+}
+
+interface MyKpiResp {
+  sales_user_id: number | null;
+  sales_user_name: string;
+  target_year: number;
+  annual_target: number;
+  ytd_achievement: number;
   progress_pct: number;
+  gap: number;
+  month: string;
+  month_new_opportunities: number;
+  month_follow_ups: number;
+  month_deals: number;
+  month_signed_amount: number;
+  unbound: boolean;
 }
 
-function currentMonthStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+function fmtMoney(n: number | null | undefined): string {
+  if (n == null) return '¥0';
+  return '¥' + Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
 }
 
-function normalize(s: string | undefined | null): string {
-  return (s || '').trim().toLowerCase();
+function fmtRelDays(iso: string | null): string {
+  if (!iso) return '从未跟进';
+  const d = new Date(iso);
+  const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (diff < 0) return `${-diff} 天后`;
+  if (diff === 0) return '今天';
+  if (diff === 1) return '昨天';
+  return `${diff} 天前`;
 }
 
-/**
- * 宽松匹配: 优先 name 完全相等, 否则 email 前缀 (user@x) 匹配 name, 再否则 name 互为包含关系。
- */
-function matchMine(rows: SalesPerf[], userName?: string, userEmail?: string): SalesPerf | null {
-  if (!rows.length) return null;
-  const name = normalize(userName);
-  const emailLocal = normalize(userEmail?.split('@')[0]);
-
-  if (name) {
-    const exact = rows.find((r) => normalize(r.name) === name);
-    if (exact) return exact;
-  }
-  if (emailLocal) {
-    const byEmail = rows.find((r) => normalize(r.name) === emailLocal);
-    if (byEmail) return byEmail;
-  }
-  if (name) {
-    const contains = rows.find(
-      (r) => normalize(r.name).includes(name) || name.includes(normalize(r.name)),
-    );
-    if (contains) return contains;
-  }
-  return null;
+function fmtDueDays(iso: string | null): { text: string; overdue: boolean } {
+  if (!iso) return { text: '—', overdue: false };
+  const d = new Date(iso);
+  const diff = Math.floor((d.getTime() - Date.now()) / 86400000);
+  if (diff < 0) return { text: `逾期 ${-diff} 天`, overdue: true };
+  if (diff === 0) return { text: '今天到期', overdue: true };
+  if (diff === 1) return { text: '明天到期', overdue: false };
+  return { text: `${diff} 天后`, overdue: false };
 }
 
 export default function SalesHome() {
-  const { user } = useAuth();
-  const year = new Date().getFullYear();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [mine, setMine] = useState<SalesPerf | null>(null);
-  const [missing, setMissing] = useState(false);
+  const [todos, setTodos] = useState<TodosResp | null>(null);
+  const [kpi, setKpi] = useState<MyKpiResp | null>(null);
 
   const load = async () => {
     setLoading(true);
-    setMissing(false);
     try {
-      const { data } = await api.get<SalesPerf[] | { items: SalesPerf[] }>(
-        '/api/manager/sales-performance',
-        { params: { month: currentMonthStr() } },
-      );
-      const rows: SalesPerf[] = Array.isArray(data) ? data : (data as any)?.items || [];
-      const hit = matchMine(rows, user?.name, user?.email);
-      if (!hit) setMissing(true);
-      setMine(hit);
-    } catch (e: any) {
-      if (e?.response?.status === 404) setMissing(true);
-      setMine(null);
+      const [t, k] = await Promise.allSettled([
+        api.get<TodosResp>('/api/metrics/my-todos?stale_days=14&upcoming_days=7'),
+        api.get<MyKpiResp>('/api/metrics/my-kpi'),
+      ]);
+      if (t.status === 'fulfilled') setTodos(t.value.data);
+      if (k.status === 'fulfilled') setKpi(k.value.data);
     } finally {
       setLoading(false);
     }
   };
+  useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.name, user?.email]);
+  const goFollow = (customerId: number) => {
+    navigate(`/customers?open=${customerId}`);
+  };
 
-  const gap =
-    mine && mine.target_gmv > 0 ? +(mine.target_gmv - mine.ytd_gmv).toFixed(2) : 0;
-  const progressPct = mine ? Math.max(0, Math.min(100, Math.round(mine.progress_pct))) : 0;
+  const dueCount = todos?.due?.length ?? 0;
+  const staleCount = todos?.stale?.length ?? 0;
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      {/* Hero banner */}
-      <Card
-        style={{
-          background: 'linear-gradient(135deg, #4f46e5 0%, #ec4899 100%)',
-          color: '#fff',
-          border: 'none',
-        }}
-        styles={{ body: { padding: '28px 32px' } }}
-      >
-        <Space direction="vertical" size={6}>
-          <Space align="center" size={12}>
-            <RocketOutlined style={{ fontSize: 28, color: '#fff' }} />
-            <Title level={3} style={{ color: '#fff', margin: 0 }}>
-              销售个人工作台 · {year}
-            </Title>
-          </Space>
-          <Text style={{ color: 'rgba(255,255,255,0.85)' }}>
-            {user?.name ? `你好，${user.name}` : '你好'} · 今日目标达成一步一步来
-          </Text>
-        </Space>
-      </Card>
+    <div className="page-fade">
+      <div style={{ marginBottom: 20 }}>
+        <Title level={3} style={{ margin: 0 }}>
+          <Space><UserOutlined />销售工作台</Space>
+        </Title>
+        <Text type="secondary">
+          {kpi?.sales_user_name ? `${kpi.sales_user_name} · ` : ''}聚焦跟进 + 目标达成
+        </Text>
+      </div>
 
-      {loading ? (
-        <Card>
-          <Skeleton active />
-        </Card>
-      ) : missing || !mine ? (
-        <Card>
+      {kpi?.unbound && (
+        <Alert
+          type="warning" showIcon style={{ marginBottom: 16 }}
+          message="当前登录账号未绑定本地销售档案"
+          description="请联系管理员在'销售团队'页把你的 Casdoor 账号同步进来, 否则无法看到个人 KPI / 代办。"
+        />
+      )}
+
+      {/* 1. 我的代办 */}
+      <Card
+        title={
+          <Space>
+            <CheckSquareOutlined style={{ color: '#f59e0b' }} />
+            <span>我的代办 / 跟进</span>
+            {dueCount > 0 && <Tag color="orange">{dueCount} 条到期</Tag>}
+            {staleCount > 0 && <Tag color="red">{staleCount} 条冷落</Tag>}
+          </Space>
+        }
+        bordered={false}
+        style={{ borderRadius: 12, marginBottom: 16 }}
+        extra={<Link to="/customers"><Button type="link" size="small">去客户管理 <RightOutlined /></Button></Link>}
+      >
+        {loading ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : dueCount === 0 && staleCount === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
               <Space direction="vertical" size={4}>
-                <Text>没有您的目标数据</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  请联系销售主管在后台设置您的年度目标 (annual_profit_target)
-                </Text>
+                <Text>暂无到期 / 冷落客户，去跟进更多客户吧 🎉</Text>
+                <Link to="/customers"><Button size="small" type="primary">客户管理</Button></Link>
               </Space>
             }
           />
-        </Card>
-      ) : (
-        <>
-          <Card title={<Space>🎯 {year} 年度目标进度</Space>}>
-            <Row gutter={16}>
-              <Col xs={24} sm={12} md={8}>
-                <Statistic
-                  title="年度目标"
-                  value={mine.target_gmv}
-                  prefix="¥"
-                  precision={2}
+        ) : (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            {dueCount > 0 && (
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                  <ClockCircleOutlined /> 近期需回访 ({dueCount})
+                </Text>
+                <Table<TodoDue>
+                  rowKey="customer_id"
+                  size="small"
+                  pagination={false}
+                  dataSource={todos?.due ?? []}
+                  columns={[
+                    {
+                      title: '客户', dataIndex: 'customer_name', key: 'name',
+                      render: (name, r) => (
+                        <Space direction="vertical" size={0}>
+                          <Text strong>{name}</Text>
+                          <Text type="secondary" style={{ fontSize: 11 }}>{r.customer_code}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '上次跟进', dataIndex: 'last_follow_at', key: 'last',
+                      render: (v, r) => (
+                        <Space direction="vertical" size={0}>
+                          <Text>{fmtRelDays(v)}</Text>
+                          {r.last_follow_title && (
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {r.last_follow_title.length > 24 ? r.last_follow_title.slice(0, 24) + '…' : r.last_follow_title}
+                            </Text>
+                          )}
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '下一步', dataIndex: 'next_action_hint', key: 'hint',
+                      render: (v) => v ? (v.length > 30 ? v.slice(0, 30) + '…' : v) : <Text type="secondary">—</Text>,
+                    },
+                    {
+                      title: '到期', dataIndex: 'next_action_at', key: 'due',
+                      render: (v) => {
+                        const { text, overdue } = fmtDueDays(v);
+                        return <Tag color={overdue ? 'red' : 'orange'}>{text}</Tag>;
+                      },
+                    },
+                    {
+                      title: '操作', key: 'act', width: 96,
+                      render: (_, r) => (
+                        <Button size="small" type="primary" onClick={() => goFollow(r.customer_id)}>
+                          去跟进
+                        </Button>
+                      ),
+                    },
+                  ]}
                 />
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Statistic
-                  title="YTD 业绩"
-                  value={mine.ytd_gmv}
-                  prefix="¥"
-                  precision={2}
-                  valueStyle={{ color: '#16a34a' }}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Statistic
-                  title="距达标缺口"
-                  value={gap > 0 ? gap : 0}
-                  prefix="¥"
-                  precision={2}
-                  valueStyle={{ color: gap > 0 ? '#ef4444' : '#16a34a' }}
-                  suffix={gap <= 0 ? ' ✅ 已达标' : undefined}
-                />
-              </Col>
-            </Row>
-            <div style={{ marginTop: 24 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>进度</Text>
-              <Progress
-                percent={progressPct}
-                status={progressPct >= 100 ? 'success' : 'active'}
-                strokeColor={{ '0%': '#4f46e5', '100%': '#ec4899' }}
-              />
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <Space size={12}>
-                <Tag color="blue">客户数 {mine.customer_count}</Tag>
-                <Tag color="purple">Sales ID #{mine.id}</Tag>
-              </Space>
-            </div>
-          </Card>
+              </div>
+            )}
 
-          <Card size="small">
-            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Text type="secondary">想看你手上的客户？</Text>
-              <Link to="/customers">
-                去客户管理 <ArrowRightOutlined />
-              </Link>
-            </Space>
-          </Card>
-        </>
-      )}
-    </Space>
+            {staleCount > 0 && (
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                  <FireOutlined style={{ color: '#ef4444' }} /> 长期冷落 ({staleCount}, {'>'}14 天未联系)
+                </Text>
+                <Table<TodoStale>
+                  rowKey="customer_id"
+                  size="small"
+                  pagination={{ pageSize: 5, size: 'small' }}
+                  dataSource={todos?.stale ?? []}
+                  columns={[
+                    {
+                      title: '客户', dataIndex: 'customer_name', key: 'name',
+                      render: (name, r) => (
+                        <Space direction="vertical" size={0}>
+                          <Text strong>{name}</Text>
+                          <Text type="secondary" style={{ fontSize: 11 }}>{r.customer_code}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '上次跟进', dataIndex: 'last_follow_at', key: 'last',
+                      render: (v) => <Text type="secondary">{fmtRelDays(v)}</Text>,
+                    },
+                    {
+                      title: '冷落天数', dataIndex: 'days_since_follow', key: 'days',
+                      render: (v) => v == null
+                        ? <Tag color="red">从未跟进</Tag>
+                        : <Tag color={v > 30 ? 'red' : 'orange'}>{v} 天</Tag>,
+                    },
+                    {
+                      title: '操作', key: 'act', width: 96,
+                      render: (_, r) => (
+                        <Button size="small" onClick={() => goFollow(r.customer_id)}>去跟进</Button>
+                      ),
+                    },
+                  ]}
+                />
+              </div>
+            )}
+          </Space>
+        )}
+      </Card>
+
+      {/* 2. 我的 KPI / 目标达成 */}
+      <Card
+        title={
+          <Space>
+            <AimOutlined style={{ color: '#4f46e5' }} />
+            <span>我的 KPI · {kpi?.target_year ?? new Date().getFullYear()} 年度目标</span>
+          </Space>
+        }
+        bordered={false}
+        style={{ borderRadius: 12 }}
+      >
+        {loading ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : (
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={14}>
+              <Card size="small" style={{ background: '#f8fafc', borderRadius: 10 }}>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                    <div>
+                      <Text type="secondary">年度毛利目标</Text>
+                      <div style={{ fontSize: 22, fontWeight: 700 }}>
+                        {fmtMoney(kpi?.annual_target)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <Text type="secondary">YTD 已完成</Text>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: '#16a34a' }}>
+                        {fmtMoney(kpi?.ytd_achievement)}
+                      </div>
+                    </div>
+                  </Space>
+                  <Progress
+                    percent={Math.min(100, kpi?.progress_pct ?? 0)}
+                    strokeColor={{ '0%': '#4f46e5', '100%': '#16a34a' }}
+                    format={() => `${(kpi?.progress_pct ?? 0).toFixed(1)}%`}
+                  />
+                  <Text type="secondary">
+                    还差 <Text strong style={{ color: '#dc2626' }}>{fmtMoney(kpi?.gap)}</Text>
+                    {(kpi?.annual_target ?? 0) <= 0 && (
+                      <Text type="warning" style={{ marginLeft: 8 }}>
+                        (未设置年度目标, 请销售主管在'销售团队'里配置)
+                      </Text>
+                    )}
+                  </Text>
+                </Space>
+              </Card>
+            </Col>
+            <Col xs={24} lg={10}>
+              <Card size="small" style={{ borderRadius: 10 }}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                  本月 ({kpi?.month ?? '—'}) 指标
+                </Text>
+                <Row gutter={[12, 12]}>
+                  <Col span={12}>
+                    <Statistic title="新增商机" value={kpi?.month_new_opportunities ?? 0}
+                      valueStyle={{ fontSize: 20, color: '#4f46e5' }} />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic title="跟进次数" value={kpi?.month_follow_ups ?? 0}
+                      valueStyle={{ fontSize: 20, color: '#0ea5e9' }} />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic title="成单数" value={kpi?.month_deals ?? 0}
+                      valueStyle={{ fontSize: 20, color: '#16a34a' }} />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic title="签约金额" value={fmtMoney(kpi?.month_signed_amount)}
+                      valueStyle={{ fontSize: 20, color: '#ec4899' }} />
+                  </Col>
+                </Row>
+              </Card>
+            </Col>
+          </Row>
+        )}
+      </Card>
+    </div>
   );
 }

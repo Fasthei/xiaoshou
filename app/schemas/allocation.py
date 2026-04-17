@@ -66,3 +66,24 @@ class AllocationProfitResponse(BaseModel):
 class AllocationApprovalRequest(BaseModel):
     approval_status: str = Field(..., description="approved 或 rejected")
     approval_note: Optional[str] = Field(None, description="审批备注")
+
+
+class AllocationBatchLine(BaseModel):
+    resource_id: int
+    quantity: int = Field(..., ge=1)
+    unit_cost: Optional[Decimal] = Field(None, description="折前单价 / 成本")
+    unit_price: Decimal = Field(..., description="折后单价")
+    discount_rate: Optional[Decimal] = Field(None, description="折扣率 % (0-100, 可负)")
+    end_user_label: Optional[str] = None
+    remark: Optional[str] = None
+
+
+class AllocationBatchCreate(BaseModel):
+    customer_id: int
+    contract_id: Optional[int] = None
+    lines: list[AllocationBatchLine]
+
+
+class AllocationBatchResponse(BaseModel):
+    batch_code: str
+    created: list[AllocationResponse]

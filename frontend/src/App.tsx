@@ -14,11 +14,19 @@ import Resources from './pages/Resources';
 import Allocations from './pages/Allocations';
 import Alerts from './pages/Alerts';
 import Bills from './pages/Bills';
-import SalesTeam from './pages/SalesTeam';
 import ManagerDashboard from './pages/ManagerDashboard';
-import ManagerApprovals from './pages/ManagerApprovals';
 import SalesHome from './pages/SalesHome';
 import FollowUps from './pages/FollowUps';
+import { getCurrentRoles } from './api/axios';
+
+function RoleHomeRedirect() {
+  const roles = getCurrentRoles();
+  const isAdmin = roles.includes('admin') || roles.includes('root');
+  if (!isAdmin && roles.includes('sales') && !roles.includes('sales-manager')) {
+    return <Navigate to="/home" replace />;
+  }
+  return <Navigate to="/dashboard" replace />;
+}
 
 function Shell() {
   const { mode } = useThemeMode();
@@ -36,7 +44,7 @@ function Shell() {
             <Route path="/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/" element={<RoleHomeRedirect />} />
               <Route path="/home" element={<SalesHome />} />
               <Route path="/sales/home" element={<SalesHome />} />
               <Route path="/dashboard" element={<Dashboard />} />
@@ -54,7 +62,11 @@ function Shell() {
                   </RoleGuard>
                 }
               />
-              <Route path="/sales-team" element={<SalesTeam />} />
+              <Route path="/sales-team" element={
+                <RoleGuard allowed={['sales-manager']}>
+                  <Navigate to="/manager?tab=team" replace />
+                </RoleGuard>
+              } />
               <Route
                 path="/manager"
                 element={
@@ -67,7 +79,7 @@ function Shell() {
                 path="/manager/approvals"
                 element={
                   <RoleGuard allowed={['sales-manager']}>
-                    <ManagerApprovals />
+                    <Navigate to="/manager?tab=approvals" replace />
                   </RoleGuard>
                 }
               />

@@ -19,6 +19,10 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx>({} as AuthCtx);
 
+// 仅在开发环境或显式启用时允许 local-dev token 绕过 /api/auth/me
+const ALLOW_DEV_BYPASS =
+  import.meta.env.DEV || import.meta.env.VITE_ALLOW_DEV_BYPASS === 'true';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [ready, setReady] = useState(false);
@@ -33,6 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Optimistic from cache, then refresh
     if (cached) {
       try { setUser(JSON.parse(cached)); } catch { /* ignore */ }
+    }
+    // 本地 dev 模式：token 以 'local-dev' 开头时跳过 /api/auth/me，直接用缓存
+    if (ALLOW_DEV_BYPASS && token.startsWith('local-dev') && cached) {
+      setReady(true);
+      return;
     }
     api.get<CurrentUser>('/api/auth/me')
       .then(({ data }) => {
@@ -49,6 +58,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (token: string) => {
     localStorage.setItem('xs_token', token);
+    // 本地 dev 模式：token 以 'local-dev' 开头时跳过 /api/auth/me，直接用已写入的 xs_user 缓存
+    if (ALLOW_DEV_BYPASS && token.startsWith('local-dev')) {
+      const cached = localStorage.getItem('xs_user');
+      if (cached) {
+        try { setUser(JSON.parse(cached)); } catch { /* ignore */ }
+      }
+      return;
+    }
     const { data } = await api.get<CurrentUser>('/api/auth/me');
     localStorage.setItem('xs_user', JSON.stringify(data));
     setUser(data);

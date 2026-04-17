@@ -15,6 +15,7 @@ from app.integrations import CloudCostClient, GongdanClient
 from app.models.customer import Customer
 from app.models.resource import Resource
 from app.models.sync_log import SyncLog
+from app.api.customer_stage import auto_advance_stage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sync", tags=["同步"])
@@ -68,16 +69,18 @@ def sync_customers_from_ticket(
                             )
                             db.add(existing)
                             db.flush()
-                            db.add(Customer(
+                            new_c = Customer(
                                 customer_code=rc.customer_code,
                                 customer_name=rc.name,
                                 customer_status="formal",
+                                lifecycle_stage="active",
                                 source_system="gongdan",
                                 source_id=rc.id,
-                            ))
+                            )
+                            db.add(new_c)
                         updated += 1
                     else:
-                        # 本地已是工单来源: 走原来的 update 逻辑
+                        # 本地已是工单来源: 走原来的 update 逻辑 + 自动升 active
                         changed = False
                         if existing.customer_name != rc.name:
                             existing.customer_name = rc.name
@@ -85,6 +88,14 @@ def sync_customers_from_ticket(
                         if existing.source_id != rc.id:
                             existing.source_id = rc.id
                             changed = True
+                        # Auto lifecycle: gongdan 里有 = formalized -> active
+                        if not dry_run:
+                            stage_bumped = auto_advance_stage(
+                                db, existing, "active",
+                                reason=f"gongdan 同步: customer_code={rc.customer_code} 已正式建档",
+                            )
+                            if stage_bumped:
+                                changed = True
                         if changed:
                             updated += 1
                             if not dry_run:
@@ -98,6 +109,7 @@ def sync_customers_from_ticket(
                             customer_code=rc.customer_code,
                             customer_name=rc.name,
                             customer_status="formal",
+                            lifecycle_stage="active",
                             source_system="gongdan",
                             source_id=rc.id,
                         ))
