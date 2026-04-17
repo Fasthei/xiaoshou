@@ -34,6 +34,11 @@ def _claims_to_user(claims: dict) -> CurrentUser:
         roles = [str(r) for r in roles_field]
     else:
         roles = []
+    # Casdoor JWT 里 isAdmin=true 代表系统超管 (built-in/admin 等)；
+    # 不会体现在 roles claim 里。为让前端 RoleGuard 和后端 require_roles 一致地识别
+    # 超管，把 "admin" 注入到 roles 里（CLAUDE.md §5.2: 超管 admin/root 永远可见全部）。
+    if claims.get("isAdmin") is True and "admin" not in roles:
+        roles = ["admin", *roles]
     return CurrentUser(
         sub=claims.get("sub", ""),
         name=claims.get("name") or claims.get("preferred_username", ""),
