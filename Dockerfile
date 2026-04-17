@@ -27,10 +27,14 @@ COPY --from=builder /install /usr/local
 WORKDIR /app
 COPY --chown=appuser:root . .
 
+# Entrypoint wraps uvicorn with `alembic upgrade head` so schema migrations
+# (e.g. 002_backfill_formal_status) run automatically on deploy.
+RUN chmod +x /app/docker-entrypoint.sh
+
 USER 1001
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:${PORT}/health || exit 1
 
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 2"]
+CMD ["/app/docker-entrypoint.sh"]
