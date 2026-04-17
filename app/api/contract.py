@@ -4,8 +4,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, require_auth
@@ -58,6 +59,11 @@ class ContractResponse(ContractBase):
         from_attributes = True
 
 
+class ContractListResponse(BaseModel):
+    total: int
+    items: list[ContractResponse]
+
+
 class ContractFileResponse(BaseModel):
     id: int
     file_url: Optional[str] = None
@@ -98,6 +104,36 @@ def list_contracts_of_customer(customer_id: int, db: Session = Depends(get_db)):
         .all()
     )
     return rows
+
+
+@router.get("", response_model=ContractListResponse, summary="合同列表 (全局, 分页+过滤)")
+def list_contracts(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    customer_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    keyword: Optional[str] = Query(None, description="合同号/标题模糊搜索"),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    """全局合同列表 —— 没有该端点前端会 405。customer-scoped
+    `/api/customers/{id}/contracts` 仍然保留。"""
+    q = db.query(Contract)
+    if customer_id is not None:
+        q = q.filter(Contract.customer_id == customer_id)
+    if status:
+        q = q.filter(Contract.status == status)
+    if keyword:
+        kw = f"%{keyword}%"
+        q = q.filter(or_(Contract.contract_code.ilike(kw), Contract.title.ilike(kw)))
+    total = q.count()
+    items = (
+        q.order_by(Contract.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {"total": total, "items": items}
 
 
 @router.post("", response_model=ContractResponse, summary="创建合同")
