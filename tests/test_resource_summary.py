@@ -82,3 +82,20 @@ def test_resource_summary_aggregation(client):
     # 不应再暴露本地凑的 quantity 字段
     assert "available_quantity" not in top[0]
     assert "allocated_quantity" not in top[0]
+
+    # 口径一致性不变量: 顶部 KPI 可用数 == sum(by_provider[*].available) == by_status.AVAILABLE
+    assert data["available"] == data["by_status"]["AVAILABLE"]
+    assert sum(p["available"] for p in data["by_provider"]) == data["by_status"]["AVAILABLE"]
+    assert providers["AZURE"]["available"] == 3
+    assert providers["AWS"]["available"] == 0
+
+
+def test_resource_summary_empty_state(client):
+    """空库也要返回一致口径 (available = 0)."""
+    r = client.get("/api/resources/summary")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 0
+    assert data["available"] == 0
+    assert data["by_provider"] == []
+    assert data["top_available"] == []

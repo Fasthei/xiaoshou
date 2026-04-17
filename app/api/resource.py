@@ -36,13 +36,21 @@ def get_resource_summary(db: Session = Depends(get_db)):
     # xiaoshou 本地都是 NULL, 不能拿来乱加乘). 看板只按 status 维度聚合账号数.
 
     # by provider aggregation: total 数 + 按 status 桶分
+    # 口径统一: 顶部 KPI "可用" 和 by_provider[*].available 都取
+    # resource_status == "AVAILABLE" 的 account 行数 (is_deleted=False), 跟
+    # by_status["AVAILABLE"] 一致, 不从本地 available_quantity 再算一遍, 否则
+    # 前端会出现 "顶部可用 8, 分厂商 available 全是 0" 这种对不上的情况。
     prov_map: dict[str, dict] = {}
     for it in all_items:
         p = it.cloud_provider or "UNKNOWN"
-        row = prov_map.setdefault(p, {"provider": p, "total": 0, "by_status": {}})
+        row = prov_map.setdefault(
+            p, {"provider": p, "total": 0, "available": 0, "by_status": {}}
+        )
         row["total"] += 1
         st = it.resource_status or "UNKNOWN"
         row["by_status"][st] = row["by_status"].get(st, 0) + 1
+        if st == "AVAILABLE":
+            row["available"] += 1
 
     by_provider = sorted(prov_map.values(), key=lambda r: r["total"], reverse=True)
 
@@ -59,8 +67,12 @@ def get_resource_summary(db: Session = Depends(get_db)):
         "provider": it.cloud_provider,
     } for it in top_items]
 
+    # 顶部 KPI 用的 "可用" 就是 by_status["AVAILABLE"] —— 显式顶出来方便前端对齐
+    available = by_status.get("AVAILABLE", 0)
+
     return {
         "total": total,
+        "available": available,
         "by_status": by_status,
         "by_provider": by_provider,
         "top_available": top_available,
