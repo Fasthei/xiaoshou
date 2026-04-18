@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class InsightFactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     category: str
     content: str
@@ -14,11 +16,10 @@ class InsightFactOut(BaseModel):
     run_id: int
     discovered_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class InsightRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     customer_id: int
     status: str
@@ -30,9 +31,6 @@ class InsightRunOut(BaseModel):
     summary: Optional[str] = None
     fact_count: int = 0
     duration_ms: Optional[int] = None
-
-    class Config:
-        from_attributes = True
 
 
 class InsightRunDetail(InsightRunOut):

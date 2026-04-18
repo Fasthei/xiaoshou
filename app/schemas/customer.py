@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
@@ -18,12 +18,11 @@ class CustomerContactCreate(CustomerContactBase):
 
 
 class CustomerContactResponse(CustomerContactBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     customer_id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class CustomerBase(BaseModel):
@@ -33,7 +32,9 @@ class CustomerBase(BaseModel):
     industry: Optional[str] = Field(None, description="所属行业")
     region: Optional[str] = Field(None, description="所属地区")
     customer_level: Optional[str] = Field(None, description="客户级别")
-    customer_status: str = Field(..., description="客户状态 potential/active/formal/inactive/frozen")
+    # DEPRECATED: 旧状态字段，向后兼容保留。新代码请使用 lifecycle_stage (lead/contacting/active)。
+    # 未来版本将从 API 中移除。
+    customer_status: str = Field(..., description="[已弃用] 客户状态，请改用 lifecycle_stage。保留仅作向后兼容")
     sales_user_id: Optional[int] = Field(None, description="所属销售")
     operation_user_id: Optional[int] = Field(None, description="所属运营")
     source_label: Optional[str] = Field(None, description="来源描述 (用户手填)")
@@ -55,7 +56,8 @@ class CustomerBase(BaseModel):
 
 
 class CustomerCreate(CustomerBase):
-    customer_status: str = Field("potential", description="客户状态, 默认潜在客户")
+    # DEPRECATED: 向后兼容保留，新代码请使用 lifecycle_stage。
+    customer_status: str = Field("potential", description="[已弃用] 客户状态，请改用 lifecycle_stage。保留仅作向后兼容")
 
 
 class CustomerCreateLite(BaseModel):
@@ -66,7 +68,8 @@ class CustomerCreateLite(BaseModel):
     industry: Optional[str] = None
     region: Optional[str] = None
     customer_level: Optional[str] = None
-    customer_status: Optional[str] = Field("potential")
+    # DEPRECATED: 向后兼容保留，新代码请使用 lifecycle_stage。
+    customer_status: Optional[str] = Field("potential", description="[已弃用] 客户状态，请改用 lifecycle_stage。保留仅作向后兼容")
     sales_user_id: Optional[int] = None
     operation_user_id: Optional[int] = None
     source_label: Optional[str] = None
@@ -81,7 +84,8 @@ class CustomerUpdate(BaseModel):
     industry: Optional[str] = None
     region: Optional[str] = None
     customer_level: Optional[str] = None
-    customer_status: Optional[str] = None
+    # DEPRECATED: 向后兼容保留，新代码请使用 lifecycle_stage。
+    customer_status: Optional[str] = Field(None, description="[已弃用] 客户状态，请改用 lifecycle_stage。保留仅作向后兼容")
     sales_user_id: Optional[int] = None
     operation_user_id: Optional[int] = None
     source_label: Optional[str] = None
@@ -98,6 +102,8 @@ class CustomerUpdate(BaseModel):
 
 
 class CustomerResponse(CustomerBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     current_resource_count: int
     current_month_consumption: Decimal
@@ -108,9 +114,6 @@ class CustomerResponse(CustomerBase):
     updated_at: datetime
     contacts: list[CustomerContactResponse] = []
     sales_user_name: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class CustomerListResponse(BaseModel):

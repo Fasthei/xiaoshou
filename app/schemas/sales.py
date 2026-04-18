@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SalesUserBase(BaseModel):
@@ -62,12 +62,11 @@ class ActivityItem(BaseModel):
 
 
 class SalesUserOut(SalesUserBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 class RuleBase(BaseModel):
@@ -97,12 +96,11 @@ class RuleUpdate(BaseModel):
 
 
 class RuleOut(RuleBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     cursor: int = 0
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class RecycleBody(BaseModel):
@@ -152,6 +150,8 @@ class AutoAssignResult(BaseModel):
 
 
 class AssignmentLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     customer_id: int
     from_user_id: Optional[int] = None
@@ -161,9 +161,6 @@ class AssignmentLogOut(BaseModel):
     rule_id: Optional[int] = None
     at: datetime
     operator_casdoor_id: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 # ---------- 年度目标 + 进度 ----------
@@ -208,9 +205,8 @@ class SalesPlanUpdate(BaseModel):
 
 
 class SalesPlanOut(SalesPlanBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True

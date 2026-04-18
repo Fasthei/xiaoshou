@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 FOLLOW_UP_KINDS = {"call", "meeting", "email", "wechat", "note", "other", "comment"}
@@ -21,6 +21,8 @@ class FollowUpCreate(BaseModel):
 
 
 class FollowUpOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     customer_id: int
     kind: str
@@ -32,9 +34,6 @@ class FollowUpOut(BaseModel):
     created_at: datetime
     to_sales_user_id: Optional[int] = None
     parent_follow_up_id: Optional[int] = None
-
-    class Config:
-        from_attributes = True
 
 
 class CompletenessOut(BaseModel):

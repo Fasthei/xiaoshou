@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
@@ -26,6 +26,8 @@ class AllocationUpdate(BaseModel):
 
 
 class AllocationResponse(AllocationBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     allocation_code: str
     unit_cost: Optional[Decimal]
@@ -47,9 +49,6 @@ class AllocationResponse(AllocationBase):
     approval_note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class AllocationListResponse(BaseModel):
