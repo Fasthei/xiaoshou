@@ -147,15 +147,10 @@ export default function Resources() {
   const stats = useMemo(() => {
     if (!summary) return { total: 0, available: 0, standby: 0, abnormal: 0 };
     const bs = summary.by_status || {};
+    const total = Object.values(bs as Record<string, number>).reduce((s, v) => s + v, 0);
     const known = (bs.AVAILABLE || 0) + (bs.STANDBY || 0);
-    // 异常 = 非 AVAILABLE 非 STANDBY 的其它桶 (EXPIRED / FROZEN / EXHAUSTED / UNKNOWN 等)
-    const abnormal = Math.max(summary.total - known, 0);
-    return {
-      total: summary.total,
-      available: bs.AVAILABLE || 0,
-      standby: bs.STANDBY || 0,
-      abnormal,
-    };
+    const abnormal = Math.max(total - known, 0);
+    return { total, available: bs.AVAILABLE || 0, standby: bs.STANDBY || 0, abnormal };
   }, [summary]);
 
   // 注: 不展示 total_quantity / allocated_quantity / available_quantity ——
@@ -274,7 +269,7 @@ export default function Resources() {
                         <Space direction="vertical" size={4} style={{ width: '100%' }}>
                           <Space style={{ justifyContent: 'space-between', width: '100%' }}>
                             <Tag color={PROVIDER_COLOR[p.provider] || 'default'}>{p.provider}</Tag>
-                            <Text type="secondary">{p.total} 条</Text>
+                            <Text type="secondary">{Object.values(p.by_status || {}).reduce((s: number, v) => s + (v as number), 0)} 条</Text>
                           </Space>
                           {Object.entries(p.by_status || {}).map(([st, n]) => (
                             <Space key={st} style={{ justifyContent: 'space-between', width: '100%' }}>

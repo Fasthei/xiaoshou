@@ -170,6 +170,23 @@ def create_allocations_batch(payload: AllocationBatchCreate, db: Session = Depen
     return {"batch_code": batch_code, "created": created}
 
 
+@router.get("/pending", response_model=AllocationListResponse, summary="待审批分配列表 (快捷别名)")
+def list_pending_allocations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Static /pending route registered BEFORE /{allocation_id} so FastAPI
+    does not try to parse 'pending' as an integer id."""
+    q = db.query(Allocation).filter(
+        Allocation.is_deleted == False,  # noqa: E712
+        Allocation.approval_status == "pending",
+    )
+    total = q.count()
+    items = q.offset((page - 1) * page_size).limit(page_size).all()
+    return {"total": total, "items": items}
+
+
 @router.get("/{allocation_id}", response_model=AllocationResponse, summary="查询分配详情")
 def get_allocation(allocation_id: int, db: Session = Depends(get_db)):
     """根据ID查询分配详情"""

@@ -109,6 +109,7 @@ def root():
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health_check():
     return {"status": "ok"}
 

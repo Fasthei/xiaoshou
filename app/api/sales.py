@@ -42,6 +42,7 @@ customer_scoped = APIRouter(prefix="/api/customers", tags=["销售团队 / 分�
 
 # ---------- sales users CRUD ----------
 
+@router.get("/team", response_model=List[SalesUserOut], summary="销售团队列表 (alias of /users)", include_in_schema=False)
 @router.get("/users", response_model=List[SalesUserOut], summary="销售列表")
 def list_users(
     active_only: bool = Query(True),

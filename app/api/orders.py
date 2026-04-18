@@ -32,6 +32,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/orders", tags=["订单管理"])
 
 
+@router.get("", summary="订单列表 (allocations 的别名)")
+def list_orders(
+    page: int = 1,
+    page_size: int = 20,
+    approval_status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    """前端 /orders 调用此端点；语义同 GET /api/allocations，仅返回订单列表视图。"""
+    page = max(1, page)
+    page_size = max(1, min(100, page_size))
+    q = db.query(Allocation).filter(Allocation.is_deleted == False)  # noqa: E712
+    if approval_status:
+        q = q.filter(Allocation.approval_status == approval_status)
+    total = q.count()
+    items = q.offset((page - 1) * page_size).limit(page_size).all()
+    return {"total": total, "items": items}
+
+
 def _gen_allocation_code() -> str:
     return f"ALLOC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
 
