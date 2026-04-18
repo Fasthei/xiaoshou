@@ -42,14 +42,19 @@ def customer_timeline(
 
     events: List[TimelineEvent] = []
 
-    if c.created_at:
+    # 产品规则 §3.4: 时间线只展示真实业务动作，不展示 gongdan 等系统同步痕迹。
+    # 对于来源=gongdan 的客户，客户建档和"资料更新"本身就是同步事件产物，整体隐藏。
+    source = (c.source_system or "").strip().lower()
+    is_sync_origin = source in {"gongdan", "gongdan_sync", "system"}
+
+    if c.created_at and not is_sync_origin:
         events.append(TimelineEvent(
             at=c.created_at.isoformat(), kind="created",
             title=f"客户建档：{c.customer_code}",
             detail=f"来源 {c.source_system or '手工'}",
             color="green",
         ))
-    if c.updated_at and c.updated_at != c.created_at:
+    if c.updated_at and c.updated_at != c.created_at and not is_sync_origin:
         stage_display = c.lifecycle_stage or c.customer_status or "-"
         events.append(TimelineEvent(
             at=c.updated_at.isoformat(), kind="updated",

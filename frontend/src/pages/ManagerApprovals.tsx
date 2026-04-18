@@ -43,6 +43,12 @@ export default function ManagerApprovals() {
   const [rejectForm] = Form.useForm<{ comment: string }>();
   const [rejectLoading, setRejectLoading] = useState(false);
 
+  // Order approve/reject
+  const [orderRejectOpen, setOrderRejectOpen] = useState(false);
+  const [orderRejectTarget, setOrderRejectTarget] = useState<Allocation | null>(null);
+  const [orderRejectForm] = Form.useForm<{ approval_note: string }>();
+  const [orderRejectLoading, setOrderRejectLoading] = useState(false);
+
   const loadOrders = async () => {
     setLoading(true);
     setBackendMissing(false);
@@ -87,6 +93,44 @@ export default function ManagerApprovals() {
     loadStageRequests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize]);
+
+  const approveOrder = async (r: Allocation) => {
+    try {
+      await api.patch(`/api/allocations/${r.id}/approval`, {
+        approval_status: 'approved',
+        approval_note: null,
+      });
+      antdMessage.success(`订单 #${r.id} 已通过`);
+      loadOrders();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '审批失败');
+    }
+  };
+
+  const openOrderReject = (r: Allocation) => {
+    setOrderRejectTarget(r);
+    orderRejectForm.resetFields();
+    setOrderRejectOpen(true);
+  };
+
+  const submitOrderReject = async () => {
+    if (!orderRejectTarget) return;
+    const v = await orderRejectForm.validateFields();
+    setOrderRejectLoading(true);
+    try {
+      await api.patch(`/api/allocations/${orderRejectTarget.id}/approval`, {
+        approval_status: 'rejected',
+        approval_note: v.approval_note,
+      });
+      antdMessage.success(`订单 #${orderRejectTarget.id} 已驳回`);
+      setOrderRejectOpen(false);
+      loadOrders();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '驳回失败');
+    } finally {
+      setOrderRejectLoading(false);
+    }
+  };
 
   const approveStageRequest = async (id: number) => {
     try {
@@ -140,15 +184,11 @@ export default function ManagerApprovals() {
         <Space size={4}>
           <Button
             size="small" type="primary" icon={<CheckOutlined />}
-            onClick={() => antdMessage.info(
-              `pending backend — 通过订单 #${r.id} 待接入 POST /api/allocations/${r.id}/approve`,
-            )}
+            onClick={() => approveOrder(r)}
           >通过</Button>
           <Button
             size="small" danger icon={<CloseOutlined />}
-            onClick={() => antdMessage.info(
-              `pending backend — 驳回订单 #${r.id} 待接入 POST /api/allocations/${r.id}/reject`,
-            )}
+            onClick={() => openOrderReject(r)}
           >驳回</Button>
         </Space>
       ),
@@ -273,7 +313,26 @@ export default function ManagerApprovals() {
         />
       </Card>
 
-      {/* Reject Modal */}
+      {/* Order Reject Modal */}
+      <Modal
+        title={`驳回订单 — ${orderRejectTarget?.allocation_code || ''}`}
+        open={orderRejectOpen}
+        onOk={submitOrderReject}
+        onCancel={() => setOrderRejectOpen(false)}
+        confirmLoading={orderRejectLoading}
+        destroyOnClose
+        okText="确认驳回"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+      >
+        <Form form={orderRejectForm} layout="vertical">
+          <Form.Item name="approval_note" label="驳回原因" rules={[{ required: true, message: '请填写驳回原因' }]}>
+            <Input.TextArea rows={3} placeholder="说明驳回原因…" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Stage Request Reject Modal */}
       <Modal
         title={`驳回 Stage 变更 — ${rejectTarget?.customer_name || ''}`}
         open={rejectOpen}
