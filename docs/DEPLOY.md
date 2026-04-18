@@ -127,3 +127,43 @@ git add alembic/versions && git commit -m "db: initial migration" && git push
 - 非生产环境：Container App `minReplicas: 0`（按需启动，可能有冷启动 ~2s）
 - PG：`Burstable B1ms` 停机时能 stop（`az postgres flexible-server stop`）
 - Redis：可用 App 本地 `fakeredis` 替代（改 `REDIS_URL`），省 $16/月
+
+## 五、用量激增预警自动调度
+
+后端端点 `POST /api/internal/cron/usage-surge` 会评估所有启用的 `usage_surge` 预警规则并写入告警事件。
+该端点使用 Internal API 鉴权（`X-Internal-Api-Key` 或 M2M Bearer JWT），**不需要用户 JWT**。
+
+**推荐调度频率**：每小时一次（精度要求低时可改为每天）。
+
+### Azure Container Apps — 使用 Scheduled Job 触发
+
+```bash
+# 创建 Scheduled Job（每小时整点触发）
+az containerapp job create \
+  --name xiaoshou-usage-surge-job \
+  --resource-group xiaoshou-prod-rg \
+  --environment <CONTAINER_APP_ENV_NAME> \
+  --trigger-type Schedule \
+  --cron-expression "0 * * * *" \
+  --replica-timeout 120 \
+  --image curlimages/curl:latest \
+  --command "curl" \
+  --args "-sf,-X,POST,https://<API_FQDN>/api/internal/cron/usage-surge,-H,X-Internal-Api-Key: <XIAOSHOU_INTERNAL_API_KEY>"
+```
+
+> 把 `<API_FQDN>` 和 `<XIAOSHOU_INTERNAL_API_KEY>` 替换为实际值；或通过 Container Apps Secret/环境变量注入。
+
+### 手动 curl 触发（运维用）
+
+```bash
+curl -sf -X POST https://<API_FQDN>/api/internal/cron/usage-surge \
+  -H "X-Internal-Api-Key: $XIAOSHOU_INTERNAL_API_KEY"
+# 返回: {"ok": true, "triggered_events": <N>, "evaluated_at": "..."}
+```
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `XIAOSHOU_INTERNAL_API_KEY` | — | Internal API 鉴权密钥（必填） |
+| `USAGE_SURGE_INTERVAL_SECONDS` | `3600` | 供外部 cron 参考的调度间隔（秒），不影响应用内部行为 |

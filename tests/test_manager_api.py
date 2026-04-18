@@ -74,15 +74,15 @@ def test_kpis_counts_opportunities_in_month(client, db_session):
     older = datetime(2026, 2, 1)
     db_session.add(Customer(
         customer_code="C1", customer_name="A", customer_status="active",
-        created_at=now, is_deleted=False,
+        lifecycle_stage="active", created_at=now, is_deleted=False,
     ))
     db_session.add(Customer(
         customer_code="C2", customer_name="B", customer_status="active",
-        created_at=older, is_deleted=False,
+        lifecycle_stage="active", created_at=older, is_deleted=False,
     ))
     db_session.add(Customer(
         customer_code="C3", customer_name="C", customer_status="potential",
-        created_at=now, is_deleted=False,
+        lifecycle_stage="lead", created_at=now, is_deleted=False,
     ))
     db_session.commit()
 

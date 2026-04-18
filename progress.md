@@ -97,3 +97,9 @@
 
 阶段 8 (前端 V2 上线) ✅ 在阶段 6 merge 时顺便完成。
 下一步: commit + push + merge → 阶段 9 线上 QA
+
+### 2026-04-18 阶段 9 线上验收完成
+
+- 9 路由 0 console error
+- 折扣计算器 / CSV 导出 / 新建客户 dropdown(2 选项)/ 预警新建规则 / 主管 6 tab — 全 OK
+- 用户启动第三轮: CLAUDE.md 剩余 sprint 多 agent 并行

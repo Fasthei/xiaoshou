@@ -27,7 +27,7 @@ from app.schemas.sales import (
     RecycleBody, RecycleItem, RecycleResult,
     RuleCreate, RuleOut, RuleUpdate,
     SalesLoadItem, SalesUserCreate, SalesUserOut, SalesUserUpdate,
-    TargetSetBody, TargetProgressOut,
+    TargetSetBody, TargetProgressOut, MyTargetProgressOut,
     SalesPlanCreate, SalesPlanOut, SalesPlanUpdate,
 )
 from sqlalchemy import func as _sql_func, extract as _sql_extract
@@ -891,6 +891,105 @@ def get_target_progress(
         progress_pct=pct,
         allocations_count=alloc_count,
         last_update=last_update,
+    )
+
+
+# ---------- 销售个人 YTD 目标进度 (自助) ----------
+
+@router.get("/me/target-progress", response_model=MyTargetProgressOut,
+            summary="当前登录销售的 YTD 目标进度")
+def my_target_progress(
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    """返回当前登录销售自己的年度目标 vs YTD 业绩。
+    通过 casdoor_user_id (JWT sub) 反查 SalesUser。
+    若账号未绑定本地销售档案, 返回 unbound=True 的空壳响应。
+    YTD 销售额来自 allocation.total_price; 毛利来自 allocation.profit_amount。
+    """
+    from datetime import date as _date, datetime as _dt
+    from decimal import Decimal as _D
+    from app.models.allocation import Allocation
+    from app.models.customer import Customer as _C
+
+    sub = getattr(user, "sub", None)
+    su = (
+        db.query(SalesUser).filter(SalesUser.casdoor_user_id == sub).first()
+        if sub else None
+    )
+
+    # ── 未绑定 ──
+    if su is None:
+        return MyTargetProgressOut(
+            sales_user_id=0,
+            sales_user_name=getattr(user, "name", None) or "未知销售",
+            unbound=True,
+        )
+
+    today = _date.today()
+    target_year = su.target_year or today.year
+    year_end = _date(target_year, 12, 31)
+    days_remaining = max(0, (year_end - today).days)
+
+    # ── YTD 聚合 (total_price + profit_amount) ──
+    ytd_row = (
+        db.query(
+            _sql_func.coalesce(_sql_func.sum(Allocation.total_price), 0),
+            _sql_func.coalesce(_sql_func.sum(Allocation.profit_amount), 0),
+        )
+        .join(_C, _C.id == Allocation.customer_id)
+        .filter(_C.sales_user_id == su.id)
+        .filter(Allocation.is_deleted == False)  # noqa: E712
+        .filter(
+            _sql_extract(
+                "year",
+                _sql_func.coalesce(Allocation.allocated_at, Allocation.created_at),
+            ) == target_year
+        )
+        .one()
+    )
+    ytd_sales = _D(str(ytd_row[0] or 0))
+    ytd_profit = _D(str(ytd_row[1] or 0))
+
+    # ── 进度百分比 (允许超 100%) ──
+    sales_target = su.annual_sales_target
+    profit_target = su.annual_profit_target
+
+    sales_pct = 0.0
+    if sales_target and float(sales_target) > 0:
+        sales_pct = round(float(ytd_sales) * 100.0 / float(sales_target), 2)
+
+    profit_pct = 0.0
+    if profit_target and float(profit_target) > 0:
+        profit_pct = round(float(ytd_profit) * 100.0 / float(profit_target), 2)
+
+    # ── 日均缺口 ──
+    def _daily(target, ytd):
+        if target is None:
+            return _D("0")
+        gap = max(_D("0"), _D(str(target)) - ytd)
+        if days_remaining <= 0:
+            return gap
+        return (gap / _D(str(days_remaining))).quantize(_D("0.01"))
+
+    daily_sales = _daily(sales_target, ytd_sales)
+    daily_profit = _daily(profit_target, ytd_profit)
+
+    return MyTargetProgressOut(
+        sales_user_id=su.id,
+        sales_user_name=su.name,
+        target_year=target_year,
+        annual_sales_target=sales_target,
+        annual_profit_target=profit_target,
+        profit_margin_target=su.profit_margin_target,
+        ytd_sales=ytd_sales,
+        ytd_profit=ytd_profit,
+        sales_progress_pct=sales_pct,
+        profit_progress_pct=profit_pct,
+        days_remaining_in_year=days_remaining,
+        daily_sales_target_to_close=daily_sales,
+        daily_profit_target_to_close=daily_profit,
+        unbound=False,
     )
 
 

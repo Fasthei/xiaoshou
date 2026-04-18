@@ -50,10 +50,11 @@ def customer_timeline(
             color="green",
         ))
     if c.updated_at and c.updated_at != c.created_at:
+        stage_display = c.lifecycle_stage or c.customer_status or "-"
         events.append(TimelineEvent(
             at=c.updated_at.isoformat(), kind="updated",
             title="客户资料更新",
-            detail=f"状态 {c.customer_status} · 行业 {c.industry or '-'}",
+            detail=f"阶段 {stage_display} · 行业 {c.industry or '-'}",
             color="blue",
         ))
 

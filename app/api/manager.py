@@ -133,7 +133,7 @@ def get_manager_kpis(
             db.query(func.count(Customer.id))
             .filter(
                 Customer.is_deleted == False,  # noqa: E712
-                Customer.customer_status == "active",
+                Customer.lifecycle_stage == "active",
                 Customer.created_at >= start,
                 Customer.created_at < end,
             )
@@ -153,9 +153,9 @@ def get_manager_kpis(
         ).all()
         denom = sum(
             1 for c in recent
-            if (c.customer_status or "") in ("active", "potential", "inactive")
+            if (c.lifecycle_stage or "") in ("active", "contacting", "lead")
         )
-        numer = sum(1 for c in recent if (c.customer_status or "") == "active")
+        numer = sum(1 for c in recent if (c.lifecycle_stage or "") == "active")
         conversion_rate = (numer / denom) if denom > 0 else 0.0
     except Exception as e:
         logger.warning("conversion_rate calc failed: %s", e)

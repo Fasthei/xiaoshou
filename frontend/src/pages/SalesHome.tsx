@@ -54,6 +54,23 @@ interface MyKpiResp {
   unbound: boolean;
 }
 
+interface MyTargetProgressResp {
+  sales_user_id: number;
+  sales_user_name: string;
+  target_year: number | null;
+  annual_sales_target: number | null;
+  annual_profit_target: number | null;
+  profit_margin_target: number | null;
+  ytd_sales: number;
+  ytd_profit: number;
+  sales_progress_pct: number;
+  profit_progress_pct: number;
+  days_remaining_in_year: number;
+  daily_sales_target_to_close: number;
+  daily_profit_target_to_close: number;
+  unbound: boolean;
+}
+
 function fmtMoney(n: number | null | undefined): string {
   if (n == null) return '¥0';
   return '¥' + Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
@@ -84,16 +101,19 @@ export default function SalesHome() {
   const [loading, setLoading] = useState(true);
   const [todos, setTodos] = useState<TodosResp | null>(null);
   const [kpi, setKpi] = useState<MyKpiResp | null>(null);
+  const [targetProgress, setTargetProgress] = useState<MyTargetProgressResp | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [t, k] = await Promise.allSettled([
+      const [t, k, tp] = await Promise.allSettled([
         api.get<TodosResp>('/api/metrics/my-todos?stale_days=14&upcoming_days=7'),
         api.get<MyKpiResp>('/api/metrics/my-kpi'),
+        api.get<MyTargetProgressResp>('/api/sales/me/target-progress'),
       ]);
       if (t.status === 'fulfilled') setTodos(t.value.data);
       if (k.status === 'fulfilled') setKpi(k.value.data);
+      if (tp.status === 'fulfilled') setTargetProgress(tp.value.data);
     } finally {
       setLoading(false);
     }
@@ -255,7 +275,133 @@ export default function SalesHome() {
         )}
       </Card>
 
-      {/* 2. 我的 KPI / 目标达成 */}
+      {/* 2. 年度目标进度 */}
+      <Card
+        title={
+          <Space>
+            <AimOutlined style={{ color: '#16a34a' }} />
+            <span>年度目标 · {targetProgress?.target_year ?? new Date().getFullYear()} 年度进度</span>
+          </Space>
+        }
+        bordered={false}
+        style={{ borderRadius: 12, marginBottom: 16 }}
+      >
+        {loading ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : targetProgress?.unbound || !targetProgress ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="主管未配置目标，或账号未绑定销售档案"
+          />
+        ) : !targetProgress.annual_sales_target && !targetProgress.annual_profit_target ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="主管尚未为你配置年度目标，请联系销售主管在「销售团队」里设置"
+          />
+        ) : (
+          <Row gutter={[16, 20]}>
+            {/* 销售额进度 */}
+            {targetProgress.annual_sales_target != null && (
+              <Col xs={24} md={12}>
+                <Card size="small" style={{ background: '#f0fdf4', borderRadius: 10 }}>
+                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                    <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                      <div>
+                        <Text type="secondary">销售额目标</Text>
+                        <div style={{ fontSize: 20, fontWeight: 700 }}>
+                          {fmtMoney(targetProgress.annual_sales_target)}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <Text type="secondary">YTD 已完成</Text>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>
+                          {fmtMoney(targetProgress.ytd_sales)}
+                        </div>
+                      </div>
+                    </Space>
+                    <Progress
+                      percent={Math.min(100, targetProgress.sales_progress_pct)}
+                      strokeColor={{ '0%': '#16a34a', '100%': '#4f46e5' }}
+                      status={targetProgress.sales_progress_pct >= 100 ? 'success' : 'active'}
+                      format={() => `${targetProgress.sales_progress_pct.toFixed(1)}%`}
+                    />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      日均还需达成{' '}
+                      <Text strong style={{ color: '#dc2626' }}>
+                        {fmtMoney(targetProgress.daily_sales_target_to_close)}
+                      </Text>
+                      {' '}/ 天
+                    </Text>
+                  </Space>
+                </Card>
+              </Col>
+            )}
+
+            {/* 毛利进度 */}
+            {targetProgress.annual_profit_target != null && (
+              <Col xs={24} md={12}>
+                <Card size="small" style={{ background: '#eff6ff', borderRadius: 10 }}>
+                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                    <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                      <div>
+                        <Text type="secondary">毛利目标</Text>
+                        <div style={{ fontSize: 20, fontWeight: 700 }}>
+                          {fmtMoney(targetProgress.annual_profit_target)}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <Text type="secondary">YTD 已完成</Text>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#4f46e5' }}>
+                          {fmtMoney(targetProgress.ytd_profit)}
+                        </div>
+                      </div>
+                    </Space>
+                    <Progress
+                      percent={Math.min(100, targetProgress.profit_progress_pct)}
+                      strokeColor={{ '0%': '#4f46e5', '100%': '#16a34a' }}
+                      status={targetProgress.profit_progress_pct >= 100 ? 'success' : 'active'}
+                      format={() => `${targetProgress.profit_progress_pct.toFixed(1)}%`}
+                    />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      日均还需达成{' '}
+                      <Text strong style={{ color: '#dc2626' }}>
+                        {fmtMoney(targetProgress.daily_profit_target_to_close)}
+                      </Text>
+                      {' '}/ 天
+                    </Text>
+                  </Space>
+                </Card>
+              </Col>
+            )}
+
+            {/* 底部统计行 */}
+            <Col xs={24}>
+              <Row gutter={[12, 0]}>
+                <Col span={8}>
+                  <Statistic
+                    title="距年末剩余天数"
+                    value={targetProgress.days_remaining_in_year}
+                    suffix="天"
+                    valueStyle={{ fontSize: 20, color: '#f59e0b' }}
+                  />
+                </Col>
+                {targetProgress.profit_margin_target != null && (
+                  <Col span={8}>
+                    <Statistic
+                      title="毛利率目标"
+                      value={Number(targetProgress.profit_margin_target).toFixed(1)}
+                      suffix="%"
+                      valueStyle={{ fontSize: 20, color: '#0ea5e9' }}
+                    />
+                  </Col>
+                )}
+              </Row>
+            </Col>
+          </Row>
+        )}
+      </Card>
+
+      {/* 3. 我的 KPI / 目标达成 */}
       <Card
         title={
           <Space>

@@ -378,9 +378,22 @@ async def import_customers_csv(
                 result.updated += 1
             else:
                 if not dry_run:
+                    _cs = row.get("customer_status") or "prospect"
+                    # Derive lifecycle_stage from legacy customer_status value.
+                    # Dual-write: keep customer_status for backward compat,
+                    # set lifecycle_stage so new read paths work.
+                    _stage_map = {
+                        "formal": "active",
+                        "active": "active",
+                        "prospect": "lead",
+                        "potential": "lead",
+                        "contacting": "contacting",
+                    }
+                    _ls = _stage_map.get(_cs, "lead")
                     db.add(Customer(
                         customer_code=code, customer_name=name,
-                        customer_status=row.get("customer_status") or "prospect",
+                        customer_status=_cs,
+                        lifecycle_stage=_ls,
                         **patch,
                     ))
                 result.created += 1
