@@ -87,3 +87,13 @@
 - ✅ pytest 全套: 123 passed, 5 skipped
 
 下一步: commit + push + gh pr create + auto-merge (F=是) → 进 7
+
+### 2026-04-18 阶段 7 套餐 B 完成
+
+- ✅ B1 测试: +11 case (allocation_batch 4 / customer_stage lost 1 / manager_panorama 4 / follow_up inbox+reply 2)
+- ✅ B2 pydantic v2: 8 文件 13 处 ConfigDict (warnings 42→29)
+- ✅ B3 删 _ensure_*: main.py -199 行; customer_status 加 deprecation 注释 (102 处不真删)
+- ✅ pytest: 134 passed, 5 skipped (+11 vs 套餐 A 的 123)
+
+阶段 8 (前端 V2 上线) ✅ 在阶段 6 merge 时顺便完成。
+下一步: commit + push + merge → 阶段 9 线上 QA

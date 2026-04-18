@@ -63,3 +63,6 @@ frontend/dist/
 frontend/.env
 frontend/.env.production
 frontend/.env.local
+
+# Claude session worktrees + local state
+.claude/

@@ -271,3 +271,48 @@ def test_metrics_stage_alerts_returns_list(client):
     r = client.get("/api/metrics/stage-alerts")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+# ---------- lost 瞬态 -> 回 lead + recycle marker ----------
+
+def test_approve_to_lost_returns_to_lead_with_recycle_marker(client, db_session):
+    """stage='active' 的客户申请变更到 'lost'，主管批准后：
+    - customer.lifecycle_stage 变回 'lead'（lost 是瞬态）
+    - customer.recycled_from_stage == 'active'
+    - customer.recycle_reason 不为空
+    - customer.recycled_at 有值
+    """
+    cid = _create_customer(client, code="C-LOST1", name="Lost Test")
+
+    # Put customer at active stage directly in DB
+    c = db_session.query(Customer).filter(Customer.id == cid).first()
+    c.lifecycle_stage = "active"
+    db_session.commit()
+
+    # Sales submits stage request to 'lost' with a reason
+    req_resp = client.post(f"/api/customers/{cid}/stage/request", json={
+        "to_stage": "lost",
+        "reason": "客户长期无回应，确认流失",
+    })
+    assert req_resp.status_code == 200, req_resp.text
+    req_id = req_resp.json()["id"]
+    assert req_resp.json()["status"] == "pending"
+    assert req_resp.json()["to_stage"] == "lost"
+
+    # Customer stage unchanged while pending
+    db_session.expire_all()
+    c = db_session.query(Customer).filter(Customer.id == cid).first()
+    assert c.lifecycle_stage == "active"
+
+    # Manager approves
+    approve_resp = client.post(f"/api/stage-requests/{req_id}/approve")
+    assert approve_resp.status_code == 200, approve_resp.text
+    assert approve_resp.json()["status"] == "approved"
+
+    # Verify customer ended up at 'lead' (lost is transient)
+    db_session.expire_all()
+    c = db_session.query(Customer).filter(Customer.id == cid).first()
+    assert c.lifecycle_stage == "lead"
+    assert c.recycled_from_stage == "active"
+    assert c.recycle_reason is not None and len(c.recycle_reason) > 0
+    assert c.recycled_at is not None

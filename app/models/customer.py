@@ -19,7 +19,8 @@ class Customer(Base):
     industry = Column(String(50), comment="所属行业")
     region = Column(String(50), comment="所属地区")
     customer_level = Column(String(20), comment="客户级别")
-    customer_status = Column(String(32), nullable=False, comment="客户状态 (向后兼容, 未来由 lifecycle_stage 取代)")
+    # DEPRECATED: 旧状态字段，DB 列保留（避免生产数据丢失）。新代码只读/写 lifecycle_stage。
+    customer_status = Column(String(32), nullable=False, comment="[已弃用] 客户状态，向后兼容保留，请使用 lifecycle_stage")
     sales_user_id = Column(BigInteger, comment="所属销售")
     operation_user_id = Column(BigInteger, comment="所属运营")
     first_deal_time = Column(DateTime, comment="首次成交时间")

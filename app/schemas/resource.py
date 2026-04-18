@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from datetime import datetime
 from decimal import Decimal
@@ -32,15 +32,14 @@ class ResourceUpdate(BaseModel):
 
 
 class ResourceResponse(ResourceBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     allocated_quantity: int
     available_quantity: Optional[int]
     last_sync_time: Optional[datetime]
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class ResourceListResponse(BaseModel):

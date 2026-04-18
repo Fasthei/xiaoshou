@@ -1,10 +1,12 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from datetime import datetime, date
 from decimal import Decimal
 
 
 class UsageRecordResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     customer_id: int
     resource_id: int
@@ -13,9 +15,6 @@ class UsageRecordResponse(BaseModel):
     usage_amount: Optional[Decimal]
     usage_cost: Optional[Decimal]
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class UsageListResponse(BaseModel):
