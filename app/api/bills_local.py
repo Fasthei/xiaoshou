@@ -151,11 +151,13 @@ def _split_cost_across_resources(
 
 @router.get("/by-customer", summary="按客户聚合本月账单（本地 customer_resource）")
 def bills_by_customer(
-    month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="YYYY-MM"),
+    month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$", description="YYYY-MM (默认当月)"),
     include_empty: bool = Query(False, description="是否返回无关联货源/金额=0的客户"),
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ) -> Any:
+    if month is None:
+        month = datetime.utcnow().strftime("%Y-%m")
     # 1) 拿客户范围 (权限)
     q = db.query(Customer).filter(Customer.is_deleted == False)  # noqa: E712
     if not _can_see_all(user):

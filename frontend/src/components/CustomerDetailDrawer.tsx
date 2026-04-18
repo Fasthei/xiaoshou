@@ -660,7 +660,7 @@ export default function CustomerDetailDrawer({
                     </Descriptions.Item>
                   ) : null}
                   <Descriptions.Item label="当月消耗">{customer.current_month_consumption ?? 0}</Descriptions.Item>
-                  <Descriptions.Item label="创建时间">{customer.created_at || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="创建时间">{customer.created_at ? dayjs(customer.created_at).format('YYYY-MM-DD HH:mm:ss') : '-'}</Descriptions.Item>
                 </Descriptions>
               ),
             },
