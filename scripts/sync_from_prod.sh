@@ -12,6 +12,9 @@ LOCAL_USER="${LOCAL_USER:-sales}"
 LOCAL_DB="${LOCAL_DB:-sales_system}"
 DUMP_FILE="${DUMP_FILE:-/tmp/xs-prod-dump.sql}"
 
+# 退出时清理 dump 和 restore log (含 prod 客户数据), 防泄漏
+trap 'rm -f "$DUMP_FILE" /tmp/xs-restore.log' EXIT
+
 echo "[1/4] 拿云端 PG 密码..."
 PG_PW=$(az containerapp secret show -g sales-rg -n xiaoshou-api --secret-name pg-password --query value -o tsv)
 

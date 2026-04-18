@@ -74,17 +74,19 @@ async def create_order(
                 raise HTTPException(404, f"客户 {customer_id} 不存在")
         else:
             cdata = json.loads(customer_json) if customer_json else {}
-            if not cdata.get("customer_code") or not cdata.get("customer_name"):
-                raise HTTPException(400, "新建客户至少需要 customer_code 和 customer_name")
-            # 去重
-            dup = db.query(Customer).filter(
-                Customer.customer_code == cdata["customer_code"],
-                Customer.is_deleted == False,  # noqa: E712
-            ).first()
-            if dup:
-                raise HTTPException(400, f"客户编号 {cdata['customer_code']} 已存在")
+            # customer_code 改可选 (手工建客户可不填, gongdan 同步后回填)
+            if not cdata.get("customer_name"):
+                raise HTTPException(400, "新建客户至少需要 customer_name")
+            # 仅在提供了 customer_code 时去重 (None 时 IS NULL 会匹配所有 NULL)
+            if cdata.get("customer_code"):
+                dup = db.query(Customer).filter(
+                    Customer.customer_code == cdata["customer_code"],
+                    Customer.is_deleted == False,  # noqa: E712
+                ).first()
+                if dup:
+                    raise HTTPException(400, f"客户编号 {cdata['customer_code']} 已存在")
             customer = Customer(
-                customer_code=cdata["customer_code"],
+                customer_code=cdata.get("customer_code"),
                 customer_name=cdata["customer_name"],
                 customer_status=cdata.get("customer_status") or "potential",
                 customer_type=cdata.get("customer_type") or "direct",
