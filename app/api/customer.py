@@ -36,12 +36,14 @@ router = APIRouter(prefix="/api/customers", tags=["客户管理"])
 @router.post("", response_model=CustomerResponse, summary="创建客户")
 def create_customer(customer: CustomerCreateLite, db: Session = Depends(get_db)):
     """创建新客户 (status 默认 potential / 潜在客户)"""
-    existing = db.query(Customer).filter(
-        Customer.customer_code == customer.customer_code,
-        Customer.is_deleted == False
-    ).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="客户编号已存在")
+    # customer_code 为 None 时表示手工建客户(未拿到编号), 跳过去重 — 否则 IS NULL 会匹配所有 NULL
+    if customer.customer_code:
+        existing = db.query(Customer).filter(
+            Customer.customer_code == customer.customer_code,
+            Customer.is_deleted == False
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="客户编号已存在")
 
     payload = customer.model_dump(exclude_unset=False)
     status = (payload.get("customer_status") or "potential").strip().lower()

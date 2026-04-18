@@ -19,6 +19,7 @@ class SalesUserBase(BaseModel):
     note: Optional[str] = None
     annual_profit_target: Optional[Decimal] = Field(None, description="年度毛利目标")
     annual_sales_target: Optional[Decimal] = Field(None, description="年度销售额目标")
+    profit_margin_target: Optional[Decimal] = Field(None, description="年度毛利率目标 %")
     target_year: Optional[int] = Field(None, description="目标年份, 例 2026")
 
 
@@ -38,6 +39,7 @@ class SalesUserUpdate(BaseModel):
     note: Optional[str] = None
     annual_profit_target: Optional[Decimal] = None
     annual_sales_target: Optional[Decimal] = None
+    profit_margin_target: Optional[Decimal] = None
     target_year: Optional[int] = None
 
 

@@ -1,30 +1,65 @@
-name: CI
+name: CI (docker)
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
   pull_request:
     branches: [main]
 
 jobs:
-  lint-test:
+  backend:
+    name: Backend (docker)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
+      - name: Build api image
+        run: docker build -t xs-api:ci .
 
-      - name: Install deps
+      - name: Lint (ruff in container)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff pytest
+          docker run --rm --user root -e HOME=/tmp xs-api:ci sh -c "pip install --quiet --no-cache-dir ruff && ruff check . || true"
+          # 不阻塞 CI; 后续严格化时去掉 || true
 
-      - name: Lint (ruff)
-        run: ruff check . || true   # 不阻塞，首次启用；CI 绿灯后可改为严格
+      - name: Setup network + sidecars (postgres 18 + redis 7)
+        run: |
+          docker network create xs-ci || true
+          docker run -d --name xs-pg --network xs-ci \
+            -e POSTGRES_USER=sales -e POSTGRES_PASSWORD=sales_dev_pw -e POSTGRES_DB=sales_system \
+            postgres:18-alpine
+          docker run -d --name xs-rd --network xs-ci redis:7-alpine
+          for i in $(seq 1 30); do
+            docker exec xs-pg pg_isready -U sales >/dev/null 2>&1 && break
+            sleep 1
+          done
 
-      - name: Test (pytest)
-        run: pytest -q
+      - name: Test (pytest in api container)
+        run: |
+          docker run --rm --network xs-ci --user root \
+            -e DATABASE_URL=postgresql://sales:sales_dev_pw@xs-pg:5432/sales_system \
+            -e REDIS_URL=redis://xs-rd:6379/0 \
+            -e PG_HOST=xs-pg -e PG_USER=sales -e PG_PASSWORD=sales_dev_pw -e PG_DB=sales_system \
+            -e REDIS_HOST=xs-rd -e REDIS_DB=0 \
+            -e AUTH_ENABLED=false \
+            -e SECRET_KEY=ci-secret \
+            -e DEBUG=false \
+            -e HOME=/tmp \
+            xs-api:ci sh -c "pip install --quiet --no-cache-dir pytest pytest-asyncio && \
+              alembic upgrade head && \
+              python -c 'from app.database import Base, engine; from app import models; Base.metadata.create_all(bind=engine)' && \
+              pytest -q"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f xs-pg xs-rd >/dev/null 2>&1 || true
+          docker network rm xs-ci >/dev/null 2>&1 || true
+
+  frontend:
+    name: Frontend (docker build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build frontend image
+        run: docker build -t xs-web:ci ./frontend
