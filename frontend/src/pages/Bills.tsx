@@ -18,7 +18,11 @@ interface ResourceBill {
   resource_code: string | null;
   cloud_provider: string | null;
   account_name: string | null;
-  cost: number;
+  identifier_field: string | null;  // 云管 external_project_id，= cc_bill.customer_code
+  original_cost: number;            // 原价（cc_bill.original_cost）
+  discount_rate: number;            // 折扣率 = (orig - final) / orig
+  final_cost: number;               // 折后价（cc_bill.final_cost）
+  cost: number;                     // 旧别名，= final_cost
 }
 
 interface CustomerBill {
@@ -26,7 +30,10 @@ interface CustomerBill {
   customer_name: string;
   customer_code: string | null;
   month: string;
-  total_cost: number;
+  total_original_cost: number;
+  total_discount_rate: number;
+  total_final_cost: number;
+  total_cost: number;               // 旧别名，= total_final_cost
   resource_count: number;
   resources: ResourceBill[];
 }
@@ -148,10 +155,16 @@ export default function Bills() {
     });
   };
 
-  const totalAll = useMemo(
-    () => rows.reduce((s, r) => s + Number(r.total_cost || 0), 0),
+  const totalOriginalAll = useMemo(
+    () => rows.reduce((s, r) => s + Number(r.total_original_cost || r.total_cost || 0), 0),
     [rows],
   );
+  const totalFinalAll = useMemo(
+    () => rows.reduce((s, r) => s + Number(r.total_final_cost || r.total_cost || 0), 0),
+    [rows],
+  );
+  const overallDiscountRate = totalOriginalAll > 0
+    ? (totalOriginalAll - totalFinalAll) / totalOriginalAll : 0;
   const customerCount = rows.length;
   const resourceLinkCount = useMemo(
     () => rows.reduce((s, r) => s + r.resource_count, 0),
@@ -159,7 +172,7 @@ export default function Bills() {
   );
 
   const customerColumns = [
-    { title: '客户名称', dataIndex: 'customer_name', width: 220,
+    { title: '客户名称', dataIndex: 'customer_name', width: 200,
       render: (v: string, r: CustomerBill) => (
         <Space>
           <Text strong>{v}</Text>
@@ -167,11 +180,22 @@ export default function Bills() {
         </Space>
       ),
     },
-    { title: '关联货源数', dataIndex: 'resource_count', width: 120,
+    { title: '关联货源数', dataIndex: 'resource_count', width: 100,
       render: (v: number) => <Tag color={v > 0 ? 'blue' : 'default'}>{v}</Tag> },
-    { title: '本月总费用', dataIndex: 'total_cost', width: 160,
-      render: (v: number) => <Text strong style={{ color: '#ec4899' }}>¥{Number(v).toFixed(2)}</Text> },
-    { title: '操作', width: 140, render: (_: any, r: CustomerBill) => (
+    { title: '原价合计', dataIndex: 'total_original_cost', width: 140,
+      render: (v: number, r: CustomerBill) =>
+        <Text type="secondary">¥{Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
+    { title: '折扣率', dataIndex: 'total_discount_rate', width: 100,
+      render: (v: number) => {
+        const pct = Number(v ?? 0) * 100;
+        return pct > 0
+          ? <Tag color="orange">{pct.toFixed(2)}%</Tag>
+          : <Text type="secondary">—</Text>;
+      } },
+    { title: '折后合计', dataIndex: 'total_final_cost', width: 160,
+      render: (v: number, r: CustomerBill) =>
+        <Text strong style={{ color: '#ec4899' }}>¥{Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
+    { title: '操作', width: 120, render: (_: any, r: CustomerBill) => (
       <Button size="small" type="link"
         onClick={() => loadDayDrill(r.customer_id, r.customer_name)}>
         按日明细
@@ -188,13 +212,26 @@ export default function Bills() {
       locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
         description="该客户暂无关联货源" /> }}
       columns={[
-        { title: '货源编号', dataIndex: 'resource_code', width: 180 },
-        { title: '云厂商', dataIndex: 'cloud_provider', width: 100,
+        { title: '货源编号', dataIndex: 'resource_code', width: 160 },
+        { title: '云厂商', dataIndex: 'cloud_provider', width: 90,
           render: (v: string | null) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
-        { title: '账号', dataIndex: 'account_name', width: 220,
+        { title: '账号', dataIndex: 'account_name', width: 180,
           render: (v: string | null) => v || '-' },
-        { title: '本月费用', dataIndex: 'cost', width: 140,
-          render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
+        { title: '云账号标识', dataIndex: 'identifier_field', width: 160,
+          render: (v: string | null) => v ? <Tag>{v}</Tag> : <Text type="secondary">—</Text> },
+        { title: '原价', dataIndex: 'original_cost', width: 120,
+          render: (v: number, r: ResourceBill) =>
+            <Text type="secondary">¥{Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
+        { title: '折扣率', dataIndex: 'discount_rate', width: 90,
+          render: (v: number) => {
+            const pct = Number(v ?? 0) * 100;
+            return pct > 0
+              ? <Tag color="orange">{pct.toFixed(2)}%</Tag>
+              : <Text type="secondary">—</Text>;
+          } },
+        { title: '折后价', dataIndex: 'final_cost', width: 130,
+          render: (v: number, r: ResourceBill) =>
+            <Text strong>¥{Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
       ]}
     />
   );
@@ -211,28 +248,38 @@ export default function Bills() {
         styles={{ body: { padding: 24 } }}
       >
         <Row gutter={24}>
-          <Col xs={24} md={12}>
+          <Col xs={24} md={9}>
             <Text style={{ color: 'rgba(255,255,255,0.8)', letterSpacing: 4 }}>BILLS · 本地聚合</Text>
             <Title level={2} style={{ color: 'white', margin: '4px 0 0' }}>
               <DollarOutlined /> 账单中心
             </Title>
             <Text style={{ color: 'rgba(255,255,255,0.8)' }}>
-              按客户本地关联货源聚合 (customer_resource) · 不再直接展示云管原始费用
+              云管原始数据 × 销售分配关系（customer_resource）→ 本地聚合 · 原价 / 折扣率 / 折后价 三列贯通
             </Text>
           </Col>
-          <Col xs={24} md={4}>
+          <Col xs={12} md={3}>
             <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>客户数</span>}
               value={customerCount}
               valueStyle={{ color: '#fff', fontWeight: 700 }} />
           </Col>
-          <Col xs={24} md={4}>
+          <Col xs={12} md={3}>
             <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>关联货源</span>}
               value={resourceLinkCount}
               valueStyle={{ color: '#fff', fontWeight: 700 }} />
           </Col>
-          <Col xs={24} md={4}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>本月总金额</span>}
-              value={totalAll} precision={2} prefix="¥"
+          <Col xs={12} md={3}>
+            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>原价合计</span>}
+              value={totalOriginalAll} precision={2} prefix="¥"
+              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+          </Col>
+          <Col xs={12} md={3}>
+            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>整体折扣</span>}
+              value={(overallDiscountRate * 100).toFixed(2)} suffix="%"
+              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+          </Col>
+          <Col xs={24} md={3}>
+            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>折后合计</span>}
+              value={totalFinalAll} precision={2} prefix="¥"
               valueStyle={{ color: '#fff', fontWeight: 700 }} />
           </Col>
         </Row>
