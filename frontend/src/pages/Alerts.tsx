@@ -3,7 +3,7 @@ import {
   Card, Table, Tag, Typography, Space, DatePicker, Button,
   Tabs, Modal, Form, Input, InputNumber, Select, Switch, message as antdMessage,
 } from 'antd';
-import { ReloadOutlined, AlertOutlined, PlusOutlined, CheckOutlined } from '@ant-design/icons';
+import { ReloadOutlined, AlertOutlined, PlusOutlined, CheckOutlined, BellOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { api } from '../api/axios';
 
@@ -14,12 +14,25 @@ interface AlertRule {
   id: number;
   customer_id?: number | null;
   rule_name: string;
-  rule_type: 'cost_upper' | 'cost_lower' | 'payment_overdue';
+  rule_type: 'cost_upper' | 'cost_lower' | 'payment_overdue' | 'usage_surge' | 'contract_expiring';
   threshold_value?: number | null;
   threshold_unit?: string | null;
   enabled: boolean;
   notes?: string | null;
   created_at: string;
+}
+
+interface AlertEvent {
+  id: number;
+  alert_rule_id: number;
+  alert_type: string;
+  customer_id?: number | null;
+  service?: string | null;
+  month: string;
+  actual_pct?: number | null;
+  threshold_value?: number | null;
+  message?: string | null;
+  triggered_at: string;
 }
 
 interface Payment {
@@ -40,13 +53,24 @@ const RULE_TYPE_OPTIONS = [
   { label: '费用上限', value: 'cost_upper' },
   { label: '费用下限', value: 'cost_lower' },
   { label: '收款超期', value: 'payment_overdue' },
+  { label: '用量激增', value: 'usage_surge' },
+  { label: 'contract_expiring（合同到期提醒）', value: 'contract_expiring' },
 ];
+
+const RULE_TYPE_COLOR: Record<string, string> = {
+  cost_upper: 'red',
+  cost_lower: 'blue',
+  payment_overdue: 'orange',
+  usage_surge: 'purple',
+  contract_expiring: 'gold',
+};
 
 // ---------- my rules tab ----------
 function MyRulesTab({ customers }: { customers: CustomerLite[] }) {
   const [rows, setRows] = useState<AlertRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [selectedRuleType, setSelectedRuleType] = useState<string>('cost_upper');
   const [form] = Form.useForm();
 
   const load = async () => {
@@ -64,10 +88,16 @@ function MyRulesTab({ customers }: { customers: CustomerLite[] }) {
       const values = await form.validateFields();
       await api.post('/api/alert-rules', values);
       antdMessage.success('规则已创建');
-      setModalOpen(false); form.resetFields(); load();
+      setModalOpen(false); form.resetFields(); setSelectedRuleType('cost_upper'); load();
     } catch (err) {
       if ((err as { errorFields?: unknown }).errorFields) return;
     }
+  };
+
+  const onModalCancel = () => {
+    setModalOpen(false);
+    form.resetFields();
+    setSelectedRuleType('cost_upper');
   };
 
   const toggleEnabled = async (row: AlertRule, enabled: boolean) => {
@@ -88,6 +118,20 @@ function MyRulesTab({ customers }: { customers: CustomerLite[] }) {
   const customerName = (id?: number | null) =>
     id == null ? '全局' : (customers.find((c) => c.id === id)?.customer_name || `#${id}`);
 
+  const isContractExpiring = selectedRuleType === 'contract_expiring';
+  const isUsageSurge = selectedRuleType === 'usage_surge';
+
+  const handleRuleTypeChange = (val: string) => {
+    setSelectedRuleType(val);
+    if (val === 'contract_expiring') {
+      form.setFieldsValue({ threshold_unit: 'days' });
+    } else if (val === 'usage_surge') {
+      form.setFieldsValue({ threshold_unit: '%' });
+    } else {
+      form.setFieldsValue({ threshold_unit: 'CNY' });
+    }
+  };
+
   return (
     <>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
@@ -106,10 +150,10 @@ function MyRulesTab({ customers }: { customers: CustomerLite[] }) {
           { title: '规则名', dataIndex: 'rule_name' },
           { title: '客户', dataIndex: 'customer_id', width: 180, render: customerName },
           {
-            title: '类型', dataIndex: 'rule_type', width: 120,
+            title: '类型', dataIndex: 'rule_type', width: 160,
             render: (v: string) => {
               const label = RULE_TYPE_OPTIONS.find((o) => o.value === v)?.label || v;
-              const color = v === 'cost_upper' ? 'red' : v === 'cost_lower' ? 'blue' : 'orange';
+              const color = RULE_TYPE_COLOR[v] || 'default';
               return <Tag color={color}>{label}</Tag>;
             },
           },
@@ -137,15 +181,15 @@ function MyRulesTab({ customers }: { customers: CustomerLite[] }) {
 
       <Modal
         title="新建预警规则" open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); }}
+        onCancel={onModalCancel}
         onOk={onCreate} okText="创建"
       >
-        <Form form={form} layout="vertical" initialValues={{ enabled: true, threshold_unit: 'CNY' }}>
+        <Form form={form} layout="vertical" initialValues={{ enabled: true, threshold_unit: 'CNY', rule_type: 'cost_upper' }}>
           <Form.Item name="rule_name" label="规则名" rules={[{ required: true, max: 200 }]}>
             <Input placeholder="如: 月费用超 10 万" />
           </Form.Item>
           <Form.Item name="rule_type" label="类型" rules={[{ required: true }]}>
-            <Select options={RULE_TYPE_OPTIONS} />
+            <Select options={RULE_TYPE_OPTIONS} onChange={handleRuleTypeChange} />
           </Form.Item>
           <Form.Item name="customer_id" label="客户 (留空=全局)">
             <Select
@@ -154,11 +198,20 @@ function MyRulesTab({ customers }: { customers: CustomerLite[] }) {
             />
           </Form.Item>
           <Space.Compact block>
-            <Form.Item name="threshold_value" label="阈值" style={{ flex: 2, marginRight: 8 }}>
-              <InputNumber style={{ width: '100%' }} min={0} step={100} placeholder="数值" />
+            <Form.Item
+              name="threshold_value"
+              label={isContractExpiring ? '提前天数' : isUsageSurge ? '增长阈值 (%)' : '阈值'}
+              style={{ flex: 2, marginRight: 8 }}
+            >
+              <InputNumber
+                style={{ width: '100%' }}
+                min={0}
+                step={isContractExpiring ? 1 : 100}
+                placeholder={isContractExpiring ? '如 30/60/90' : '数值'}
+              />
             </Form.Item>
             <Form.Item name="threshold_unit" label="单位" style={{ flex: 1 }}>
-              <Input placeholder="CNY" />
+              <Input placeholder={isContractExpiring ? 'days' : isUsageSurge ? '%' : 'CNY'} />
             </Form.Item>
           </Space.Compact>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
@@ -169,6 +222,73 @@ function MyRulesTab({ customers }: { customers: CustomerLite[] }) {
           </Form.Item>
         </Form>
       </Modal>
+    </>
+  );
+}
+
+// ---------- triggered events tab ----------
+function TriggeredEventsTab({ customers }: { customers: CustomerLite[] }) {
+  const [rows, setRows] = useState<AlertEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [alertTypeFilter, setAlertTypeFilter] = useState<string | undefined>(undefined);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string> = {};
+      if (alertTypeFilter) params.alert_type = alertTypeFilter;
+      const { data } = await api.get<AlertEvent[]>('/api/alert-rules/triggered', { params });
+      setRows(data);
+    } catch { /* handled globally */ }
+    finally { setLoading(false); }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [alertTypeFilter]);
+
+  const customerName = (id?: number | null) =>
+    id == null ? '-' : (customers.find((c) => c.id === id)?.customer_name || `#${id}`);
+
+  return (
+    <>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
+        <Title level={5} style={{ margin: 0 }}>触发记录（近 30 天）</Title>
+        <Space>
+          <Select
+            placeholder="按类型过滤" allowClear style={{ width: 200 }}
+            value={alertTypeFilter} onChange={setAlertTypeFilter}
+            options={[
+              { label: '用量激增', value: 'usage_surge' },
+              { label: '合同到期提醒', value: 'contract_expiring' },
+            ]}
+          />
+          <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+        </Space>
+      </Space>
+
+      <Table<AlertEvent>
+        rowKey="id" loading={loading} dataSource={rows} pagination={{ pageSize: 20 }}
+        columns={[
+          {
+            title: '类型', dataIndex: 'alert_type', width: 140,
+            render: (v: string) => {
+              const label = v === 'usage_surge' ? '用量激增' : v === 'contract_expiring' ? '合同到期' : v;
+              const color = RULE_TYPE_COLOR[v] || 'default';
+              return <Tag color={color}>{label}</Tag>;
+            },
+          },
+          { title: '客户', dataIndex: 'customer_id', width: 180, render: customerName },
+          { title: '服务/对象', dataIndex: 'service', width: 120, render: (v: string | null) => v || '-' },
+          { title: '月份', dataIndex: 'month', width: 90 },
+          {
+            title: '告警信息', dataIndex: 'message', ellipsis: true,
+            render: (v: string | null) => v || '-',
+          },
+          {
+            title: '触发时间', dataIndex: 'triggered_at', width: 170,
+            render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-',
+          },
+        ]}
+      />
     </>
   );
 }
@@ -371,6 +491,7 @@ export default function Alerts() {
           items={[
             { key: 'my-rules', label: '我的规则', children: <MyRulesTab customers={customers} /> },
             { key: 'payments', label: '收款超期', children: <PaymentsTab customers={customers} /> },
+            { key: 'triggered', label: <><BellOutlined /> 触发记录</>, children: <TriggeredEventsTab customers={customers} /> },
           ]}
         />
       </Card>
