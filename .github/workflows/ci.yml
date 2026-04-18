@@ -44,7 +44,10 @@ jobs:
             -e SECRET_KEY=ci-secret \
             -e DEBUG=false \
             -e HOME=/tmp \
-            xs-api:ci sh -c "pip install --quiet --no-cache-dir pytest pytest-asyncio && alembic upgrade head && pytest -q"
+            xs-api:ci sh -c "pip install --quiet --no-cache-dir pytest pytest-asyncio && \
+              alembic upgrade head && \
+              python -c 'from app.database import Base, engine; from app import models; Base.metadata.create_all(bind=engine)' && \
+              pytest -q"
 
       - name: Cleanup
         if: always()

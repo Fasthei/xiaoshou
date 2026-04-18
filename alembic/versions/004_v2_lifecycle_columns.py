@@ -38,11 +38,20 @@ def upgrade():
             f"ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS {column} {col_type}"
         ))
 
-    # 数据迁移: 老 lifecycle_stage 收编到 contacting (customer 表必然存在)
+    # 数据迁移: 老 lifecycle_stage 收编到 contacting
+    # 包 DO block 防 lifecycle_stage 列不存在 (fresh DB 走 alembic 时, v2 列由 main.lifespan 的 create_all 补)
     op.execute(sa.text("""
-        UPDATE customer
-        SET lifecycle_stage = 'contacting'
-        WHERE lifecycle_stage IN ('order_pending', 'order_approved')
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'customer' AND column_name = 'lifecycle_stage'
+            ) THEN
+                UPDATE customer
+                SET lifecycle_stage = 'contacting'
+                WHERE lifecycle_stage IN ('order_pending', 'order_approved');
+            END IF;
+        END $$;
     """))
 
 
