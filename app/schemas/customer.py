@@ -27,7 +27,7 @@ class CustomerContactResponse(CustomerContactBase):
 
 
 class CustomerBase(BaseModel):
-    customer_code: str = Field(..., description="客户编号")
+    customer_code: Optional[str] = Field(None, description="客户编号 (手工建可空, gongdan 同步后回填)")
     customer_name: str = Field(..., description="客户名称")
     customer_short_name: Optional[str] = Field(None, description="客户简称")
     industry: Optional[str] = Field(None, description="所属行业")
@@ -60,7 +60,7 @@ class CustomerCreate(CustomerBase):
 
 class CustomerCreateLite(BaseModel):
     """Relaxed create payload used by frontend new-customer form (status optional, defaults to potential)."""
-    customer_code: str
+    customer_code: Optional[str] = None
     customer_name: str
     customer_short_name: Optional[str] = None
     industry: Optional[str] = None

@@ -13,13 +13,13 @@ class Customer(Base):
     __tablename__ = "customer"
 
     id = Column(_PK, primary_key=True, index=True, autoincrement=True)
-    customer_code = Column(String(50), unique=True, nullable=False, comment="客户编号")
+    customer_code = Column(String(50), unique=True, nullable=True, comment="客户编号 (手工建可空, gongdan 同步后回填)")
     customer_name = Column(String(200), nullable=False, comment="客户名称")
     customer_short_name = Column(String(100), comment="客户简称")
     industry = Column(String(50), comment="所属行业")
     region = Column(String(50), comment="所属地区")
     customer_level = Column(String(20), comment="客户级别")
-    customer_status = Column(String(20), nullable=False, comment="客户状态")
+    customer_status = Column(String(32), nullable=False, comment="客户状态 (向后兼容, 未来由 lifecycle_stage 取代)")
     sales_user_id = Column(BigInteger, comment="所属销售")
     operation_user_id = Column(BigInteger, comment="所属运营")
     first_deal_time = Column(DateTime, comment="首次成交时间")

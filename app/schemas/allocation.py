@@ -33,6 +33,8 @@ class AllocationResponse(AllocationBase):
     total_price: Optional[Decimal]
     profit_amount: Optional[Decimal]
     profit_rate: Optional[Decimal]
+    discount_rate: Optional[Decimal] = None
+    unit_price_after_discount: Optional[Decimal] = None
     allocation_status: str
     allocated_by: Optional[int]
     allocated_at: Optional[datetime]
