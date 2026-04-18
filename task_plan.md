@@ -121,3 +121,131 @@
 2. ⚠️ **dreamy-darwin worktree 还在跑**:可能仍有别的 session 在编辑;commit 前要再 git status 一次防丢失。
 3. ⚠️ **CI docker 化可能要改几轮**:Dockerfile 里没装 pytest/ruff,需要 pip install at runtime;镜像层缓存策略要调。
 4. ⚠️ **线上数据风险**:不会动 prod DB / Redis,但 deploy 触发的 alembic 迁移会改 schema —— 必须可逆(004 downgrade 已写)。
+
+---
+
+# 第二轮规划 — A→B→C 串行 + 多 agent + 线上 QA
+
+> 用户决策:套餐 A → B → C 顺序执行,**线上环境** /agent-browser 验收
+> 创建时间: 2026-04-18(阶段 5 通过后)
+
+## 阶段 6:套餐 A — 生产功能闭环
+
+**目标**:让销售真正能用上 #5 合同上传 + #4 用量预警两个功能。
+
+### 6.1 #5 合同上传闭环
+- [ ] 6.1.1 后端:确认 `POST /api/contracts/{id}/upload` 已存在(CLAUDE.md TODO #5 说有),没有就补 multipart upload → Azure Blob
+- [ ] 6.1.2 前端 wizard step 2:把 `console.debug` 换成真实 `axios.post` 调用(用 FormData)
+- [ ] 6.1.3 上传成功 toast / 失败兜底 + spinner
+- [ ] 6.1.4 在客户详情"档案/跟进"tab 的"合同"区能列出已上传文件 + 下载链接(只读,新建只能在 wizard)
+- [ ] 6.1.5 单元测试:上传 endpoint 200 + 错误分支
+
+### 6.2 #4 用量激增预警
+- [ ] 6.2.1 读 `.omc/usage-design.md`(若不存在,从 CLAUDE.md 提到的"方案 A:service 级聚合 + usage_surge alert_rule"开始设计)
+- [ ] 6.2.2 后端:`alert_rule.rule_type` 加 `usage_surge` 枚举值
+- [ ] 6.2.3 触发逻辑:扫描 `cc_usage` 当月 vs 上月按 service 聚合,超阈值落 `cc_alert`
+- [ ] 6.2.4 endpoint:`/api/alert-rules/triggered` 返回最近触发清单
+- [ ] 6.2.5 前端:`/alerts` 页面"我的规则" + 新增 "usage_surge" 类型的创建表单
+- [ ] 6.2.6 单元测试:阈值边界 / 跨月对比
+
+**Exit criteria**:本地 docker 跑 + pytest 绿 + 手测合同上传 + 手测预警触发。
+
+**决策点 F**(套餐 A 完成后):commit + push 走 PR → main → deploy。你点 merge 还是我直接合?
+
+---
+
+## 阶段 7:套餐 B — 代码质量护栏
+
+**前提**:阶段 6 merge 进 main 完成。
+
+### 7.1 #2 测试漏补 4 处
+- [ ] 7.1.1 `tests/test_allocation_batch.py` 新增 — `/api/allocations/batch` 多货源 + 折扣
+- [ ] 7.1.2 `tests/test_customer_stage.py` 补 lost 瞬态分支
+- [ ] 7.1.3 `tests/test_manager_panorama.py` 新增 — 团队目标 annual_sales_target 聚合
+- [ ] 7.1.4 `tests/test_follow_up_global.py` 补 inbox/reply 流程
+
+### 7.2 #3 代码瘦身
+- [ ] 7.2.1 pydantic v1 `class Config: from_attributes = True` → v2 `model_config = ConfigDict(from_attributes=True)`(全 schema 文件遍历)
+- [ ] 7.2.2 删 `customer_status` 老字段(模型 + schema + API 全链路;新代码只读 `lifecycle_stage`)
+- [ ] 7.2.3 删 `main.py` 里的 `_ensure_*_column()` helper 函数(alembic 003+004 已替代)
+
+**Exit criteria**:pytest 通过数 ≥ 121(117 + 4 新),deprecation warning < 5,main.py 净减 30+ 行。
+
+**决策点 G**:merge 节奏(同 F)。
+
+---
+
+## 阶段 8:套餐 C — 前端 V2 上线
+
+**前提**:阶段 7 merge 完成。
+
+注意:目前线上 SWA 还跑老前端(线上 drawer 5 tab,本地 6 tab)。
+
+- [ ] 8.1 摸清线上前端版本:linkedin / SHA / build time
+- [ ] 8.2 写一个无害的 frontend 改动(比如 README 加一行 + 版本 bump)触发 `frontend-deploy.yml`
+- [ ] 8.3 或直接 `gh workflow run frontend-deploy.yml` 手动触发
+- [ ] 8.4 等部署完成
+- [ ] 8.5 verify:线上 drawer 应该有 6 tab(基本/时间线/分配/档案/跟进/关联货源)
+
+**Exit criteria**:线上前端版本与 main HEAD 一致。
+
+---
+
+## 阶段 9:线上 /agent-browser 全功能 QA
+
+**前提**:阶段 6+7+8 都 merge 上线。
+
+### 9.1 准备
+- [ ] 9.1.1 `pkill chrome` + 全新 session `xs-prod-final`
+- [ ] 9.1.2 真实 Casdoor 登录 admin/manager01/sales01 三角色各一遍
+- [ ] 9.1.3 验证角色守卫:sales01 不能进 `/manager/*`,sales-manager 能
+
+### 9.2 9 路由 + 6 tab + 关键交互
+- [ ] 9.2.1 9 个菜单路由全开,截图 + console err 计数
+- [ ] 9.2.2 客户详情 6 tab 全切换
+- [ ] 9.2.3 折扣计算器抽屉
+- [ ] 9.2.4 CSV 导出(账单 + 客户)
+- [ ] 9.2.5 跟进留言 + 回复线程
+- [ ] 9.2.6 主管审批中心 Tab
+
+### 9.3 阶段 6 新功能验收
+- [ ] 9.3.1 客户管理 → 新建客户+订单 wizard → 上传合同 PDF/DOC → 看 Azure Blob 收到
+- [ ] 9.3.2 客户详情合同 tab 能下载
+- [ ] 9.3.3 创建一条 usage_surge 预警规则 → 等触发 → 看 `/alerts` 出现
+
+### 9.4 后端 prod /docs smoke
+- [ ] 9.4.1 健康检查 + 15 个核心 endpoint 抽查(都需带 token)
+
+**决策点 H**(终极验收):
+- 验收通过 → 项目交付,关单
+- 有 P0 bug → 紧急修 → 重 deploy
+- 有 P1+ 累计成 sprint → 下轮 planning
+
+---
+
+## 第二轮决策点汇总
+
+| ID | 时机 | 内容 |
+|---|---|---|
+| F | 阶段 6 完成后 | 合同上传 + 用量预警 PR merge 节奏 |
+| G | 阶段 7 完成后 | 代码瘦身 PR merge 节奏 |
+| H | 阶段 9 完成后 | 线上终极验收签字 |
+
+## 多 agent 编排策略(给未来的我看)
+
+由于 sub-agent 的 Bash 工具被沙箱拦,**纯 file-edit 的工作可以派 agent 并行**(写新测试、写新 schema、写新组件),**git/docker/gh 必须主 session 自己跑**。
+
+阶段 6 派 agent 模式:
+- agent A1: 写后端 contract upload endpoint (Python/FastAPI)
+- agent A2: 写前端 wizard step 2 真实上传逻辑 (React/TS)
+- agent A3: 写后端 usage_surge 触发器 (Python)
+- (并行,主 session 收齐后跑测试 + commit + push)
+
+阶段 7 派 agent 模式:
+- agent B1: 写 4 个测试文件
+- agent B2: pydantic v2 迁移(全 schema)
+- agent B3: 删 customer_status 老字段(全链路)
+- (并行)
+
+阶段 8 / 9 不派 agent(主要是 ops + browser test)。
+

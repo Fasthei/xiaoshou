@@ -66,3 +66,24 @@
 - ✅ /api/customers 返回 18 真实客户
 
 阶段 1 完成。 准备进入 A:commit + push + 等 CI 绿
+
+### 2026-04-18 第二轮规划
+
+- 阶段 5 完成,线上 QA 全绿
+- 用户选择 A→B→C 串行 + 多 agent + 线上 /agent-browser 验收
+- task_plan.md 追加阶段 6-9 + 决策点 F/G/H
+- 等用户启动阶段 6 (套餐 A)
+
+
+### 2026-04-18 阶段 6 套餐 A 完成
+
+- ✅ A1 (frontend): wizard step 2 真实合同上传 (POST /api/contracts + /upload, FormData, 失败独立 catch)
+- ✅ A2 (backend): usage_surge 触发器 + endpoint
+  - alert_rule._RULE_TYPES 加 usage_surge
+  - app/services/usage_surge_trigger.py: evaluate_usage_surge_rules(db) 返回触发数
+  - app/models/alert_event.py: 去重表 (alert_rule_id, customer_id, service, month) unique
+  - GET /api/alert-rules/triggered + POST /api/alert-rules/run-evaluator
+- ✅ A3 (tests): contract upload 6 case (123 passed) + usage_surge 4 case skip 骨架
+- ✅ pytest 全套: 123 passed, 5 skipped
+
+下一步: commit + push + gh pr create + auto-merge (F=是) → 进 7

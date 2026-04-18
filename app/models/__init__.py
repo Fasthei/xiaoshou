@@ -11,6 +11,7 @@ from app.models.follow_up import CustomerFollowUp
 from app.models.contract import Contract
 from app.models.ticket import Ticket
 from app.models.alert_rule import AlertRule
+from app.models.alert_event import AlertEvent
 from app.models.payment import Payment
 from app.models.cc_usage import CCUsage
 from app.models.cc_alert import CCAlert
@@ -24,7 +25,7 @@ __all__ = [
     "SalesUser", "LeadAssignmentRule", "LeadAssignmentLog", "SalesPlan",
     "AllocationHistory", "CustomerFollowUp",
     "Contract", "Ticket",
-    "AlertRule", "Payment",
+    "AlertRule", "AlertEvent", "Payment",
     "CCUsage", "CCAlert", "CCBill",
     "CustomerResource",
     "CustomerStageRequest",
