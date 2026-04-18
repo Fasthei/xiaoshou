@@ -133,5 +133,54 @@ def _name_from_url(name_or_url: str, container: str) -> str:
     return tail
 
 
+def generate_upload_sas(
+    blob_name: str,
+    content_type: str,
+    *,
+    ttl_minutes: int = 15,
+) -> tuple[str, datetime]:
+    """Generate a write-capable SAS URL for direct client upload to Azure Blob.
+
+    Returns (sas_url, expires_at) where expires_at is UTC datetime.
+    Raises RuntimeError if not configured.
+    """
+    from azure.storage.blob import (  # type: ignore
+        BlobSasPermissions,
+        generate_blob_sas,
+    )
+    svc = _client()
+    container = _container_name()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+    sas = generate_blob_sas(
+        account_name=svc.account_name,
+        container_name=container,
+        blob_name=blob_name,
+        account_key=svc.credential.account_key,
+        permission=BlobSasPermissions(write=True, create=True),
+        expiry=expires_at,
+        content_type=content_type,
+    )
+    base = svc.get_blob_client(container=container, blob=blob_name).url
+    return f"{base}?{sas}", expires_at
+
+
+def head_blob(blob_name: str) -> bool:
+    """Return True if the blob exists, False otherwise."""
+    svc = _client()
+    container = _container_name()
+    try:
+        svc.get_blob_client(container=container, blob=blob_name).get_blob_properties()
+        return True
+    except Exception:
+        return False
+
+
+def blob_url(blob_name: str) -> str:
+    """Return the canonical (no SAS) URL for a blob name."""
+    svc = _client()
+    container = _container_name()
+    return svc.get_blob_client(container=container, blob=blob_name).url
+
+
 def is_configured() -> bool:
     return bool(_conn_string())

@@ -103,3 +103,12 @@
 - 9 路由 0 console error
 - 折扣计算器 / CSV 导出 / 新建客户 dropdown(2 选项)/ 预警新建规则 / 主管 6 tab — 全 OK
 - 用户启动第三轮: CLAUDE.md 剩余 sprint 多 agent 并行
+
+### 2026-04-18 阶段 10 套餐 sprint 完成
+
+- ✅ S1 销售 YTD 进度模块: GET /api/sales/me/target-progress + SalesHome.tsx 区块 + 2 测试
+- ✅ S2 角色守卫: require_roles helper + 5 endpoint 加守卫 + 前端 RoleGuard 路由覆盖
+- ✅ S3 usage_surge 4 真测试 unskip + 7 处 customer_status → lifecycle_stage 真代码迁移
+- ✅ S4 dev audit clean + POST /api/internal/cron/usage-surge + DEPLOY.md 更新
+- 修 3 处测试 fixture (Resource 字段名 / Customer NOT NULL / allocation_code 唯一约束 / casdoor_user_id='dev')
+- ✅ pytest: 140 passed, 1 skipped (+6 vs 套餐 B 的 134)
