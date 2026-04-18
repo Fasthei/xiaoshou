@@ -18,7 +18,7 @@ jobs:
 
       - name: Lint (ruff in container)
         run: |
-          docker run --rm xs-api:ci sh -c "pip install --quiet ruff && ruff check . || true"
+          docker run --rm --user root -e HOME=/tmp xs-api:ci sh -c "pip install --quiet --no-cache-dir ruff && ruff check . || true"
           # 不阻塞 CI; 后续严格化时去掉 || true
 
       - name: Setup network + sidecars (postgres 18 + redis 7)
@@ -35,7 +35,7 @@ jobs:
 
       - name: Test (pytest in api container)
         run: |
-          docker run --rm --network xs-ci \
+          docker run --rm --network xs-ci --user root \
             -e DATABASE_URL=postgresql://sales:sales_dev_pw@xs-pg:5432/sales_system \
             -e REDIS_URL=redis://xs-rd:6379/0 \
             -e PG_HOST=xs-pg -e PG_USER=sales -e PG_PASSWORD=sales_dev_pw -e PG_DB=sales_system \
@@ -43,7 +43,8 @@ jobs:
             -e AUTH_ENABLED=false \
             -e SECRET_KEY=ci-secret \
             -e DEBUG=false \
-            xs-api:ci sh -c "pip install --quiet pytest pytest-asyncio && alembic upgrade head && pytest -q"
+            -e HOME=/tmp \
+            xs-api:ci sh -c "pip install --quiet --no-cache-dir pytest pytest-asyncio && alembic upgrade head && pytest -q"
 
       - name: Cleanup
         if: always()
