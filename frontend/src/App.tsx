@@ -17,6 +17,7 @@ import Bills from './pages/Bills';
 import ManagerDashboard from './pages/ManagerDashboard';
 import SalesHome from './pages/SalesHome';
 import FollowUps from './pages/FollowUps';
+import Reports from './pages/Reports';
 import { getCurrentRoles } from './api/axios';
 
 function RoleHomeRedirect() {
@@ -80,6 +81,14 @@ function Shell() {
                 element={
                   <RoleGuard allowed={['sales-manager']}>
                     <Navigate to="/manager?tab=approvals" replace />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/reports"
+                element={
+                  <RoleGuard allowed={['sales-manager', 'admin']}>
+                    <Reports />
                   </RoleGuard>
                 }
               />

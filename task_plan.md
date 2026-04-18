@@ -272,3 +272,48 @@
 - agent-browser 跑全功能(含 sprint 新功能):YTD 进度、角色守卫拦截、新建规则、cron 触发
 - 报告
 
+
+---
+
+# 第四轮规划 — 复杂报表/BI + 合同到期提醒
+
+> 用户需求(阶段 11 完成后):"复杂报表/数据 BI 和客户合同到期提醒可以做"
+> 创建时间: 2026-04-18
+
+## 阶段 12:多 agent 并行实施
+
+### D1 复杂报表/BI 后端
+- 加 `app/api/reports.py` 新 router:
+  - `/api/reports/sales-trend?dim=month|customer|sales|region|industry&from=&to=`
+  - `/api/reports/profit-analysis?dim=...&breakdown=customer_level|industry`
+  - `/api/reports/funnel?from=&to=` (lead→contacting→active 各步耗时 + 转化率)
+  - `/api/reports/yoy?metric=sales|profit&period=month` (同比/环比)
+  - `/api/reports/export?type=sales-trend&format=csv|xlsx`
+- 用 SQLAlchemy 聚合 allocation + customer + cc_usage
+- 测试 4 case (覆盖维度 / 切片 / 边界 / 导出格式)
+
+### D2 复杂报表/BI 前端
+- `frontend` `npm install recharts`(轻量 + 兼容 antd 主题)
+- 新页面 `/reports`(主管菜单)
+- Tab: 销售趋势 / 利润分析 / 漏斗 / 同比环比
+- 每个 tab: 维度切换器 + 时间范围 + 主图(line/bar/pie) + 数据表
+- 导出按钮调 `/api/reports/export`
+
+### D3 合同到期提醒
+- 后端:
+  - `_RULE_TYPES` 加 `contract_expiring`(threshold_value = 提前天数,如 30/60/90)
+  - `app/services/contract_expiry_trigger.py`: 扫 contract.end_date 在阈值窗口内的 + 还 active 的
+  - 触发写 alert_event (alert_type='contract_expiring',message='合同 XXX 还有 N 天到期')
+  - GET `/api/alert-rules/triggered` 已存在,加 contract_expiring 过滤支持
+  - POST `/api/internal/cron/contract-expiring`(M2M 鉴权)
+- 前端:
+  - `/alerts` 页面新建规则表单加 `contract_expiring` 类型
+  - 销售工作台 / 主管 dashboard 加"合同到期"卡片(读 triggered 事件)
+- 测试 3 case (在窗口内 / 窗口外 / 已 expired)
+
+## 阶段 13:线上验收
+- 跑 cron / 手测前端报表
+- agent-browser 截图 + 报告
+
+## 决策点 I:同 F=是,我自动 merge
+

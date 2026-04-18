@@ -20,6 +20,7 @@ from app.models.allocation import Allocation
 from app.models.customer import Customer
 from app.models.resource import Resource
 from app.services.usage_surge_trigger import evaluate_usage_surge_rules
+from app.services.contract_expiry_trigger import evaluate_contract_expiring_rules
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,37 @@ def cron_usage_surge(
         raise HTTPException(500, f"usage_surge evaluation error: {exc}") from exc
 
     logger.info("cron_usage_surge: triggered=%d", triggered)
+    return {
+        "ok": True,
+        "triggered_events": triggered,
+        "evaluated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+@router.post(
+    "/cron/contract-expiring",
+    summary="合同到期提醒 cron 触发（外部定时任务调用）",
+    description=(
+        "评估所有启用的 contract_expiring 预警规则并写入 alert_event。\n\n"
+        "Auth: 与 /api/internal/* 同——接受 X-Internal-Api-Key 或 M2M Bearer JWT。\n\n"
+        "推荐调度频率：每天一次。\n"
+        "Azure Container Apps 用法：建 Scheduled Job，Command 为\n"
+        "`curl -sf -X POST $API_BASE/api/internal/cron/contract-expiring "
+        "-H 'X-Internal-Api-Key: $XIAOSHOU_INTERNAL_API_KEY'`。"
+    ),
+)
+def cron_contract_expiring(
+    _auth_dep: None = Depends(_auth),
+    db: Session = Depends(get_db),
+):
+    """触发 contract_expiring 规则评估。失败时返回 500，不阻塞调用方重试。"""
+    try:
+        triggered = evaluate_contract_expiring_rules(db)
+    except Exception as exc:
+        logger.exception("cron_contract_expiring failed: %s", exc)
+        raise HTTPException(500, f"contract_expiring evaluation error: {exc}") from exc
+
+    logger.info("cron_contract_expiring: triggered=%d", triggered)
     return {
         "ok": True,
         "triggered_events": triggered,

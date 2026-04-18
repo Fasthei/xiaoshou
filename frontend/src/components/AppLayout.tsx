@@ -7,7 +7,7 @@ import {
   LogoutOutlined, UserOutlined,
   SearchOutlined, BulbOutlined, BulbFilled,
   AlertOutlined, DollarOutlined, FundProjectionScreenOutlined,
-  RocketOutlined, ScheduleOutlined,
+  RocketOutlined, ScheduleOutlined, BarChartOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,6 +37,7 @@ const ALL_MENU_ITEMS: MenuEntry[] = [
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
   { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link>, hideForRoles: ['sales-manager'] },
   { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link>, roles: ['sales', 'sales-manager'] },
+  { key: '/reports',    icon: <BarChartOutlined />,   label: <Link to="/reports">报表 BI</Link>, roles: ['sales-manager'] },
 ];
 
 function filterMenuByRoles(roles: string[]): MenuEntry[] {

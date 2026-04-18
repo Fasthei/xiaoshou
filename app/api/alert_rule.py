@@ -14,7 +14,7 @@ from app.models.alert_rule import AlertRule
 from app.models.customer import Customer
 
 
-_RULE_TYPES = {"cost_upper", "cost_lower", "payment_overdue", "usage_surge"}
+_RULE_TYPES = {"cost_upper", "cost_lower", "payment_overdue", "usage_surge", "contract_expiring"}
 
 
 # ---------- Schemas ----------
@@ -24,9 +24,10 @@ class AlertRuleBase(BaseModel):
     rule_type: str = Field(
         ...,
         description=(
-            "cost_upper / cost_lower / payment_overdue / usage_surge. "
+            "cost_upper / cost_lower / payment_overdue / usage_surge / contract_expiring. "
             "usage_surge: threshold_value 为百分比 (如 50 = 环比上月增长 50% 触发), "
-            "threshold_unit 默认 '%'."
+            "threshold_unit 默认 '%'. "
+            "contract_expiring: threshold_value 为提前天数 (如 30/60/90), threshold_unit='days'."
         ),
     )
     threshold_value: Optional[Decimal] = None
@@ -135,21 +136,22 @@ def delete_rule(
     return {"ok": True}
 
 
-@router.get("/triggered", summary="最近 30 天 usage_surge 触发的预警事件列表")
+@router.get("/triggered", summary="最近 30 天触发的预警事件列表")
 def list_triggered(
     customer_id: Optional[int] = Query(None, description="按客户过滤"),
+    alert_type: Optional[str] = Query(None, description="按 alert_type 过滤, 如 usage_surge / contract_expiring"),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ) -> Any:
-    """返回最近 30 天内触发的 usage_surge 类型预警事件.
+    """返回最近 30 天内触发的预警事件.
 
-    每行对应一次触发记录, 含客户 / service / 环比增幅 / 告警描述.
+    支持 alert_type 参数过滤 (usage_surge / contract_expiring 等).
+    每行对应一次触发记录, 含客户 / service / 告警描述.
     """
     cutoff = datetime.utcnow() - timedelta(days=30)
-    q = db.query(AlertEvent).filter(
-        AlertEvent.alert_type == "usage_surge",
-        AlertEvent.triggered_at >= cutoff,
-    )
+    q = db.query(AlertEvent).filter(AlertEvent.triggered_at >= cutoff)
+    if alert_type is not None:
+        q = q.filter(AlertEvent.alert_type == alert_type)
     if customer_id is not None:
         q = q.filter(AlertEvent.customer_id == customer_id)
     events = q.order_by(AlertEvent.triggered_at.desc()).all()
