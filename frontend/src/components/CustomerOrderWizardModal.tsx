@@ -5,6 +5,7 @@ import {
 } from 'antd';
 import { UploadOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
+import axios from 'axios';
 import { api } from '../api/axios';
 import type { Resource } from '../types';
 
@@ -212,7 +213,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         })),
       });
 
-      // 3) 创建合同记录，然后上传文件
+      // 3) 创建合同记录，然后 SAS 直传文件
       try {
         const contract_code = 'CON-' + Math.random().toString(36).slice(2, 10).toUpperCase();
         const { data: contract } = await api.post('/api/contracts', {
@@ -222,10 +223,28 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
           notes: orderVals.order_note ?? null,
         });
 
-        const fd = new FormData();
-        fd.append('file', contractFile!.originFileObj as File);
-        await api.post(`/api/contracts/${contract.id}/upload`, fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
+        const rawFile = contractFile!.originFileObj as File;
+        const mimeType = rawFile.type || 'application/octet-stream';
+
+        // 3a) GET SAS upload URL from backend
+        const { data: urlData } = await api.get(`/api/contracts/${contract.id}/upload-url`, {
+          params: { filename: rawFile.name, content_type: mimeType },
+        });
+
+        // 3b) PUT directly to Azure Blob via SAS URL (no auth header, pure axios)
+        await axios.put(urlData.sas_url, rawFile, {
+          headers: {
+            'x-ms-blob-type': 'BlockBlob',
+            'Content-Type': mimeType,
+          },
+        });
+
+        // 3c) Notify backend to persist file_url
+        await api.post(`/api/contracts/${contract.id}/upload-confirm`, {
+          blob_name: urlData.blob_name,
+          file_size: rawFile.size,
+          content_type: mimeType,
+          file_name: rawFile.name,
         });
 
         antdMessage.success('订单已创建 + 合同已上传，等待审批');

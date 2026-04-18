@@ -1,7 +1,7 @@
 """Customer Insight Agent — runs and discovered facts."""
 from sqlalchemy import (
     Column, BigInteger, String, DateTime, Text, ForeignKey, Integer,
-    UniqueConstraint, Index,
+    UniqueConstraint, Index, Numeric,
 )
 
 # BigInteger on SQLite doesn't autoincrement; compile to INTEGER PRIMARY KEY
@@ -29,6 +29,8 @@ class CustomerInsightRun(Base):
     summary = Column(Text, nullable=True, comment="Final markdown summary by the agent")
     token_usage_json = Column(Text, nullable=True, comment="JSON: {prompt, completion, total}")
     triggered_by = Column(BigInteger, nullable=True, comment="user id that clicked the button")
+    cost_usd = Column(Numeric(10, 6), nullable=True, comment="Estimated OpenAI cost for this run (USD)")
+    input_hash = Column(String(64), nullable=True, comment="sha256 of serialised input; used for 24h cache dedup")
 
     facts = relationship("CustomerInsightFact", back_populates="run",
                          cascade="all, delete-orphan")
