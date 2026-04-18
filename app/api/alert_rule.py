@@ -1,7 +1,7 @@
 """AlertRule API — 自定义预警规则 CRUD + 触发列表."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional, List, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -9,20 +9,31 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser, require_auth
 from app.database import get_db
+from app.models.alert_event import AlertEvent
 from app.models.alert_rule import AlertRule
 from app.models.customer import Customer
 
 
-_RULE_TYPES = {"cost_upper", "cost_lower", "payment_overdue"}
+_RULE_TYPES = {"cost_upper", "cost_lower", "payment_overdue", "usage_surge"}
 
 
 # ---------- Schemas ----------
 class AlertRuleBase(BaseModel):
     customer_id: Optional[int] = Field(None, description="客户ID, 空=全局规则")
     rule_name: str = Field(..., max_length=200)
-    rule_type: str = Field(..., description="cost_upper/cost_lower/payment_overdue")
+    rule_type: str = Field(
+        ...,
+        description=(
+            "cost_upper / cost_lower / payment_overdue / usage_surge. "
+            "usage_surge: threshold_value 为百分比 (如 50 = 环比上月增长 50% 触发), "
+            "threshold_unit 默认 '%'."
+        ),
+    )
     threshold_value: Optional[Decimal] = None
-    threshold_unit: Optional[str] = "CNY"
+    threshold_unit: Optional[str] = Field(
+        "CNY",
+        description="阈值单位; usage_surge 规则请使用 '%'",
+    )
     enabled: Optional[bool] = True
     notes: Optional[str] = None
 
@@ -124,16 +135,53 @@ def delete_rule(
     return {"ok": True}
 
 
-@router.get("/triggered", response_model=List[AlertRuleResponse],
-            summary="当前触发的规则 (简化: 列出所有启用的规则)")
+@router.get("/triggered", summary="最近 30 天 usage_surge 触发的预警事件列表")
 def list_triggered(
+    customer_id: Optional[int] = Query(None, description="按客户过滤"),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
-):
-    # TODO: detail 算法 — 需结合 usage/payment 动态判断是否真的触发
-    return (
-        db.query(AlertRule)
-        .filter(AlertRule.enabled == True)  # noqa: E712
-        .order_by(AlertRule.id.desc())
-        .all()
+) -> Any:
+    """返回最近 30 天内触发的 usage_surge 类型预警事件.
+
+    每行对应一次触发记录, 含客户 / service / 环比增幅 / 告警描述.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    q = db.query(AlertEvent).filter(
+        AlertEvent.alert_type == "usage_surge",
+        AlertEvent.triggered_at >= cutoff,
     )
+    if customer_id is not None:
+        q = q.filter(AlertEvent.customer_id == customer_id)
+    events = q.order_by(AlertEvent.triggered_at.desc()).all()
+    return [
+        {
+            "id": e.id,
+            "alert_rule_id": e.alert_rule_id,
+            "alert_type": e.alert_type,
+            "customer_id": e.customer_id,
+            "service": e.service,
+            "month": e.month,
+            "actual_pct": float(e.actual_pct) if e.actual_pct is not None else None,
+            "threshold_value": float(e.threshold_value) if e.threshold_value is not None else None,
+            "message": e.message,
+            "triggered_at": e.triggered_at.isoformat() if e.triggered_at else None,
+        }
+        for e in events
+    ]
+
+
+@router.post("/run-evaluator", summary="手动触发 usage_surge 评估 (admin/QA 使用)")
+def run_evaluator(
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+) -> Any:
+    """立即执行一次 usage_surge 规则评估, 返回本次新增触发数量.
+
+    用于 QA 阶段手动验证预警逻辑, 不影响定时任务节奏.
+    """
+    from app.services.usage_surge_trigger import evaluate_usage_surge_rules
+    try:
+        triggered = evaluate_usage_surge_rules(db)
+    except Exception as exc:
+        raise HTTPException(500, f"评估执行失败: {exc}") from exc
+    return {"ok": True, "triggered": triggered}

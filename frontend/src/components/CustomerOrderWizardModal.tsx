@@ -212,13 +212,31 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         })),
       });
 
-      // 3) 合同上传接口暂未实现（后端 Task），先保留 file 但 skip 上传
-      console.debug('[CustomerOrderWizard] contract pending upload', {
-        contractFile,
-        note: orderVals.order_note,
-      });
+      // 3) 创建合同记录，然后上传文件
+      try {
+        const contract_code = 'CON-' + Math.random().toString(36).slice(2, 10).toUpperCase();
+        const { data: contract } = await api.post('/api/contracts', {
+          customer_id: customerId,
+          contract_code,
+          title: contractFile!.name,
+          notes: orderVals.order_note ?? null,
+        });
 
-      antdMessage.success('订单已创建，等待审批');
+        const fd = new FormData();
+        fd.append('file', contractFile!.originFileObj as File);
+        await api.post(`/api/contracts/${contract.id}/upload`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        antdMessage.success('订单已创建 + 合同已上传，等待审批');
+      } catch (contractErr: any) {
+        antdMessage.warning(
+          '订单已建，但合同上传失败：' +
+            (contractErr?.response?.data?.detail ?? contractErr?.message ?? '未知错误') +
+            '，请到客户详情手动重传',
+        );
+      }
+
       setSubmitting(false);
       onSuccess?.();
       handleClose();
