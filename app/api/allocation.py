@@ -49,7 +49,7 @@ def calculate_profit(unit_cost: Decimal, unit_price: Decimal, quantity: int):
 
 
 @router.post("", response_model=AllocationResponse, summary="创建分配",
-             dependencies=[Depends(require_roles("sales", "sales_manager", "admin"))])
+             dependencies=[Depends(require_roles("sales", "sales-manager", "admin"))])
 def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db)):
     """创建货源分配"""
     # 验证客户存在
@@ -110,7 +110,7 @@ def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db
 
 
 @router.post("/batch", response_model=AllocationBatchResponse, summary="批量创建分配（折扣明细）",
-             dependencies=[Depends(require_roles("sales", "sales_manager", "admin"))])
+             dependencies=[Depends(require_roles("sales", "sales-manager", "admin"))])
 def create_allocations_batch(payload: AllocationBatchCreate, db: Session = Depends(get_db)):
     """批量创建订单明细。每个 line 写入一条 allocation 记录，
     共享相同的 batch 前缀 allocation_code，便于按批次聚合。"""
@@ -299,7 +299,7 @@ def list_allocations(
 
 
 @router.patch("/{allocation_id}/approval", response_model=AllocationResponse, summary="审批分配",
-              dependencies=[Depends(require_roles("sales_manager", "admin"))])
+              dependencies=[Depends(require_roles("sales-manager", "admin"))])
 def approve_allocation(
     allocation_id: int,
     body: AllocationApprovalRequest,

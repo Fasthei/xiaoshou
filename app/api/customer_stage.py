@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import CurrentUser, require_auth
+from app.auth import CurrentUser, require_auth, require_roles
 from app.database import get_db
 from app.models.customer import Customer
 from app.models.customer_stage_request import CustomerStageRequest
@@ -211,7 +211,8 @@ def list_stage_requests(
 
 
 @request_router.post("/{request_id}/approve", response_model=StageRequestOut,
-                     summary="主管批准 stage 变更")
+                     summary="主管批准 stage 变更",
+                     dependencies=[Depends(require_roles("sales-manager", "admin"))])
 def approve_stage_request(
     request_id: int,
     db: Session = Depends(get_db),
@@ -249,7 +250,8 @@ def approve_stage_request(
 
 
 @request_router.post("/{request_id}/reject", response_model=StageRequestOut,
-                     summary="主管驳回")
+                     summary="主管驳回",
+                     dependencies=[Depends(require_roles("sales-manager", "admin"))])
 def reject_stage_request(
     request_id: int,
     body: StageRejectBody,

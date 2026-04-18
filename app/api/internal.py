@@ -7,6 +7,7 @@ Auth: accepts either
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -18,6 +19,9 @@ from app.integrations.casdoor_m2m import verify_internal
 from app.models.allocation import Allocation
 from app.models.customer import Customer
 from app.models.resource import Resource
+from app.services.usage_surge_trigger import evaluate_usage_surge_rules
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/internal", tags=["内部 M2M"])
 
@@ -67,3 +71,34 @@ def export_allocations(
             "updated_at": a.updated_at.isoformat() if a.updated_at else None,
         })
     return {"total": len(items), "items": items}
+
+
+@router.post(
+    "/cron/usage-surge",
+    summary="用量激增预警 cron 触发（外部定时任务调用）",
+    description=(
+        "评估所有启用的 usage_surge 预警规则并写入 alert_event。\n\n"
+        "Auth: 与 /api/internal/* 同——接受 X-Internal-Api-Key 或 M2M Bearer JWT。\n\n"
+        "推荐调度频率：每小时一次（每天也可，取决于业务监控精度需求）。\n"
+        "Azure Container Apps 用法：建 Scheduled Job，Command 为\n"
+        "`curl -sf -X POST $API_BASE/api/internal/cron/usage-surge "
+        "-H 'X-Internal-Api-Key: $XIAOSHOU_INTERNAL_API_KEY'`。"
+    ),
+)
+def cron_usage_surge(
+    _auth_dep: None = Depends(_auth),
+    db: Session = Depends(get_db),
+):
+    """触发 usage_surge 规则评估。失败时返回 500，不阻塞调用方重试。"""
+    try:
+        triggered = evaluate_usage_surge_rules(db)
+    except Exception as exc:
+        logger.exception("cron_usage_surge failed: %s", exc)
+        raise HTTPException(500, f"usage_surge evaluation error: {exc}") from exc
+
+    logger.info("cron_usage_surge: triggered=%d", triggered)
+    return {
+        "ok": True,
+        "triggered_events": triggered,
+        "evaluated_at": datetime.utcnow().isoformat() + "Z",
+    }

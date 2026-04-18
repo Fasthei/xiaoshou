@@ -249,3 +249,26 @@
 
 阶段 8 / 9 不派 agent(主要是 ops + browser test)。
 
+
+---
+
+# 第三轮规划 — CLAUDE.md 剩余 sprint 多 agent 并行 + 线上第一轮测试
+
+> 用户决策(阶段 9 通过后):把 CLAUDE.md 还没实现的 sprint 全派 agent 做完,然后线上第一轮测试。
+> 创建时间: 2026-04-18
+
+## 阶段 10:多 agent 并行实施 sprint
+
+| agent | 任务 | 范围 |
+|---|---|---|
+| **S1** | 销售个人 YTD 目标进度模块(前后端) | sales home 加进度条 / 缺口 / 到年末差距 + 后端 endpoint |
+| **S2** | 角色守卫完整化 | 前端 RoleGuard 守卫 `/manager/*` 防越权 + 后端 `require_role` helper |
+| **S3** | usage_surge 4 真测试 + customer_status 真代码迁移 7 处 | 把 skip 骨架填实数据 + 7 处 customer_status 用法切到 lifecycle_stage |
+| **S4** | dev 入口残留 audit + 用量预警 cron 触发器 | grep dev_html / as-*.html;新增 cron 端点定时跑 evaluator |
+
+## 阶段 11:线上第一轮测试
+
+- 收齐 → 合并 commit → push → CI 绿 → auto-merge → deploy
+- agent-browser 跑全功能(含 sprint 新功能):YTD 进度、角色守卫拦截、新建规则、cron 触发
+- 报告
+

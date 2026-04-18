@@ -115,7 +115,7 @@ class LocalProspectItem(BaseModel):
 
 
 @router.get("/leads/local-prospects", response_model=List[LocalProspectItem],
-            summary="列出本地潜在客户 (customer_status=potential) - 没谈成功的客户")
+            summary="列出本地潜在客户 (lifecycle_stage=lead) - 商机池客户")
 def list_local_prospects(
     keyword: Optional[str] = Query(None, description="名称 / 编号搜索"),
     db: Session = Depends(get_db),
@@ -123,7 +123,7 @@ def list_local_prospects(
 ):
     q = db.query(Customer).filter(
         Customer.is_deleted == False,  # noqa: E712
-        Customer.customer_status == "potential",
+        Customer.lifecycle_stage == "lead",
     )
     if keyword:
         like = f"%{keyword}%"
@@ -198,7 +198,8 @@ def promote_lead(
         customer_code=body.customer_code,
         customer_name=body.customer_name,
         industry=body.industry,
-        customer_status="potential",
+        customer_status="potential",   # kept for backward compat
+        lifecycle_stage="lead",        # new read path
         source_system="jina-lead",
         source_id=body.source_url,
     )

@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     # 超级运营中心访问专用 API key (只读, /api/external/*)
     SUPER_OPS_API_KEY: str = ""
 
+    # 用量激增预警调度间隔（秒）——仅供外部 cron 参考，不影响应用内部行为
+    # 默认 3600 = 每小时; 设为 86400 = 每天
+    USAGE_SURGE_INTERVAL_SECONDS: int = 3600
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

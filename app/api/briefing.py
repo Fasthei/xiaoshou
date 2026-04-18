@@ -56,15 +56,15 @@ def briefing(db: Session = Depends(get_db), _: CurrentUser = Depends(require_aut
         except Exception:
             pass
 
-    # 2) 潜在客户（prospect 状态）
+    # 2) 商机池客户（lifecycle_stage=lead，原 prospect/potential 状态）
     prospects = db.query(Customer).filter(
-        Customer.customer_status == "prospect", Customer.is_deleted == False,  # noqa: E712
+        Customer.lifecycle_stage == "lead", Customer.is_deleted == False,  # noqa: E712
     ).count()
     if prospects:
         items.append(BriefingItem(
             kind="lead", severity="info",
-            title=f"{prospects} 个潜在客户待跟进",
-            detail="来自商机挖掘 / 工单同步，可进入「客户管理」筛选 prospect",
+            title=f"{prospects} 个商机池客户待跟进",
+            detail="处于 lead 阶段，可进入「客户管理」筛选 lead 状态",
         ))
 
     # 3) 最近 14 天新分配

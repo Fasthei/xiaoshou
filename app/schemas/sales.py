@@ -181,6 +181,28 @@ class TargetProgressOut(BaseModel):
     last_update: Optional[datetime] = None
 
 
+class MyTargetProgressOut(BaseModel):
+    """销售个人 YTD 目标进度 (自助查询, 调 /api/sales/me/target-progress)。"""
+    sales_user_id: int
+    sales_user_name: str
+    target_year: Optional[int] = None
+    annual_sales_target: Optional[Decimal] = Field(None, description="年度销售额目标")
+    annual_profit_target: Optional[Decimal] = Field(None, description="年度毛利目标")
+    profit_margin_target: Optional[Decimal] = Field(None, description="年度毛利率目标 %")
+    ytd_sales: Decimal = Field(Decimal("0"), description="当年累计销售额 (total_price)")
+    ytd_profit: Decimal = Field(Decimal("0"), description="当年累计毛利 (profit_amount)")
+    sales_progress_pct: float = Field(0.0, description="销售额进度 0-200%")
+    profit_progress_pct: float = Field(0.0, description="毛利进度 0-200%")
+    days_remaining_in_year: int = Field(0, description="今天距 12-31 剩余天数")
+    daily_sales_target_to_close: Decimal = Field(
+        Decimal("0"), description="销售额缺口 / 剩余天数 (日均需达成)"
+    )
+    daily_profit_target_to_close: Decimal = Field(
+        Decimal("0"), description="毛利缺口 / 剩余天数 (日均需达成)"
+    )
+    unbound: bool = Field(False, description="True = 当前账号未绑定本地 SalesUser")
+
+
 # ---------- 工作计划 CRUD ----------
 
 class SalesPlanBase(BaseModel):
