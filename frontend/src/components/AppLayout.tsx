@@ -25,17 +25,21 @@ type MenuEntry = {
   label: React.ReactNode;
   roles?: string[];
   hideForRoles?: string[];
+  // 如果 true，admin/root 也不再享受 "全部菜单默认可见" 的 bypass，必须满足 roles 白名单。
+  // 给那些角色语义非常强的页面用（如 /home 是销售日常工作台、/alerts 是销售的预警）。
+  noAdminBypass?: boolean;
 };
 
 const ALL_MENU_ITEMS: MenuEntry[] = [
-  { key: '/home',        icon: <RocketOutlined />,     label: <Link to="/home">我的工作台</Link>, hideForRoles: ['sales-manager'] },
+  // /home 与 /alerts 是销售日常用页面，主管 / 超管都不关心；用白名单 + 关掉 admin bypass 彻底挡住。
+  { key: '/home',        icon: <RocketOutlined />,     label: <Link to="/home">我的工作台</Link>, roles: ['sales'], noAdminBypass: true },
   { key: '/dashboard',   icon: <DashboardOutlined />,  label: <Link to="/dashboard">总览</Link>, hideForRoles: ['sales'] },
   { key: '/manager',     icon: <FundProjectionScreenOutlined />, label: <Link to="/manager">主管中心</Link>, roles: ['sales-manager'] },
   { key: '/follow-ups',  icon: <ScheduleOutlined />,   label: <Link to="/follow-ups">跟进</Link> },
   { key: '/customers',   icon: <TeamOutlined />,       label: <Link to="/customers">客户管理</Link> },
   { key: '/resources',   icon: <InboxOutlined />,      label: <Link to="/resources">货源看板</Link> },
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
-  { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link>, hideForRoles: ['sales-manager'] },
+  { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link>, roles: ['sales'], noAdminBypass: true },
   { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link>, roles: ['sales', 'sales-manager'] },
   // 报表 BI 不再作为独立菜单，已作为账单中心内的一个 Tab（仅 sales-manager/admin 可见）。
 ];
@@ -43,13 +47,11 @@ const ALL_MENU_ITEMS: MenuEntry[] = [
 function filterMenuByRoles(roles: string[]): MenuEntry[] {
   const isAdmin = roles.includes('admin') || roles.includes('root');
   return ALL_MENU_ITEMS.filter((it) => {
-    // hideForRoles 是 "角色黑名单"：即使账号也挂 admin，只要同时挂了被黑的角色就隐藏。
-    // 这样 admin+sales-manager 混合账号看到的菜单，和纯 sales-manager 一致；
-    // 纯 admin（无 sales-manager/sales 角色）不会命中 hideForRoles，仍然看得到
-    // /home /alerts 等给普通销售用的菜单。
+    // hideForRoles 是 "角色黑名单"：任何账号（含 admin）只要持有被黑的角色就隐藏。
     if (it.hideForRoles?.some((r) => roles.includes(r))) return false;
     if (!it.roles) return true;
-    if (isAdmin) return true;
+    // admin/root 的默认 "看全部" bypass；带 noAdminBypass 的条目不享受。
+    if (isAdmin && !it.noAdminBypass) return true;
     return it.roles.some((r) => roles.includes(r));
   });
 }
