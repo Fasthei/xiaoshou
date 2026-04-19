@@ -487,10 +487,23 @@ const TAB_ITEMS = [
   { key: 'yoy',             label: '同比环比',   children: <YoyTab /> },
 ];
 
-export default function Reports() {
+export default function Reports({ embedded = false }: { embedded?: boolean } = {}) {
+  // `embedded = true` → 作为账单中心的一个 Tab 嵌入时不再渲染顶部 Hero banner，
+  // 避免和外层 Bills.tsx 的英雄区重复；外层也已经有页面过渡动画，不再套 page-fade。
+  const body = (
+    <Card bordered={false} style={{ borderRadius: 12 }}>
+      <Tabs
+        defaultActiveKey="sales-trend"
+        items={TAB_ITEMS}
+        destroyInactiveTabPane
+      />
+    </Card>
+  );
+
+  if (embedded) return body;
+
   return (
     <div className="page-fade">
-      {/* Hero banner — matches ManagerPanorama style */}
       <Card
         bordered={false}
         style={{
@@ -512,14 +525,7 @@ export default function Reports() {
           </Text>
         </Space>
       </Card>
-
-      <Card bordered={false} style={{ borderRadius: 12 }}>
-        <Tabs
-          defaultActiveKey="sales-trend"
-          items={TAB_ITEMS}
-          destroyInactiveTabPane
-        />
-      </Card>
+      {body}
     </div>
   );
 }
