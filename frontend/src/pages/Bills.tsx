@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Table, Tag, Typography, Space, DatePicker, Button, Statistic,
-  Row, Col, Empty, Alert, Modal,
+  Row, Col, Empty, Alert, Modal, Tabs,
   message as antdMessage,
 } from 'antd';
 import {
   ReloadOutlined, DollarOutlined, DownloadOutlined, CalculatorOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import { api } from '../api/axios';
+import { api, getCurrentRoles } from '../api/axios';
 import DiscountCalculatorDrawer from '../components/DiscountCalculatorDrawer';
+import Reports from './Reports';
 
 const { Title, Text } = Typography;
 
@@ -171,6 +173,13 @@ export default function Bills() {
     [rows],
   );
 
+  // 报表 BI 作为账单中心内的一个 Tab，只对 sales-manager / admin / root 可见。
+  // 纯 sales 角色打开账单中心时只会看到 "账单聚合" 一个 Tab。
+  const canSeeReports = useMemo(() => {
+    const r = getCurrentRoles();
+    return r.includes('sales-manager') || r.includes('admin') || r.includes('root');
+  }, []);
+
   const customerColumns = [
     { title: '客户名称', dataIndex: 'customer_name', width: 200,
       render: (v: string, r: CustomerBill) => (
@@ -281,6 +290,10 @@ export default function Bills() {
         </Row>
       </Card>
 
+      <Tabs
+        defaultActiveKey="bills"
+        items={[
+          { key: 'bills', label: (<Space size={6}><DollarOutlined />账单聚合</Space>), children: (<>
       <Card
         bordered={false}
         style={{ borderRadius: 12 }}
@@ -354,6 +367,14 @@ export default function Bills() {
           />
         </Card>
       )}
+          </>) },
+          ...(canSeeReports ? [{
+            key: 'reports',
+            label: (<Space size={6}><BarChartOutlined />报表 BI</Space>),
+            children: <Reports embedded />,
+          }] : []),
+        ]}
+      />
 
       <DiscountCalculatorDrawer open={calcOpen} onClose={() => setCalcOpen(false)} />
     </div>

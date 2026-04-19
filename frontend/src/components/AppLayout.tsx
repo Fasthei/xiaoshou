@@ -7,7 +7,7 @@ import {
   LogoutOutlined, UserOutlined,
   SearchOutlined, BulbOutlined, BulbFilled,
   AlertOutlined, DollarOutlined, FundProjectionScreenOutlined,
-  RocketOutlined, ScheduleOutlined, BarChartOutlined,
+  RocketOutlined, ScheduleOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,14 +37,17 @@ const ALL_MENU_ITEMS: MenuEntry[] = [
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
   { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link>, hideForRoles: ['sales-manager'] },
   { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link>, roles: ['sales', 'sales-manager'] },
-  { key: '/reports',    icon: <BarChartOutlined />,   label: <Link to="/reports">报表 BI</Link>, roles: ['sales-manager'] },
+  // 报表 BI 不再作为独立菜单，已作为账单中心内的一个 Tab（仅 sales-manager/admin 可见）。
 ];
 
 function filterMenuByRoles(roles: string[]): MenuEntry[] {
   const isAdmin = roles.includes('admin') || roles.includes('root');
   return ALL_MENU_ITEMS.filter((it) => {
-    // hideForRoles: hide when user has any of these roles (admin bypass)
-    if (!isAdmin && it.hideForRoles?.some((r) => roles.includes(r))) return false;
+    // hideForRoles 是 "角色黑名单"：即使账号也挂 admin，只要同时挂了被黑的角色就隐藏。
+    // 这样 admin+sales-manager 混合账号看到的菜单，和纯 sales-manager 一致；
+    // 纯 admin（无 sales-manager/sales 角色）不会命中 hideForRoles，仍然看得到
+    // /home /alerts 等给普通销售用的菜单。
+    if (it.hideForRoles?.some((r) => roles.includes(r))) return false;
     if (!it.roles) return true;
     if (isAdmin) return true;
     return it.roles.some((r) => roles.includes(r));
