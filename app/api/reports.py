@@ -1,6 +1,6 @@
 """复杂报表 / BI 后端 — /api/reports/*
 
-5 个 endpoint，全部 require_roles('sales_manager', 'admin')。
+5 个 endpoint，全部 require_roles('sales-manager', 'admin')。
 不引入 pandas / numpy，纯 SQLAlchemy 聚合 + Python 切片。
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reports", tags=["报表BI"])
 
 # 角色守卫 dependency
-_manager_dep = Depends(require_roles("sales_manager", "admin"))
+_manager_dep = Depends(require_roles("sales-manager", "admin"))
 
 
 # ──────────────────────────────────────────────
