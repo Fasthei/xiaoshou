@@ -10,7 +10,7 @@ ADMIN = "admin"
 
 # Sales org
 SALES = "sales"
-SALES_MANAGER = "sales_manager"
+SALES_MANAGER = "sales-manager"
 
 # Cross-functional
 FINANCE = "finance"
