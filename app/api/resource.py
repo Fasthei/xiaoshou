@@ -43,11 +43,16 @@ def get_resource_summary(db: Session = Depends(get_db)):
     prov_map: dict[str, dict] = {}
     for it in all_items:
         p = it.cloud_provider or "UNKNOWN"
-        row = prov_map.setdefault(p, {"provider": p, "by_status": {}})
+        row = prov_map.setdefault(p, {
+            "provider": p, "total": 0, "available": 0, "by_status": {},
+        })
         st = it.resource_status or "UNKNOWN"
         row["by_status"][st] = row["by_status"].get(st, 0) + 1
+        row["total"] = row["total"] + 1
+        if st == "AVAILABLE":
+            row["available"] = row["available"] + 1
 
-    by_provider = sorted(prov_map.values(), key=lambda r: sum(r["by_status"].values()), reverse=True)
+    by_provider = sorted(prov_map.values(), key=lambda r: r["total"], reverse=True)
 
     # Top 10 最新同步的 AVAILABLE 账号 (仅作下拉/参考用途, 不返回 available_quantity
     # 因为云管没这个字段, 本地凑的值没意义).
@@ -62,8 +67,16 @@ def get_resource_summary(db: Session = Depends(get_db)):
         "provider": it.cloud_provider,
     } for it in top_items]
 
-    # CLAUDE.md 3.2: 只展示 status 维度聚合，不暴露 total/available 数量列
+    # CLAUDE.md §3.2: 只展示 status 维度聚合，不暴露本地凑的 quantity 列
+    # (total_quantity/allocated_quantity/available_quantity). 顶层 `total` /
+    # `available` 与 by_provider[*].total / .available 是**账号数**计数
+    # (= len of ServiceAccount 行)，不是凑出来的数量，仍符合 §3.2 的
+    # "只按 status 维度聚合账号数"口径。口径不变量:
+    #   data["available"] == data["by_status"]["AVAILABLE"]
+    #                    == sum(p["available"] for p in data["by_provider"])
     return {
+        "total": total,
+        "available": by_status.get("AVAILABLE", 0),
         "by_status": by_status,
         "by_provider": by_provider,
         "top_available": top_available,
