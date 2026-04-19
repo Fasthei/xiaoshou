@@ -85,8 +85,8 @@ export default function AppLayout() {
         }}>
           <div style={{
             width: 28, height: 28,
-            borderRadius: 8,
-            background: 'linear-gradient(135deg, #4f46e5, #ec4899)',
+            borderRadius: 4,
+            background: '#0078D4',
             display: 'grid', placeItems: 'center', fontSize: 16,
           }}>🛒</div>
           {!collapsed && (
@@ -141,7 +141,7 @@ export default function AppLayout() {
               ],
             }}>
               <Space style={{ cursor: 'pointer' }}>
-                <Avatar style={{ background: 'linear-gradient(135deg, #4f46e5, #ec4899)' }}>
+                <Avatar style={{ background: '#0078D4' }}>
                   {user?.name?.[0]?.toUpperCase() || 'U'}
                 </Avatar>
                 <span>{user?.name || '未知'}</span>

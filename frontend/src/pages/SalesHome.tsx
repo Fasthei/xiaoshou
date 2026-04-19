@@ -150,7 +150,7 @@ export default function SalesHome() {
       <Card
         title={
           <Space>
-            <CheckSquareOutlined style={{ color: '#f59e0b' }} />
+            <CheckSquareOutlined style={{ color: '#C19C00' }} />
             <span>我的代办 / 跟进</span>
             {dueCount > 0 && <Tag color="orange">{dueCount} 条到期</Tag>}
             {staleCount > 0 && <Tag color="red">{staleCount} 条冷落</Tag>}
@@ -234,7 +234,7 @@ export default function SalesHome() {
             {staleCount > 0 && (
               <div>
                 <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                  <FireOutlined style={{ color: '#ef4444' }} /> 长期冷落 ({staleCount}, {'>'}14 天未联系)
+                  <FireOutlined style={{ color: '#A4262C' }} /> 长期冷落 ({staleCount}, {'>'}14 天未联系)
                 </Text>
                 <Table<TodoStale>
                   rowKey="customer_id"
@@ -279,7 +279,7 @@ export default function SalesHome() {
       <Card
         title={
           <Space>
-            <AimOutlined style={{ color: '#16a34a' }} />
+            <AimOutlined style={{ color: '#107C10' }} />
             <span>年度目标 · {targetProgress?.target_year ?? new Date().getFullYear()} 年度进度</span>
           </Space>
         }
@@ -314,14 +314,14 @@ export default function SalesHome() {
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <Text type="secondary">YTD 已完成</Text>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#107C10' }}>
                           {fmtMoney(targetProgress.ytd_sales)}
                         </div>
                       </div>
                     </Space>
                     <Progress
                       percent={Math.min(100, targetProgress.sales_progress_pct)}
-                      strokeColor={{ '0%': '#16a34a', '100%': '#4f46e5' }}
+                      strokeColor={{ '0%': '#107C10', '100%': '#0078D4' }}
                       status={targetProgress.sales_progress_pct >= 100 ? 'success' : 'active'}
                       format={() => `${targetProgress.sales_progress_pct.toFixed(1)}%`}
                     />
@@ -351,14 +351,14 @@ export default function SalesHome() {
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <Text type="secondary">YTD 已完成</Text>
-                        <div style={{ fontSize: 20, fontWeight: 700, color: '#4f46e5' }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#0078D4' }}>
                           {fmtMoney(targetProgress.ytd_profit)}
                         </div>
                       </div>
                     </Space>
                     <Progress
                       percent={Math.min(100, targetProgress.profit_progress_pct)}
-                      strokeColor={{ '0%': '#4f46e5', '100%': '#16a34a' }}
+                      strokeColor={{ '0%': '#0078D4', '100%': '#107C10' }}
                       status={targetProgress.profit_progress_pct >= 100 ? 'success' : 'active'}
                       format={() => `${targetProgress.profit_progress_pct.toFixed(1)}%`}
                     />
@@ -382,7 +382,7 @@ export default function SalesHome() {
                     title="距年末剩余天数"
                     value={targetProgress.days_remaining_in_year}
                     suffix="天"
-                    valueStyle={{ fontSize: 20, color: '#f59e0b' }}
+                    valueStyle={{ fontSize: 20, color: '#C19C00' }}
                   />
                 </Col>
                 {targetProgress.profit_margin_target != null && (
@@ -391,7 +391,7 @@ export default function SalesHome() {
                       title="毛利率目标"
                       value={Number(targetProgress.profit_margin_target).toFixed(1)}
                       suffix="%"
-                      valueStyle={{ fontSize: 20, color: '#0ea5e9' }}
+                      valueStyle={{ fontSize: 20, color: '#2B88D8' }}
                     />
                   </Col>
                 )}
@@ -405,7 +405,7 @@ export default function SalesHome() {
       <Card
         title={
           <Space>
-            <AimOutlined style={{ color: '#4f46e5' }} />
+            <AimOutlined style={{ color: '#0078D4' }} />
             <span>我的 KPI · {kpi?.target_year ?? new Date().getFullYear()} 年度目标</span>
           </Space>
         }
@@ -428,14 +428,14 @@ export default function SalesHome() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <Text type="secondary">YTD 已完成</Text>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: '#16a34a' }}>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: '#107C10' }}>
                         {fmtMoney(kpi?.ytd_achievement)}
                       </div>
                     </div>
                   </Space>
                   <Progress
                     percent={Math.min(100, kpi?.progress_pct ?? 0)}
-                    strokeColor={{ '0%': '#4f46e5', '100%': '#16a34a' }}
+                    strokeColor={{ '0%': '#0078D4', '100%': '#107C10' }}
                     format={() => `${(kpi?.progress_pct ?? 0).toFixed(1)}%`}
                   />
                   <Text type="secondary">
@@ -457,19 +457,19 @@ export default function SalesHome() {
                 <Row gutter={[12, 12]}>
                   <Col span={12}>
                     <Statistic title="新增商机" value={kpi?.month_new_opportunities ?? 0}
-                      valueStyle={{ fontSize: 20, color: '#4f46e5' }} />
+                      valueStyle={{ fontSize: 20, color: '#0078D4' }} />
                   </Col>
                   <Col span={12}>
                     <Statistic title="跟进次数" value={kpi?.month_follow_ups ?? 0}
-                      valueStyle={{ fontSize: 20, color: '#0ea5e9' }} />
+                      valueStyle={{ fontSize: 20, color: '#2B88D8' }} />
                   </Col>
                   <Col span={12}>
                     <Statistic title="成单数" value={kpi?.month_deals ?? 0}
-                      valueStyle={{ fontSize: 20, color: '#16a34a' }} />
+                      valueStyle={{ fontSize: 20, color: '#107C10' }} />
                   </Col>
                   <Col span={12}>
                     <Statistic title="签约金额" value={fmtMoney(kpi?.month_signed_amount)}
-                      valueStyle={{ fontSize: 20, color: '#ec4899' }} />
+                      valueStyle={{ fontSize: 20, color: '#0078D4' }} />
                   </Col>
                 </Row>
               </Card>

@@ -215,21 +215,21 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             title: '折后价',
             width: 110,
             render: (_: any, row) => (
-              <Text style={{ color: '#0ea5e9' }}>¥{row.discounted.toFixed(2)}</Text>
+              <Text style={{ color: '#2B88D8' }}>¥{row.discounted.toFixed(2)}</Text>
             ),
           },
           {
             title: '售价',
             width: 110,
             render: (_: any, row) => (
-              <Text style={{ color: '#4f46e5' }}>¥{row.selling.toFixed(2)}</Text>
+              <Text style={{ color: '#0078D4' }}>¥{row.selling.toFixed(2)}</Text>
             ),
           },
           {
             title: '毛利',
             width: 110,
             render: (_: any, row) => (
-              <Text strong style={{ color: row.profit >= 0 ? '#22c55e' : '#ef4444' }}>
+              <Text strong style={{ color: row.profit >= 0 ? '#107C10' : '#A4262C' }}>
                 ¥{row.profit.toFixed(2)}
               </Text>
             ),
@@ -281,14 +281,14 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             value={totals.totalDiscounted}
             precision={2}
             prefix="¥"
-            valueStyle={{ color: '#0ea5e9' }}
+            valueStyle={{ color: '#2B88D8' }}
           />
           <Statistic
             title="合计加价售价"
             value={totals.totalSelling}
             precision={2}
             prefix="¥"
-            valueStyle={{ color: '#4f46e5' }}
+            valueStyle={{ color: '#0078D4' }}
           />
         </Space>
         <Space wrap size={24}>
@@ -297,13 +297,13 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             value={totals.totalProfit}
             precision={2}
             prefix="¥"
-            valueStyle={{ color: totals.totalProfit >= 0 ? '#22c55e' : '#ef4444' }}
+            valueStyle={{ color: totals.totalProfit >= 0 ? '#107C10' : '#A4262C' }}
           />
           <Statistic
             title="整体毛利率"
             value={(totals.totalProfitRate * 100).toFixed(2)}
             suffix="%"
-            valueStyle={{ color: totals.totalProfitRate >= 0 ? '#22c55e' : '#ef4444' }}
+            valueStyle={{ color: totals.totalProfitRate >= 0 ? '#107C10' : '#A4262C' }}
           />
         </Space>
         {totals.totalSelling <= 0 && (

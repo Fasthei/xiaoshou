@@ -220,7 +220,7 @@ export default function CustomerInsightPanel({ customerId }: { customerId: numbe
       key: 'latest',
       label: (
         <Space>
-          <ThunderboltOutlined style={{ color: '#f59e0b' }} />
+          <ThunderboltOutlined style={{ color: '#C19C00' }} />
           <Text strong>最新结果</Text>
           {lastRun && !running && (
             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -313,7 +313,7 @@ export default function CustomerInsightPanel({ customerId }: { customerId: numbe
         <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
           <Space direction="vertical" size={0}>
             <Text strong>
-              <BulbOutlined style={{ color: '#f59e0b' }} /> AI 客户洞察
+              <BulbOutlined style={{ color: '#C19C00' }} /> AI 客户洞察
             </Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
               大模型自主规划调用 Jina 搜索 + LinkedIn 查询，广撒网收集客户周边信息（增量存档）

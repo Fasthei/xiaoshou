@@ -122,8 +122,8 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                 onMouseEnter={() => setFocus(i)}
                 style={{
                   padding: '10px 18px', cursor: 'pointer',
-                  background: i === focus ? 'rgba(79,70,229,0.08)' : undefined,
-                  borderLeft: i === focus ? '3px solid #4f46e5' : '3px solid transparent',
+                  background: i === focus ? '#DEECF9' : undefined,
+                  borderLeft: i === focus ? '3px solid #0078D4' : '3px solid transparent',
                 }}
               >
                 <Space style={{ width: '100%', justifyContent: 'space-between' }}>

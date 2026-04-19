@@ -3,6 +3,8 @@ import { ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeModeProvider, useThemeMode } from './contexts/ThemeContext';
+import { ANTD_TOKEN, ANTD_COMPONENTS } from './styles/tokens';
+import './styles/aurora.css';
 import PrivateRoute from './components/PrivateRoute';
 import RoleGuard from './components/RoleGuard';
 import AppLayout from './components/AppLayout';
@@ -36,7 +38,8 @@ function Shell() {
       locale={zhCN}
       theme={{
         algorithm: mode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
-        token: { colorPrimary: '#4f46e5', borderRadius: 8 },
+        token: ANTD_TOKEN,
+        components: ANTD_COMPONENTS,
       }}
     >
       <AuthProvider>

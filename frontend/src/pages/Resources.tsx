@@ -11,20 +11,20 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const PROVIDER_COLOR: Record<string, string> = {
-  AWS: '#fa8c16',   // 橙
-  AZURE: '#1677ff', // 蓝
-  GCP: '#f5222d',   // 红
-  ALIYUN: '#52c41a',
-  UNKNOWN: '#8c8c8c',
+  AWS: '#8C5A00',     // 克制琥珀
+  AZURE: '#0078D4',   // Azure 主蓝
+  GCP: '#A4262C',     // 克制红
+  ALIYUN: '#107C10',  // 克制绿
+  UNKNOWN: '#A19F9D',
 };
 
 const STATUS_PIE_COLOR: Record<string, string> = {
-  AVAILABLE: '#52c41a',
-  ALLOCATED: '#1677ff',
-  EXPIRED: '#bfbfbf',
-  FROZEN: '#f5222d',
-  EXHAUSTED: '#fa8c16',
-  UNKNOWN: '#d9d9d9',
+  AVAILABLE: '#107C10',
+  ALLOCATED: '#0078D4',
+  EXPIRED: '#C8C6C4',
+  FROZEN: '#A4262C',
+  EXHAUSTED: '#8C5A00',
+  UNKNOWN: '#E1DFDD',
 };
 
 interface ProviderRow {
@@ -239,17 +239,17 @@ export default function Resources() {
             </Col>
             <Col xs={12} md={6}>
               <Card size="small" loading={summaryLoading}>
-                <Statistic title="可用" value={stats.available} valueStyle={{ color: '#52c41a' }} />
+                <Statistic title="可用" value={stats.available} valueStyle={{ color: '#107C10' }} />
               </Card>
             </Col>
             <Col xs={12} md={6}>
               <Card size="small" loading={summaryLoading}>
-                <Statistic title="停用 (STANDBY)" value={stats.standby} valueStyle={{ color: '#8c8c8c' }} />
+                <Statistic title="停用 (STANDBY)" value={stats.standby} valueStyle={{ color: '#6B7280' }} />
               </Card>
             </Col>
             <Col xs={12} md={6}>
               <Card size="small" loading={summaryLoading}>
-                <Statistic title="异常" value={stats.abnormal} valueStyle={{ color: '#f5222d' }} />
+                <Statistic title="异常" value={stats.abnormal} valueStyle={{ color: '#A4262C' }} />
               </Card>
             </Col>
           </Row>
@@ -263,7 +263,7 @@ export default function Resources() {
                       <Card
                         size="small"
                         style={{
-                          borderLeft: `4px solid ${PROVIDER_COLOR[p.provider] || '#8c8c8c'}`,
+                          borderLeft: `4px solid ${PROVIDER_COLOR[p.provider] || '#A19F9D'}`,
                         }}
                       >
                         <Space direction="vertical" size={4} style={{ width: '100%' }}>

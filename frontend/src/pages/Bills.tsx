@@ -194,7 +194,7 @@ export default function Bills() {
       } },
     { title: '折后合计', dataIndex: 'total_final_cost', width: 160,
       render: (v: number, r: CustomerBill) =>
-        <Text strong style={{ color: '#ec4899' }}>¥{Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
+        <Text strong>¥{Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
     { title: '操作', width: 120, render: (_: any, r: CustomerBill) => (
       <Button size="small" type="link"
         onClick={() => loadDayDrill(r.customer_id, r.customer_name)}>
@@ -241,46 +241,42 @@ export default function Bills() {
       <Card
         bordered={false}
         style={{
-          borderRadius: 12, marginBottom: 16,
-          background: 'linear-gradient(120deg, #10b981 0%, #0ea5e9 100%)',
-          color: 'white',
+          borderRadius: 4, marginBottom: 16,
+          background: '#FFFFFF',
+          border: '1px solid #E1DFDD',
+          color: '#1F2937',
         }}
         styles={{ body: { padding: 24 } }}
       >
         <Row gutter={24}>
           <Col xs={24} md={9}>
-            <Text style={{ color: 'rgba(255,255,255,0.8)', letterSpacing: 4 }}>BILLS · 本地聚合</Text>
-            <Title level={2} style={{ color: 'white', margin: '4px 0 0' }}>
+            <Text style={{ color: '#6B7280', letterSpacing: 4 }}>BILLS · 本地聚合</Text>
+            <Title level={2} style={{ color: '#1F2937', margin: '4px 0 0' }}>
               <DollarOutlined /> 账单中心
             </Title>
-            <Text style={{ color: 'rgba(255,255,255,0.8)' }}>
+            <Text style={{ color: '#6B7280' }}>
               云管原始数据 × 销售分配关系（customer_resource）→ 本地聚合 · 原价 / 折扣率 / 折后价 三列贯通
             </Text>
           </Col>
           <Col xs={12} md={3}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>客户数</span>}
-              value={customerCount}
-              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+            <Statistic title="客户数" value={customerCount}
+              valueStyle={{ color: '#1F2937', fontWeight: 600 }} />
           </Col>
           <Col xs={12} md={3}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>关联货源</span>}
-              value={resourceLinkCount}
-              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+            <Statistic title="关联货源" value={resourceLinkCount}
+              valueStyle={{ color: '#1F2937', fontWeight: 600 }} />
           </Col>
           <Col xs={12} md={3}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>原价合计</span>}
-              value={totalOriginalAll} precision={2} prefix="¥"
-              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+            <Statistic title="原价合计" value={totalOriginalAll} precision={2} prefix="¥"
+              valueStyle={{ color: '#1F2937', fontWeight: 600 }} />
           </Col>
           <Col xs={12} md={3}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>整体折扣</span>}
-              value={(overallDiscountRate * 100).toFixed(2)} suffix="%"
-              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+            <Statistic title="整体折扣" value={(overallDiscountRate * 100).toFixed(2)} suffix="%"
+              valueStyle={{ color: '#0078D4', fontWeight: 600 }} />
           </Col>
           <Col xs={24} md={3}>
-            <Statistic title={<span style={{ color: 'rgba(255,255,255,0.85)' }}>折后合计</span>}
-              value={totalFinalAll} precision={2} prefix="¥"
-              valueStyle={{ color: '#fff', fontWeight: 700 }} />
+            <Statistic title="折后合计" value={totalFinalAll} precision={2} prefix="¥"
+              valueStyle={{ color: '#0078D4', fontWeight: 600 }} />
           </Col>
         </Row>
       </Card>
