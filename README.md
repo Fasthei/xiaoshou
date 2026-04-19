@@ -2,6 +2,11 @@
 
 基于 FastAPI 开发的销售系统后端，部署到 **Azure Container Apps**，认证由 **Casdoor** 统一承担。
 
+> 📚 **所有产品 / 架构 / 接口文档已归档到 [docs/](./docs/README.md)**。
+> - 运营大脑 (super-ops) 对接 → **[docs/SUPER_OPS_API.md](./docs/SUPER_OPS_API.md)**
+> - 云管 (cloudcost) 消费契约 → [docs/CLOUDCOST_API.md](./docs/CLOUDCOST_API.md)
+> - 产品方案 → [docs/PRODUCT_PLAN.md](./docs/PRODUCT_PLAN.md) / 技术方案 → [docs/TECH_DESIGN.md](./docs/TECH_DESIGN.md)
+
 ## 功能模块
 
 - **客户管理**：客户主档、联系人管理、客户列表查询

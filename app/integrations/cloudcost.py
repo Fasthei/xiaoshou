@@ -189,7 +189,7 @@ class CloudCostClient:
 
         NOTE: Legacy endpoint. New sync code should prefer
         :meth:`metering_detail` / :meth:`metering_daily`, which are the
-        standardised metering interfaces (see api.md §"已接入").
+        standardised metering interfaces (see docs/CLOUDCOST_API.md §"已接入").
         """
         from datetime import datetime, timedelta
         end = datetime.utcnow().date()
