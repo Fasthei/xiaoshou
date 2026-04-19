@@ -72,7 +72,7 @@ const DIMENSION_OPTIONS: { label: string; value: DimensionOption }[] = [
   { label: '按销售人员', value: 'salesperson' },
 ];
 
-const COLORS = ['#4f46e5', '#ec4899', '#0ea5e9', '#22c55e', '#f59e0b', '#7c3aed'];
+const COLORS = ['#0078D4', '#2B88D8', '#005A9E', '#107C10', '#C19C00', '#8C5A00'];
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -423,7 +423,7 @@ function YoyTab() {
       render: (v) => {
         if (v == null) return '—';
         const pct = (Number(v) * 100).toFixed(1);
-        const color = Number(v) >= 0 ? '#22c55e' : '#ef4444';
+        const color = Number(v) >= 0 ? '#107C10' : '#A4262C';
         return <Text style={{ color }}>{Number(v) >= 0 ? '+' : ''}{pct}%</Text>;
       },
     },
@@ -433,7 +433,7 @@ function YoyTab() {
       render: (v) => {
         if (v == null) return '—';
         const pct = (Number(v) * 100).toFixed(1);
-        const color = Number(v) >= 0 ? '#22c55e' : '#ef4444';
+        const color = Number(v) >= 0 ? '#107C10' : '#A4262C';
         return <Text style={{ color }}>{Number(v) >= 0 ? '+' : ''}{pct}%</Text>;
       },
     },
@@ -494,19 +494,20 @@ export default function Reports() {
       <Card
         bordered={false}
         style={{
-          borderRadius: 16,
+          borderRadius: 4,
           marginBottom: 16,
-          background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #ec4899 100%)',
-          color: '#fff',
+          background: '#FFFFFF',
+          border: '1px solid #E1DFDD',
+          color: '#1F2937',
         }}
-        styles={{ body: { padding: 24 } }}
+        styles={{ body: { padding: 20 } }}
       >
-        <Space direction="vertical" size={4} style={{ color: '#fff' }}>
-          <Title level={3} style={{ color: '#fff', margin: 0 }}>
-            <BarChartOutlined style={{ marginRight: 8 }} />
+        <Space direction="vertical" size={4}>
+          <Title level={3} style={{ color: '#1F2937', margin: 0 }}>
+            <BarChartOutlined style={{ marginRight: 8, color: '#0078D4' }} />
             报表 BI
           </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.9)' }}>
+          <Text style={{ color: '#6B7280' }}>
             销售趋势 / 利润分析 / 漏斗 / 同比环比
           </Text>
         </Space>

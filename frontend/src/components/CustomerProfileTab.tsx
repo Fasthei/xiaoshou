@@ -93,8 +93,8 @@ export default function CustomerProfileTab({ customerId }: { customerId: number 
     }
   };
 
-  const tierColor = completeness?.tier === 'green' ? '#10b981'
-    : completeness?.tier === 'yellow' ? '#f59e0b' : '#ef4444';
+  const tierColor = completeness?.tier === 'green' ? '#107C10'
+    : completeness?.tier === 'yellow' ? '#C19C00' : '#A4262C';
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>

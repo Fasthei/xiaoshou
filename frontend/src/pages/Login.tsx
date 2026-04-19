@@ -14,62 +14,55 @@ export default function Login() {
 
   return (
     <>
-      <div className="aurora" />
       <div style={{
         minHeight: '100vh',
         display: 'grid',
         placeItems: 'center',
         padding: 24,
+        background: '#F5F7FA',
       }}>
         <Card
-          className="glass page-fade"
+          className="page-fade"
           styles={{ body: { padding: 32 } }}
           style={{
             width: 440,
-            borderRadius: 24,
-            background: 'rgba(14, 15, 32, 0.55)',
-            borderColor: 'rgba(255,255,255,0.18)',
-            boxShadow: '0 30px 80px rgba(0,0,0,0.35)',
+            borderRadius: 6,
+            background: '#FFFFFF',
+            border: '1px solid #E1DFDD',
           }}
         >
           <Space direction="vertical" size="large" style={{ width: '100%', textAlign: 'center' }}>
             <div style={{
-              width: 88, height: 88, margin: '0 auto',
-              borderRadius: 24,
-              background: 'linear-gradient(135deg, #4f46e5 0%, #ec4899 50%, #0ea5e9 100%)',
+              width: 72, height: 72, margin: '0 auto',
+              borderRadius: 6,
+              background: '#0078D4',
               display: 'grid', placeItems: 'center',
-              fontSize: 44,
-              boxShadow: '0 0 60px rgba(79, 70, 229, 0.55)',
+              fontSize: 36,
             }}>
               🛒
             </div>
             <div>
-              <Title level={2} style={{ color: '#fff', margin: 0, letterSpacing: 1 }}>
+              <Title level={2} style={{ color: '#1F2937', margin: 0, letterSpacing: 1 }}>
                 销售系统
               </Title>
-              <Text style={{ color: 'rgba(255,255,255,0.6)', letterSpacing: 6 }}>
+              <Text style={{ color: '#6B7280', letterSpacing: 6 }}>
                 XIAOSHOU · SALES
               </Text>
             </div>
-            <Paragraph style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 0 }}>
+            <Paragraph style={{ color: '#6B7280', marginBottom: 0 }}>
               客户 · 货源 · 订单 · 用量 · 智能洞察
             </Paragraph>
             <Button
               type="primary" size="large" icon={<LoginOutlined />} block
               onClick={handleLogin}
-              style={{
-                height: 48, fontSize: 15, letterSpacing: 1,
-                background: 'linear-gradient(90deg, #4f46e5 0%, #ec4899 100%)',
-                border: 'none',
-                boxShadow: '0 8px 24px rgba(79,70,229,0.45)',
-              }}
+              style={{ height: 44, fontSize: 14, letterSpacing: 1 }}
             >
               使用 Casdoor 统一身份登录
             </Button>
             <Space size={6} wrap style={{ justifyContent: 'center' }}>
               <Tag icon={<ThunderboltFilled />} color="blue">SSO 单点</Tag>
-              <Tag icon={<SafetyCertificateOutlined />} color="purple">RS256 JWT</Tag>
-              <Tag color="cyan">工单 / 运营 / 云管共用</Tag>
+              <Tag icon={<SafetyCertificateOutlined />}>RS256 JWT</Tag>
+              <Tag>工单 / 运营 / 云管共用</Tag>
             </Space>
           </Space>
         </Card>

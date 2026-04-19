@@ -543,7 +543,7 @@ export default function CustomerDetailDrawer({
   }, [historyBills, historyDate, historyStatus]);
 
   const tierBadge = (tier?: string) => {
-    const map: Record<string, string> = { KEY: '#ec4899', EXCLUSIVE: '#f59e0b', NORMAL: '#4f46e5' };
+    const map: Record<string, string> = { KEY: '#A4262C', EXCLUSIVE: '#C19C00', NORMAL: '#0078D4' };
     return tier ? <Tag color={map[tier] || 'default'}>{tier}</Tag> : null;
   };
 
@@ -552,7 +552,7 @@ export default function CustomerDetailDrawer({
       title={
         customer ? (
           <Space>
-            <Avatar size={40} style={{ background: 'linear-gradient(135deg, #4f46e5, #ec4899)' }}>
+            <Avatar size={40} style={{ background: '#0078D4' }}>
               {customer.customer_name?.[0]}
             </Avatar>
             <div>
@@ -711,7 +711,7 @@ export default function CustomerDetailDrawer({
                           <div style={{ textAlign: 'center' }}>
                             <div style={{
                               fontSize: 56, fontWeight: 700,
-                              color: health.tier === 'green' ? '#16a34a' : health.tier === 'yellow' ? '#f59e0b' : '#ef4444',
+                              color: health.tier === 'green' ? '#107C10' : health.tier === 'yellow' ? '#C19C00' : '#A4262C',
                             }}>{health.score}</div>
                             <Tag color={health.tier === 'green' ? 'green' : health.tier === 'yellow' ? 'orange' : 'red'}>
                               {health.tier === 'green' ? '健康' : health.tier === 'yellow' ? '关注' : '预警'}
@@ -739,7 +739,7 @@ export default function CustomerDetailDrawer({
                       <Descriptions.Item label="当前销售">
                         {currentSalesUser ? (
                           <Space>
-                            <Avatar size="small" style={{ background: '#6366f1' }}>{currentSalesUser.name[0]}</Avatar>
+                            <Avatar size="small" style={{ background: '#0078D4' }}>{currentSalesUser.name[0]}</Avatar>
                             <Text strong>{currentSalesUser.name}</Text>
                             {currentSalesUser.email ? <Text type="secondary">· {currentSalesUser.email}</Text> : null}
                           </Space>
@@ -826,7 +826,7 @@ export default function CustomerDetailDrawer({
                                     title="近 30 天新增"
                                     value={ticketStats.last_30d_count}
                                     valueStyle={{
-                                      color: ticketStats.last_30d_count > 0 ? '#fa8c16' : undefined,
+                                      color: ticketStats.last_30d_count > 0 ? '#C19C00' : undefined,
                                     }}
                                   />
                                 </Card>
@@ -906,7 +906,7 @@ export default function CustomerDetailDrawer({
                             columns={[
                               {
                                 title: '工单编号', dataIndex: 'ticket_code', width: 170,
-                                render: (v: string) => <code style={{ color: '#f97316' }}>{v}</code>,
+                                render: (v: string) => <code style={{ color: '#8C5A00' }}>{v}</code>,
                               },
                               {
                                 title: '标题', dataIndex: 'title', ellipsis: true,
@@ -938,7 +938,7 @@ export default function CustomerDetailDrawer({
                     {
                       key: 'insight',
                       label: (
-                        <Space><BulbOutlined style={{ color: '#f59e0b' }} />AI 洞察</Space>
+                        <Space><BulbOutlined style={{ color: '#C19C00' }} />AI 洞察</Space>
                       ),
                       children: <CustomerInsightPanel customerId={customer.id} />,
                     },
@@ -967,7 +967,7 @@ export default function CustomerDetailDrawer({
                             scroll={{ x: 720 }}
                             columns={[
                               { title: '合同号', dataIndex: 'contract_code', width: 140, fixed: 'left' as const,
-                                render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
+                                render: (v: string) => <code style={{ color: '#0078D4' }}>{v}</code> },
                               { title: '标题', dataIndex: 'title', ellipsis: true },
                               { title: '金额', dataIndex: 'amount', width: 100,
                                 render: (v: any) => v ? `¥ ${v}` : '—' },
@@ -980,7 +980,7 @@ export default function CustomerDetailDrawer({
                                 title: '文件', width: 180,
                                 render: (_: any, r: any) => r.file_url ? (
                                   <Space size={4}>
-                                    <PaperClipOutlined style={{ color: '#4f46e5' }} />
+                                    <PaperClipOutlined style={{ color: '#0078D4' }} />
                                     <Text style={{ fontSize: 12, maxWidth: 100 }} ellipsis={{ tooltip: r.file_name }}>
                                       {r.file_name || '附件'}
                                     </Text>

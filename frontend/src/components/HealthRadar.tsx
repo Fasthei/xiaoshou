@@ -1,6 +1,6 @@
 /** Pure-SVG radar chart for 4 dimensions. */
 export default function HealthRadar({
-  values, labels, size = 240, color = '#4f46e5',
+  values, labels, size = 240, color = '#0078D4',
 }: {
   values: number[];      // 0-100 each
   labels: string[];

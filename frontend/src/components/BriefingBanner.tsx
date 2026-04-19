@@ -14,7 +14,7 @@ interface Item {
 }
 
 const SEV_COLOR: Record<string, string> = {
-  crit: '#ef4444', warn: '#f59e0b', info: '#4f46e5',
+  crit: '#A4262C', warn: '#C19C00', info: '#0078D4',
 };
 
 export default function BriefingBanner() {
@@ -31,36 +31,37 @@ export default function BriefingBanner() {
     <Card
       bordered={false}
       style={{
-        borderRadius: 12,
-        background: 'linear-gradient(135deg, #1e1b4b 0%, #4f46e5 80%)',
-        color: 'white', marginBottom: 16,
+        borderRadius: 4,
+        background: '#FFFFFF',
+        border: '1px solid #E1DFDD',
+        color: '#1F2937',
+        marginBottom: 16,
       }}
-      styles={{ body: { padding: 20 } }}
+      styles={{ body: { padding: 16 } }}
     >
       <Space direction="vertical" size={10} style={{ width: '100%' }}>
         <Space style={{ width: '100%', justifyContent: 'space-between' }}>
           <Space>
-            <BulbFilled style={{ color: '#fde68a', fontSize: 20 }} />
-            <Text strong style={{ color: 'white', fontSize: 16, letterSpacing: 1 }}>
+            <BulbFilled style={{ color: '#C19C00', fontSize: 18 }} />
+            <Text strong style={{ color: '#1F2937', fontSize: 15, letterSpacing: 1 }}>
               今日 BRIEFING
             </Text>
           </Space>
-          <Link to="/alerts"><Button size="small" ghost>查看全部预警 <RightOutlined /></Button></Link>
+          <Link to="/alerts"><Button size="small" type="link">查看全部预警 <RightOutlined /></Button></Link>
         </Space>
 
         {loading ? <Spin /> :
-         items.length === 0 ? <Text style={{ color: 'rgba(255,255,255,0.7)' }}>一切正常 ✨</Text> :
+         items.length === 0 ? <Text type="secondary">一切正常</Text> :
          items.slice(0, 5).map((it, i) => (
            <Space key={i} align="start" style={{ width: '100%' }}>
              <span style={{
-               width: 10, height: 10, borderRadius: '50%',
-               background: SEV_COLOR[it.severity], marginTop: 6,
-               boxShadow: `0 0 8px ${SEV_COLOR[it.severity]}`,
+               width: 8, height: 8, borderRadius: '50%',
+               background: SEV_COLOR[it.severity], marginTop: 7,
              }} />
              <div>
-               <Text strong style={{ color: 'white' }}>{it.title}</Text>
+               <Text strong style={{ color: '#1F2937' }}>{it.title}</Text>
                {it.detail ? (
-                 <div><Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>{it.detail}</Text></div>
+                 <div><Text type="secondary" style={{ fontSize: 12 }}>{it.detail}</Text></div>
                ) : null}
              </div>
              <Tag color={it.severity === 'crit' ? 'red' : it.severity === 'warn' ? 'orange' : 'blue'}>

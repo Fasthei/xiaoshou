@@ -294,7 +294,7 @@ export default function FollowUps() {
       render: (v: string | null, r: FollowUpItem) => {
         const text = v ?? '-';
         const indent = !!r.parent_follow_up_id;
-        return indent ? <span style={{ paddingLeft: 16, borderLeft: '3px solid #1677ff20' }}>{text}</span> : text;
+        return indent ? <span style={{ paddingLeft: 16, borderLeft: '3px solid #0078D420' }}>{text}</span> : text;
       },
     },
     {

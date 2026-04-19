@@ -102,7 +102,7 @@ export default function AllocationCreateModal({
         <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 12 }}>
           <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}>
             <Text strong>加价率</Text>
-            <Text strong style={{ color: '#4f46e5' }}>{markup}%</Text>
+            <Text strong style={{ color: '#0078D4' }}>{markup}%</Text>
           </Space>
           <Slider min={0} max={200} value={markup} onChange={setMarkup}
             marks={{ 0: '0%', 30: '30%', 50: '50%', 100: '100%', 200: '200%' }} />
@@ -117,11 +117,11 @@ export default function AllocationCreateModal({
           </Col>
           <Col span={6}>
             <Statistic title="毛利" value={profit} precision={2} prefix="¥"
-              valueStyle={{ color: profit >= 0 ? '#16a34a' : '#ef4444' }} />
+              valueStyle={{ color: profit >= 0 ? '#107C10' : '#A4262C' }} />
           </Col>
           <Col span={6}>
             <Statistic title="毛利率" value={profitRate} suffix="%"
-              valueStyle={{ color: profitRate >= 20 ? '#16a34a' : profitRate >= 0 ? '#f59e0b' : '#ef4444' }} />
+              valueStyle={{ color: profitRate >= 20 ? '#107C10' : profitRate >= 0 ? '#C19C00' : '#A4262C' }} />
           </Col>
         </Row>
       </Form>

@@ -75,9 +75,9 @@ const MOCK_FUNNEL: TeamFunnelRow[] = [
 ];
 
 const STAGE_BG_COLORS: Record<string, string> = {
-  lead: '#d9d9d9',
-  contacting: '#91caff',
-  active: '#95de64',
+  lead: '#C8C6C4',
+  contacting: '#2B88D8',
+  active: '#107C10',
 };
 
 export default function ManagerPanorama() {
@@ -211,19 +211,20 @@ export default function ManagerPanorama() {
       <Card
         bordered={false}
         style={{
-          borderRadius: 16,
+          borderRadius: 4,
           marginBottom: 16,
-          background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #ec4899 100%)',
-          color: '#fff',
+          background: '#FFFFFF',
+          border: '1px solid #E1DFDD',
+          color: '#1F2937',
         }}
-        styles={{ body: { padding: 24 } }}
+        styles={{ body: { padding: 20 } }}
       >
-        <Space direction="vertical" size={4} style={{ color: '#fff' }}>
-          <Title level={3} style={{ color: '#fff', margin: 0 }}>
-            <FundProjectionScreenOutlined style={{ marginRight: 8 }} />
+        <Space direction="vertical" size={4}>
+          <Title level={3} style={{ color: '#1F2937', margin: 0 }}>
+            <FundProjectionScreenOutlined style={{ marginRight: 8, color: '#0078D4' }} />
             销售主管 · 全景视图
           </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.9)' }}>
+          <Text style={{ color: '#6B7280' }}>
             {month} · 新增商机 / 转化率 / 签单率 / 增长率 / 回款率
           </Text>
         </Space>
@@ -245,7 +246,7 @@ export default function ManagerPanorama() {
               <Statistic
                 title={<Space><ThunderboltOutlined /> 新增商机</Space>}
                 value={resolveKpi(kpis, 'new_opportunities', 'new_leads', 'opportunities')}
-                valueStyle={{ color: '#4f46e5' }}
+                valueStyle={{ color: '#0078D4' }}
               />
             )}
           </Card>
@@ -256,7 +257,7 @@ export default function ManagerPanorama() {
               <Statistic
                 title={<Space><PercentageOutlined /> 转化率</Space>}
                 value={fmtPct(resolveKpi(kpis, 'conversion_rate'))}
-                valueStyle={{ color: '#0ea5e9' }}
+                valueStyle={{ color: '#2B88D8' }}
               />
             )}
           </Card>
@@ -267,7 +268,7 @@ export default function ManagerPanorama() {
               <Statistic
                 title="签单率"
                 value={fmtPct(resolveKpi(kpis, 'deal_rate', 'signing_rate'))}
-                valueStyle={{ color: '#7c3aed' }}
+                valueStyle={{ color: '#005A9E' }}
               />
             )}
           </Card>
@@ -278,7 +279,7 @@ export default function ManagerPanorama() {
               <Statistic
                 title="增长率 (本月 vs 上月)"
                 value={fmtPct(resolveKpi(kpis, 'growth_rate'))}
-                valueStyle={{ color: resolveKpi(kpis, 'growth_rate') >= 0 ? '#22c55e' : '#ef4444' }}
+                valueStyle={{ color: resolveKpi(kpis, 'growth_rate') >= 0 ? '#107C10' : '#A4262C' }}
                 prefix={resolveKpi(kpis, 'growth_rate') >= 0 ? <RiseOutlined /> : <FallOutlined />}
               />
             )}
@@ -291,7 +292,7 @@ export default function ManagerPanorama() {
                 title="回款率"
                 value={fmtPct(resolveKpi(kpis, 'collection_rate', 'payment_rate'))}
                 prefix={<DollarOutlined />}
-                valueStyle={{ color: '#f59e0b' }}
+                valueStyle={{ color: '#C19C00' }}
               />
             )}
           </Card>
@@ -325,14 +326,14 @@ export default function ManagerPanorama() {
                   value={rt}
                   precision={1}
                   suffix="%"
-                  valueStyle={{ color: '#4f46e5' }}
+                  valueStyle={{ color: '#0078D4' }}
                 />
                 <Statistic
                   title="实际利润率"
                   value={ra}
                   precision={1}
                   suffix="%"
-                  valueStyle={{ color: diff >= 0 ? '#22c55e' : '#ef4444' }}
+                  valueStyle={{ color: diff >= 0 ? '#107C10' : '#A4262C' }}
                   prefix={diff >= 0 ? <RiseOutlined /> : <FallOutlined />}
                 />
                 <Text type={diff >= 0 ? 'success' : 'danger'} style={{ fontSize: 12 }}>
@@ -364,7 +365,7 @@ export default function ManagerPanorama() {
                     {' '}/ ¥{teamProfit.team_annual_profit_target.toLocaleString()}
                   </Text>
                 </Title>
-                <Progress percent={Math.min(100, profitPct)} status="active" strokeColor="#f59e0b" />
+                <Progress percent={Math.min(100, profitPct)} status="active" strokeColor="#C19C00" />
                 <Text type="secondary" style={{ fontSize: 12 }}>{profitPct}% 达成</Text>
               </Col>
             </Row>

@@ -375,7 +375,7 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
             title: '预期日期', dataIndex: 'expected_date', width: 130,
             render: (v: string, r) => {
               const overdue = r.status === 'pending' && dayjs(v).isBefore(today);
-              return overdue ? <Text style={{ color: '#ef4444' }}>{v}（超期）</Text> : v;
+              return overdue ? <Text style={{ color: '#A4262C' }}>{v}（超期）</Text> : v;
             },
           },
           { title: '实收日期', dataIndex: 'received_date', width: 130, render: (v: string | null) => v || '-' },
@@ -468,18 +468,19 @@ export default function Alerts() {
       <Card
         bordered={false}
         style={{
-          borderRadius: 12, marginBottom: 16,
-          background: 'linear-gradient(120deg, #fb7185 0%, #ef4444 50%, #f97316 100%)',
-          color: 'white',
+          borderRadius: 4, marginBottom: 16,
+          background: '#FFFFFF',
+          border: '1px solid #E1DFDD',
+          color: '#1F2937',
         }}
-        styles={{ body: { padding: 28 } }}
+        styles={{ body: { padding: 20 } }}
       >
         <Space direction="vertical" size={4}>
-          <Text style={{ color: 'rgba(255,255,255,0.8)', letterSpacing: 4 }}>ALERTS · 预警中心</Text>
-          <Title level={2} style={{ color: 'white', margin: 0 }}>
-            <AlertOutlined /> 预警与收款
+          <Text style={{ color: '#6B7280', letterSpacing: 4 }}>ALERTS · 预警中心</Text>
+          <Title level={2} style={{ color: '#1F2937', margin: 0 }}>
+            <AlertOutlined style={{ color: '#A4262C' }} /> 预警与收款
           </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.85)' }}>
+          <Text style={{ color: '#6B7280' }}>
             自定义规则 · 收款超期追踪
           </Text>
         </Space>

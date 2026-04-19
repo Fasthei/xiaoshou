@@ -115,7 +115,7 @@ export default function Customers() {
 
   const columns = [
     { title: '编号', dataIndex: 'customer_code', width: 160,
-      render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
+      render: (v: string) => <code style={{ color: '#0078D4' }}>{v}</code> },
     { title: '名称', dataIndex: 'customer_name',
       render: (v: string, r: Customer) => {
         const isRecycled = !!r.recycled_from_stage;
@@ -129,10 +129,10 @@ export default function Customers() {
           <Space size={4}>
             <span
               style={{
-                width: 28, height: 28, borderRadius: 8,
-                background: 'linear-gradient(135deg, #4f46e5, #ec4899)',
+                width: 28, height: 28, borderRadius: 4,
+                background: '#DEECF9',
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                color: 'white', fontSize: 12, fontWeight: 600,
+                color: '#0078D4', fontSize: 12, fontWeight: 600,
               }}
             >
               {v?.[0] || '-'}
@@ -162,8 +162,8 @@ export default function Customers() {
     {
       title: '销售', dataIndex: 'sales_user_name', width: 110,
       render: (v: string | null | undefined) => v
-        ? <Tag color="geekblue">{v}</Tag>
-        : <span style={{ color: '#94a3b8' }}>—</span>,
+        ? <Tag color="blue">{v}</Tag>
+        : <span style={{ color: '#6B7280' }}>—</span>,
     },
     {
       title: '操作', width: 180, fixed: 'right' as const,

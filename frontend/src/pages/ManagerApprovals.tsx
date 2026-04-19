@@ -166,7 +166,7 @@ export default function ManagerApprovals() {
 
   const orderColumns = [
     { title: '订单号', dataIndex: 'allocation_code', width: 180,
-      render: (v: string) => <code style={{ color: '#4f46e5' }}>{v}</code> },
+      render: (v: string) => <code style={{ color: '#0078D4' }}>{v}</code> },
     { title: '客户 ID', dataIndex: 'customer_id', width: 100 },
     { title: '货源 ID', dataIndex: 'resource_id', width: 100 },
     { title: '数量', dataIndex: 'allocated_quantity', width: 100 },

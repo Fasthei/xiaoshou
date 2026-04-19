@@ -314,18 +314,19 @@ const openEditUser = (u: SalesUser) => {
       <Card
         bordered={false}
         style={{
-          borderRadius: 12, marginBottom: 16,
-          background: 'linear-gradient(120deg, #6366f1 0%, #ec4899 100%)',
-          color: 'white',
+          borderRadius: 4, marginBottom: 16,
+          background: '#FFFFFF',
+          border: '1px solid #E1DFDD',
+          color: '#1F2937',
         }}
-        styles={{ body: { padding: 24 } }}
+        styles={{ body: { padding: 20 } }}
       >
         <Space direction="vertical" size={4}>
-          <Text style={{ color: 'rgba(255,255,255,0.8)', letterSpacing: 4 }}>SALES · 销售团队</Text>
-          <Title level={2} style={{ color: 'white', margin: 0 }}>
-            <UserOutlined /> 销售成员 · 分配规则 · 自动分配
+          <Text style={{ color: '#6B7280', letterSpacing: 4 }}>SALES · 销售团队</Text>
+          <Title level={2} style={{ color: '#1F2937', margin: 0 }}>
+            <UserOutlined style={{ color: '#0078D4' }} /> 销售成员 · 分配规则 · 自动分配
           </Title>
-          <Paragraph style={{ color: 'rgba(255,255,255,0.85)', marginBottom: 0 }}>
+          <Paragraph style={{ color: '#6B7280', marginBottom: 0 }}>
             维护销售人员档案 + 分配规则（行业 / 地区 / 客户级别），对未分配客户一键自动分配
           </Paragraph>
         </Space>
@@ -383,7 +384,7 @@ const openEditUser = (u: SalesUser) => {
                       </div>
                       <div>
                         <Text type="secondary" style={{ fontSize: 12 }}>YTD 实际利润率</Text>
-                        <div><Text strong style={{ fontSize: 18, color: teamAgg.team_profit_rate_actual >= teamAgg.team_profit_rate_target ? '#22c55e' : '#ef4444' }}>
+                        <div><Text strong style={{ fontSize: 18, color: teamAgg.team_profit_rate_actual >= teamAgg.team_profit_rate_target ? '#107C10' : '#A4262C' }}>
                           {(teamAgg.team_profit_rate_actual * 100).toFixed(1)}%
                         </Text></div>
                       </div>
