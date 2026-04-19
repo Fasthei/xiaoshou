@@ -186,6 +186,10 @@ class CloudCostClient:
 
         Calls cloudcost `/api/service-accounts/{id}/costs?start_date=&end_date=`.
         Returns raw JSON (shape varies; callers must tolerate both list and dict).
+
+        NOTE: Legacy endpoint. New sync code should prefer
+        :meth:`metering_detail` / :meth:`metering_daily`, which are the
+        standardised metering interfaces (see api.md §"已接入").
         """
         from datetime import datetime, timedelta
         end = datetime.utcnow().date()
@@ -198,6 +202,236 @@ class CloudCostClient:
             r = c.get(f"{self.base}/api/service-accounts/{account_id}/costs", params=params)
             r.raise_for_status()
             return self._parse_json(r)
+
+    # ---------- /api/auth/me ----------
+
+    def auth_me(self) -> Dict[str, Any]:
+        """GET /api/auth/me — whoami against cloudcost, forwarded bearer required.
+
+        Returns cloudcost's user object (shape dictated by cloudcost). Used for
+        dual-system login probes and diagnostics.
+        """
+        with self._client() as c:
+            r = c.get(f"{self.base}/api/auth/me")
+            r.raise_for_status()
+            data = self._parse_json(r)
+            return data if isinstance(data, dict) else {}
+
+    # ---------- /api/metering/* — standardised metering reads ----------
+    # All metering endpoints accept a date range + optional account filter.
+    # Convention:
+    #   start_date / end_date : YYYY-MM-DD (inclusive)
+    #   account_id            : single cloudcost service_account.id (optional)
+    #   page / page_size      : pagination on *detail* only
+    # Response shape is either a bare list or {"items":[...], "total":N};
+    # callers should use :meth:`_extract_items` / helpers below.
+
+    @staticmethod
+    def _extract_items(data: Any) -> List[Dict[str, Any]]:
+        """Tolerate both bare-list and {items|data: [...]} shapes."""
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        if isinstance(data, dict):
+            for key in ("items", "data", "rows", "results"):
+                v = data.get(key)
+                if isinstance(v, list):
+                    return [x for x in v if isinstance(x, dict)]
+        return []
+
+    def _metering_get(self, path: str, params: Dict[str, Any]) -> Any:
+        """Internal GET helper for /api/metering/* endpoints."""
+        # Filter out None values so we don't send literal ?k=None.
+        clean = {k: v for k, v in params.items() if v is not None and v != ""}
+        with self._client() as c:
+            r = c.get(f"{self.base}{path}", params=clean)
+            r.raise_for_status()
+            return self._parse_json(r)
+
+    def metering_summary(
+        self,
+        month: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        account_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """GET /api/metering/summary — total cost / usage over the range.
+
+        Either ``month`` (YYYY-MM) or an explicit ``start_date``+``end_date`` pair
+        must be provided. Returns a flat dict like
+        ``{"total_cost": N, "total_usage": N, "record_count": N, ...}``.
+        """
+        data = self._metering_get("/api/metering/summary", {
+            "month": month,
+            "start_date": start_date,
+            "end_date": end_date,
+            "account_id": account_id,
+        })
+        return data if isinstance(data, dict) else {}
+
+    def metering_daily(
+        self,
+        start_date: str,
+        end_date: str,
+        account_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """GET /api/metering/daily — day-by-day cost/usage buckets.
+
+        Returns a list of ``{"date": "YYYY-MM-DD", "total_cost": N,
+        "total_usage": N, "record_count": N}`` rows ordered by date.
+        """
+        data = self._metering_get("/api/metering/daily", {
+            "start_date": start_date,
+            "end_date": end_date,
+            "account_id": account_id,
+        })
+        return self._extract_items(data)
+
+    def metering_by_service(
+        self,
+        start_date: str,
+        end_date: str,
+        account_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """GET /api/metering/by-service — cost/usage split per cloud service."""
+        data = self._metering_get("/api/metering/by-service", {
+            "start_date": start_date,
+            "end_date": end_date,
+            "account_id": account_id,
+        })
+        return self._extract_items(data)
+
+    def metering_detail(
+        self,
+        start_date: str,
+        end_date: str,
+        account_id: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """GET /api/metering/detail — row-level metering records (paginated).
+
+        Returns the items on this page. Callers driving a full sync should
+        iterate until fewer than ``page_size`` items come back, or use
+        :meth:`metering_detail_iter`.
+        """
+        data = self._metering_get("/api/metering/detail", {
+            "start_date": start_date,
+            "end_date": end_date,
+            "account_id": account_id,
+            "page": page,
+            "page_size": page_size,
+        })
+        return self._extract_items(data)
+
+    def metering_detail_count(
+        self,
+        start_date: str,
+        end_date: str,
+        account_id: Optional[int] = None,
+    ) -> int:
+        """GET /api/metering/detail/count — total rows that match the filter."""
+        data = self._metering_get("/api/metering/detail/count", {
+            "start_date": start_date,
+            "end_date": end_date,
+            "account_id": account_id,
+        })
+        if isinstance(data, dict):
+            for k in ("count", "total", "total_count"):
+                v = data.get(k)
+                if isinstance(v, int):
+                    return v
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    continue
+        try:
+            return int(data)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    def metering_detail_iter(
+        self,
+        start_date: str,
+        end_date: str,
+        account_id: Optional[int] = None,
+        page_size: int = 500,
+        max_pages: int = 500,
+    ):
+        """Generator: stream every /api/metering/detail row, page by page.
+
+        Safety cap ``max_pages`` prevents unbounded loops if cloudcost returns
+        the same non-empty page forever.
+        """
+        page = 1
+        while page <= max_pages:
+            items = self.metering_detail(
+                start_date=start_date,
+                end_date=end_date,
+                account_id=account_id,
+                page=page,
+                page_size=page_size,
+            )
+            if not items:
+                return
+            for it in items:
+                yield it
+            if len(items) < page_size:
+                return
+            page += 1
+
+    # ---------- /api/billing/* — detailed billing lines ----------
+    # `bills()` (legacy /api/bills/) is the monthly aggregate; billing/detail
+    # exposes per-line items that roll up into a bill, useful for audits.
+
+    def billing_detail(
+        self,
+        month: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        account_id: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """GET /api/billing/detail — billing line items (paginated)."""
+        data = self._metering_get("/api/billing/detail", {
+            "month": month,
+            "start_date": start_date,
+            "end_date": end_date,
+            "account_id": account_id,
+            "page": page,
+            "page_size": page_size,
+        })
+        return self._extract_items(data)
+
+    def billing_detail_count(
+        self,
+        month: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        account_id: Optional[int] = None,
+    ) -> int:
+        """GET /api/billing/detail/count — row count that matches the filter."""
+        data = self._metering_get("/api/billing/detail/count", {
+            "month": month,
+            "start_date": start_date,
+            "end_date": end_date,
+            "account_id": account_id,
+        })
+        if isinstance(data, dict):
+            for k in ("count", "total", "total_count"):
+                v = data.get(k)
+                if isinstance(v, int):
+                    return v
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    continue
+        try:
+            return int(data)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    # ---------- resource resolution ----------
 
     def resources_for_customer(self, customer_code: str) -> List[ServiceAccount]:
         """Return 货源 entries whose `match_field` equals the given customer_code.

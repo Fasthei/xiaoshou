@@ -157,28 +157,57 @@ def sync_cloudcost_usage(
         # { date_iso: {"total_cost":D, "total_usage":D, "record_count":int, "raw":{"accounts":[...]}} }
         agg: Dict[str, Dict[str, Any]] = {}
 
+        # 本地窗口 = 今天 - days → 今天
+        end_d = date_cls.today()
+        start_d = end_d - timedelta(days=max(1, int(days)))
+        start_iso = start_d.isoformat()
+        end_iso = end_d.isoformat()
+
         for a in matched:
+            # 优先走标准化的 /api/metering/detail（流式分页），失败再退回旧的
+            # /api/service-accounts/{id}/costs —— 云管新接口落地后老接口仍可读，
+            # 我们做双轨兼容以便不同部署节奏下都不会断数据。
+            items_iter: Optional[List[Dict[str, Any]]] = None
+            used_metering = False
             try:
-                raw = client.get_customer_usage(a.id, days=days)
+                metering_rows = list(client.metering_detail_iter(
+                    start_date=start_iso, end_date=end_iso,
+                    account_id=a.id, page_size=500,
+                ))
+                used_metering = True
+                items_iter = metering_rows
+                pulled += len(metering_rows)
             except Exception as e:
-                logger.warning("get_customer_usage account=%s failed: %s", a.id, e)
-                errors += 1
-                continue
+                logger.warning(
+                    "metering_detail account=%s failed, falling back to /costs: %s",
+                    a.id, e,
+                )
 
-            # cloudcost 可能返回 list 或 dict{"items":[...]}
-            items = raw if isinstance(raw, list) else (
-                (raw or {}).get("items") if isinstance(raw, dict) else None
-            ) or (
-                (raw or {}).get("data") if isinstance(raw, dict) else None
-            ) or []
-            if not isinstance(items, list):
-                items = []
-            pulled += len(items)
+            if items_iter is None:
+                try:
+                    raw = client.get_customer_usage(a.id, days=days)
+                except Exception as e:
+                    logger.warning("get_customer_usage account=%s failed: %s", a.id, e)
+                    errors += 1
+                    continue
 
-            for it in items:
+                legacy_items = raw if isinstance(raw, list) else (
+                    (raw or {}).get("items") if isinstance(raw, dict) else None
+                ) or (
+                    (raw or {}).get("data") if isinstance(raw, dict) else None
+                ) or []
+                if not isinstance(legacy_items, list):
+                    legacy_items = []
+                items_iter = [x for x in legacy_items if isinstance(x, dict)]
+                pulled += len(items_iter)
+
+            for it in items_iter:
                 if not isinstance(it, dict):
                     continue
-                d_raw = (it.get("date") or it.get("bill_date") or it.get("day")
+                # metering/detail 用 date / usage_date / bill_date;
+                # 老 /costs 用 bill_date / day / cost_date。 兼容读。
+                d_raw = (it.get("date") or it.get("usage_date")
+                         or it.get("bill_date") or it.get("day")
                          or it.get("cost_date") or "")
                 d_iso = str(d_raw)[:10]
                 if not d_iso:
@@ -189,15 +218,25 @@ def sync_cloudcost_usage(
                     "record_count": 0,
                     "raw": {"accounts": []},
                 })
-                cost = _dec(it.get("cost") or it.get("total_cost") or it.get("amount") or 0)
-                usage_ = _dec(it.get("usage") or it.get("total_usage") or it.get("quantity") or 0)
+                cost = _dec(
+                    it.get("cost") or it.get("total_cost")
+                    or it.get("amount") or it.get("final_cost") or 0
+                )
+                usage_ = _dec(
+                    it.get("usage") or it.get("total_usage")
+                    or it.get("quantity") or 0
+                )
                 slot["total_cost"] += cost or Decimal("0")
                 slot["total_usage"] += usage_ or Decimal("0")
                 slot["record_count"] += 1
                 slot["raw"]["accounts"].append({
-                    "account_id": a.id, "service": it.get("service") or it.get("name"),
-                    "cost": float(cost or 0), "usage": float(usage_ or 0),
+                    "account_id": a.id,
+                    "service": (it.get("service") or it.get("service_name")
+                                or it.get("name") or "云服务"),
+                    "cost": float(cost or 0),
+                    "usage": float(usage_ or 0),
                     "date": d_iso,
+                    "source": "metering" if used_metering else "legacy",
                 })
 
         # upsert into cc_usage
