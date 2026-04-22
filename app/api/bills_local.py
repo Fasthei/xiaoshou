@@ -21,7 +21,9 @@ Join key（硬事实）:
 
 权限（CLAUDE.md §3）:
   - sales-manager / admin / ops: 可看全部客户
-  - sales: 只能看 customer.sales_user_id == int(user.sub) 的客户
+  - sales: 只能看 customer.sales_user_id == 本地 sales_user.id 的客户
+    （本地 id 通过 SalesUser.casdoor_user_id == user.sub 反查；
+     Casdoor sub 是 UUID 字符串，不可直接转 int 赋值给 sales_user_id）
 """
 from __future__ import annotations
 
@@ -41,6 +43,7 @@ from app.models.cc_usage import CCUsage
 from app.models.customer import Customer
 from app.models.customer_resource import CustomerResource
 from app.models.resource import Resource
+from app.models.sales import SalesUser
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +57,34 @@ def _can_see_all(user: CurrentUser) -> bool:
     return any(user.has_role(r) for r in _MANAGER_ROLES)
 
 
-def _sales_filter_clause(user: CurrentUser):
-    """返回 SQLAlchemy filter: 只允许看自己负责的客户.
+def _resolve_my_sales_user_id(db: Session, user: CurrentUser) -> Optional[int]:
+    """Casdoor sub (UUID) → 本地 sales_user.id.
 
-    customer.sales_user_id 是 BigInteger — 但 Casdoor sub 是字符串 (UUID-like).
-    历史上很多部署直接把 sub 的数字写到 sales_user_id, 或者 sales 表建了一个映射.
-    这里尽可能地宽松匹配: 尝试把 user.sub 当整数;失败则空 filter (= 看不到任何).
-    另外支持按 created_by == sub 来兜底.
+    customer.sales_user_id 是本地 sales_user.id (BigInt)，不是 Casdoor sub。
+    必须经 SalesUser.casdoor_user_id == user.sub 反查本地 id；同 follow_up.py、sales.py。
+
+    兜底：历史上少数部署把 sub 的数字直接写到 sales_user_id，也兼容这种情况。
+    返回 None 表示用户在本地销售表里找不到记录（应视为无任何客户可见）。
     """
+    if not user.sub:
+        return None
+    su = db.query(SalesUser).filter(SalesUser.casdoor_user_id == user.sub).first()
+    if su:
+        return int(su.id)
+    # legacy fallback: 某些部署把整数 sub 当 sales_user.id
     try:
-        sid = int(user.sub)
-        return Customer.sales_user_id == sid
+        return int(user.sub)
     except (TypeError, ValueError):
-        # fallback: 空白 filter, 但我们宁愿返回空列表也不给泄露全部.
-        return Customer.id == -1  # 永远不匹配
+        return None
+
+
+def _sales_filter_clause(db: Session, user: CurrentUser):
+    """返回 SQLAlchemy filter: 只允许看自己负责的客户."""
+    sid = _resolve_my_sales_user_id(db, user)
+    if sid is None:
+        # 宁愿返回空列表也不泄露全部
+        return Customer.id == -1
+    return Customer.sales_user_id == sid
 
 
 def _month_date_range(month: str) -> Tuple[date, date]:
@@ -167,7 +184,7 @@ def bills_by_customer(
     # 1) 授权客户集
     q = db.query(Customer).filter(Customer.is_deleted == False)  # noqa: E712
     if not _can_see_all(user):
-        q = q.filter(_sales_filter_clause(user))
+        q = q.filter(_sales_filter_clause(db, user))
     customers = q.all()
     if not customers:
         return []
@@ -265,11 +282,8 @@ def bills_by_customer_detail(
 
     # 权限
     if not _can_see_all(user):
-        try:
-            sid = int(user.sub)
-        except (TypeError, ValueError):
-            sid = -1
-        if cust.sales_user_id != sid:
+        sid = _resolve_my_sales_user_id(db, user)
+        if sid is None or cust.sales_user_id != sid:
             raise HTTPException(403, "无权查看该客户账单")
 
     # 销售分配关系: 只有分配给该客户的货源才计入
@@ -423,7 +437,7 @@ def bills_by_customer_export(
     # Build customer + resource data (same permission logic as bills_by_customer)
     q = db.query(Customer).filter(Customer.is_deleted == False)  # noqa: E712
     if not _can_see_all(user):
-        q = q.filter(_sales_filter_clause(user))
+        q = q.filter(_sales_filter_clause(db, user))
     customers = q.all()
 
     if not customers:

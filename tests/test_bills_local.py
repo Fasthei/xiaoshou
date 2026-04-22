@@ -10,12 +10,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth import CurrentUser, require_auth
 from app.database import Base, get_db
 from app.models.cc_bill import CCBill
 from app.models.cc_usage import CCUsage
 from app.models.customer import Customer
 from app.models.customer_resource import CustomerResource
 from app.models.resource import Resource
+from app.models.sales import SalesUser
 from main import app
 
 
@@ -213,3 +215,127 @@ def test_by_customer_export_csv(client, seed):
     assert "福星" in text
     assert "res-azure-1" in text
     assert "res-aws-1" in text
+
+
+# ---------- 行级授权回归测试 ----------
+#
+# 回归历史 bug：`_sales_filter_clause` 之前用 `int(user.sub)` 强转 Casdoor UUID
+# 必然抛 ValueError → 退化成 `Customer.id == -1` → 所有普通销售啥也看不见。
+# 正确链路：user.sub → SalesUser.casdoor_user_id → SalesUser.id → Customer.sales_user_id。
+
+def _override_as(user: CurrentUser):
+    """上下文：把 require_auth 替换为返回指定 CurrentUser。"""
+    app.dependency_overrides[require_auth] = lambda: user
+
+
+def _reset_auth_override():
+    app.dependency_overrides.pop(require_auth, None)
+
+
+@pytest.fixture()
+def seed_sales_scoped(db_session):
+    """两个销售 + 两个客户，每人一个客户。"""
+    alice = SalesUser(id=101, name="Alice",
+                      casdoor_user_id="sub-uuid-alice", is_active=True)
+    bob = SalesUser(id=102, name="Bob",
+                    casdoor_user_id="sub-uuid-bob", is_active=True)
+    # customer.sales_user_id = 本地 sales_user.id（不是 Casdoor sub）
+    c_alice = Customer(id=201, customer_code="A01", customer_name="Alice 的客户",
+                       customer_status="active", is_deleted=False, sales_user_id=101)
+    c_bob = Customer(id=202, customer_code="B01", customer_name="Bob 的客户",
+                     customer_status="active", is_deleted=False, sales_user_id=102)
+    res = Resource(id=301, resource_code="res-1", resource_type="ORIGINAL",
+                   cloud_provider="AZURE", identifier_field="proj-1",
+                   resource_status="active")
+    db_session.add_all([
+        alice, bob, c_alice, c_bob, res,
+        CustomerResource(customer_id=201, resource_id=301),
+        CustomerResource(customer_id=202, resource_id=301),
+        CCBill(remote_id=1, month="2026-04", provider="AZURE",
+               original_cost=Decimal("100"), final_cost=Decimal("100"),
+               status="confirmed", customer_code="proj-1"),
+    ])
+    db_session.commit()
+
+
+def test_sales_with_uuid_sub_sees_own_customer(client, seed_sales_scoped):
+    """Casdoor UUID sub 的销售通过 casdoor_user_id 反查能看到自己的客户。"""
+    _override_as(CurrentUser(
+        sub="sub-uuid-alice", name="alice", roles=["sales"], raw={},
+    ))
+    try:
+        r = client.get("/api/bills/by-customer?month=2026-04")
+        assert r.status_code == 200
+        rows = r.json()
+        ids = {x["customer_id"] for x in rows}
+        assert ids == {201}, f"alice 只应看到自己的客户 201, 实际: {ids}"
+    finally:
+        _reset_auth_override()
+
+
+def test_sales_not_in_sales_table_sees_nothing(client, seed_sales_scoped):
+    """未建档的 Casdoor 用户以 sales 身份登录应返回空，而不是看到全部或崩溃。"""
+    _override_as(CurrentUser(
+        sub="sub-uuid-unknown", name="ghost", roles=["sales"], raw={},
+    ))
+    try:
+        r = client.get("/api/bills/by-customer?month=2026-04")
+        assert r.status_code == 200
+        assert r.json() == []
+    finally:
+        _reset_auth_override()
+
+
+def test_sales_cannot_drill_other_customer(client, seed_sales_scoped):
+    """alice 不能下钻 bob 的客户详情。"""
+    _override_as(CurrentUser(
+        sub="sub-uuid-alice", name="alice", roles=["sales"], raw={},
+    ))
+    try:
+        own = client.get("/api/bills/by-customer/201?month=2026-04")
+        assert own.status_code == 200
+        other = client.get("/api/bills/by-customer/202?month=2026-04")
+        assert other.status_code == 403
+    finally:
+        _reset_auth_override()
+
+
+def test_sales_manager_sees_all(client, seed_sales_scoped):
+    """sales-manager 不过滤 sales_user_id，看全部客户。"""
+    _override_as(CurrentUser(
+        sub="sub-uuid-manager", name="mgr", roles=["sales-manager"], raw={},
+    ))
+    try:
+        r = client.get("/api/bills/by-customer?month=2026-04")
+        assert r.status_code == 200
+        ids = {x["customer_id"] for x in r.json()}
+        assert ids == {201, 202}
+    finally:
+        _reset_auth_override()
+
+
+def test_legacy_int_sub_fallback(client, db_session):
+    """兼容老部署: 某些环境直接把整数 sub 当 sales_user.id 写入。"""
+    # sales_user.id=501 但 casdoor_user_id 留空 → 走整数 fallback 分支
+    db_session.add_all([
+        SalesUser(id=501, name="Legacy", casdoor_user_id=None, is_active=True),
+        Customer(id=601, customer_code="L01", customer_name="Legacy 客户",
+                 customer_status="active", is_deleted=False, sales_user_id=501),
+        Resource(id=701, resource_code="res-l", resource_type="ORIGINAL",
+                 cloud_provider="AWS", identifier_field="proj-l",
+                 resource_status="active"),
+        CustomerResource(customer_id=601, resource_id=701),
+        CCBill(remote_id=2, month="2026-04", provider="AWS",
+               original_cost=Decimal("50"), final_cost=Decimal("50"),
+               status="confirmed", customer_code="proj-l"),
+    ])
+    db_session.commit()
+
+    _override_as(CurrentUser(sub="501", name="legacy", roles=["sales"], raw={}))
+    try:
+        r = client.get("/api/bills/by-customer?month=2026-04")
+        assert r.status_code == 200
+        ids = {x["customer_id"] for x in r.json()}
+        assert 601 in ids
+    finally:
+        _reset_auth_override()
