@@ -58,6 +58,15 @@ class Customer(Base):
     created_by = Column(BigInteger)
     updated_by = Column(BigInteger)
     is_deleted = Column(Boolean, default=False)
+    # ---- 两级删除策略 (议题 B / alembic 007) ----
+    # 降级：工单同步后上游消失的 gongdan 客户 lifecycle_stage active → lead
+    demoted_at = Column(DateTime, nullable=True, comment="工单侧消失后降级回 lead 的时间")
+    demoted_reason = Column(String(200), nullable=True,
+                            comment="降级原因, 如 'gongdan 侧已删除'")
+    # 彻底删（商机池手动）：is_deleted=true 保留档案，列表不显示
+    deleted_at = Column(DateTime, nullable=True, comment="硬删时间（档案保留）")
+    deleted_by = Column(String(200), nullable=True, comment="执行硬删的用户 sub:name")
+    deletion_reason = Column(String(200), nullable=True, comment="硬删原因")
 
     # 关系
     contacts = relationship("CustomerContact", back_populates="customer")

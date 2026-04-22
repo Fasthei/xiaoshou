@@ -1,6 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from datetime import datetime
 from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.auth import CurrentUser, require_auth, require_roles
 from app.database import get_db
 from app.models.customer import Customer, CustomerContact
 from app.models.sales import SalesUser
@@ -169,3 +174,98 @@ def add_customer_contact(
     db.commit()
     db.refresh(db_contact)
     return db_contact
+
+
+# ---------- 议题 B: 商机池彻底删除 ----------
+
+class HardDeleteBody(BaseModel):
+    reason: Optional[str] = Field(None, max_length=200,
+                                  description="彻底删除原因（建议必填）")
+
+
+@router.post(
+    "/{customer_id}/hard-delete",
+    summary="彻底删除（只允许在商机池 lead 里操作；is_deleted=true 保留档案可查）",
+    dependencies=[Depends(require_roles("sales", "sales-manager", "admin"))],
+)
+def hard_delete_customer(
+    customer_id: int,
+    body: HardDeleteBody,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    """议题 B 两级删除策略的第二级：
+    - 只允许在商机池（lifecycle_stage='lead'）里对客户彻底删
+    - 彻底删 = is_deleted=true + deleted_at/by/reason；**不物理 DELETE**，档案可查
+    - 将来工单同名客户冒出来也不会复活（sync_customers_from_ticket 里墓碑拦截）
+    """
+    cust = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.is_deleted == False,  # noqa: E712
+    ).first()
+    if not cust:
+        raise HTTPException(404, "客户不存在或已被删除")
+    if cust.lifecycle_stage != "lead":
+        raise HTTPException(
+            400,
+            f"只能在商机池里彻底删除客户 (当前 stage={cust.lifecycle_stage}); "
+            "先让客户退回商机池再来操作。",
+        )
+
+    cust.is_deleted = True
+    cust.deleted_at = datetime.utcnow()
+    cust.deleted_by = f"{user.sub}:{user.name}"[:200]
+    cust.deletion_reason = body.reason
+    db.add(cust)
+    db.commit()
+    return {
+        "customer_id": customer_id,
+        "customer_code": cust.customer_code,
+        "deleted_at": cust.deleted_at.isoformat(),
+        "deleted_by": cust.deleted_by,
+        "deletion_reason": cust.deletion_reason,
+    }
+
+
+class CustomerArchiveItem(BaseModel):
+    id: int
+    customer_code: Optional[str] = None
+    customer_name: str
+    lifecycle_stage: Optional[str] = None
+    deleted_at: Optional[str] = None
+    deleted_by: Optional[str] = None
+    deletion_reason: Optional[str] = None
+    source_system: Optional[str] = None
+
+
+@router.get(
+    "/archive/list",
+    summary="已彻底删除的客户档案（is_deleted=true 墓碑）",
+    response_model=list[CustomerArchiveItem],
+    dependencies=[Depends(require_roles("sales", "sales-manager", "admin"))],
+)
+def list_deleted_customers(
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    rows = (
+        db.query(Customer)
+        .filter(Customer.is_deleted == True)  # noqa: E712
+        .order_by(Customer.deleted_at.desc().nulls_last(), Customer.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        CustomerArchiveItem(
+            id=c.id,
+            customer_code=c.customer_code,
+            customer_name=c.customer_name,
+            lifecycle_stage=c.lifecycle_stage,
+            deleted_at=c.deleted_at.isoformat() if c.deleted_at else None,
+            deleted_by=c.deleted_by,
+            deletion_reason=c.deletion_reason,
+            source_system=c.source_system,
+        )
+        for c in rows
+    ]

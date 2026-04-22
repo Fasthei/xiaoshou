@@ -30,6 +30,8 @@ class Resource(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_deleted = Column(Boolean, default=False)
+    # 云管同步后发现上游消失 → 软删保留（议题 B / alembic 007）
+    deleted_at = Column(DateTime, nullable=True, comment="云管消失后软删时间")
 
     # 关系
     allocations = relationship("Allocation", back_populates="resource")

@@ -27,6 +27,12 @@ def sync_customers_from_ticket(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ):
+    """议题 B 两级删除策略：
+      - 工单拉到的客户：create/update 到本地（source_system='gongdan'）
+      - 本地有 source_system='gongdan'、lifecycle_stage='active' 但远端没了的
+        → 降级到 'lead' 商机池；demoted_at/demoted_reason 记录来龙
+      - 工单名字又冒出来但本地已 is_deleted=true (硬删墓碑) → skip 不复活
+    """
     s = get_settings()
     if not s.GONGDAN_ENDPOINT or not s.GONGDAN_API_KEY:
         raise HTTPException(400, "GONGDAN_ENDPOINT / GONGDAN_API_KEY not configured")
@@ -38,10 +44,11 @@ def sync_customers_from_ticket(
     db.add(log); db.commit(); db.refresh(log)
 
     client = GongdanClient(s.GONGDAN_ENDPOINT, s.GONGDAN_API_KEY)
-    created = updated = skipped = errors = 0
+    created = updated = skipped = errors = demoted = tombstoned = 0
     try:
         remote = client.list_customers()
         log.pulled_count = len(remote)
+        remote_codes = {rc.customer_code for rc in remote if rc.customer_code}
 
         overrides: list[str] = []
         for rc in remote:
@@ -49,6 +56,16 @@ def sync_customers_from_ticket(
                 skipped += 1
                 continue
             try:
+                # 墓碑拦截：本地存在 customer_code 且 is_deleted=true → 不复活
+                tombstone = db.query(Customer).filter(
+                    Customer.customer_code == rc.customer_code,
+                    Customer.is_deleted == True,  # noqa: E712
+                ).first()
+                if tombstone is not None:
+                    tombstoned += 1
+                    skipped += 1
+                    continue
+
                 existing = db.query(Customer).filter(
                     Customer.customer_code == rc.customer_code,
                     Customer.is_deleted == False,  # noqa: E712
@@ -88,6 +105,11 @@ def sync_customers_from_ticket(
                         if existing.source_id != rc.id:
                             existing.source_id = rc.id
                             changed = True
+                        # 若之前因工单侧消失而被降级，现在上游回来了 → 清除降级标记
+                        if existing.demoted_at is not None:
+                            existing.demoted_at = None
+                            existing.demoted_reason = None
+                            changed = True
                         # Auto lifecycle: gongdan 里有 = formalized -> active
                         if not dry_run:
                             stage_bumped = auto_advance_stage(
@@ -117,6 +139,27 @@ def sync_customers_from_ticket(
                 logger.exception("sync customer %s failed: %s", rc.customer_code, e)
                 errors += 1
 
+        # === 降级：本地 gongdan 来源 + active + is_deleted=false 但远端没了 ===
+        absent_locals = db.query(Customer).filter(
+            Customer.source_system == "gongdan",
+            Customer.is_deleted == False,  # noqa: E712
+            Customer.lifecycle_stage == "active",
+            Customer.customer_code.isnot(None),
+        ).all()
+        for c in absent_locals:
+            if c.customer_code in remote_codes:
+                continue
+            # 工单侧不再有该 customer_code → 降级
+            demoted += 1
+            if not dry_run:
+                c.lifecycle_stage = "lead"
+                c.recycled_from_stage = "active"
+                c.recycle_reason = "gongdan 同步: 上游客户已消失, 自动降级回商机池"
+                c.recycled_at = datetime.utcnow()
+                c.demoted_at = datetime.utcnow()
+                c.demoted_reason = "gongdan 侧已删除"
+                db.add(c)
+
         if not dry_run:
             db.commit()
 
@@ -126,9 +169,15 @@ def sync_customers_from_ticket(
         log.error_count = errors
         log.status = "success" if errors == 0 else "failed"
         log.finished_at = datetime.utcnow()
+        notes: list[str] = []
+        if demoted:
+            notes.append(f"[demoted] {demoted} 个正式客户因上游消失降级到商机池")
+        if tombstoned:
+            notes.append(f"[tombstoned] {tombstoned} 个同名客户命中硬删墓碑, 未复活")
         if overrides:
-            audit = "[overrides] 本地手工客户被工单覆盖:\n" + "\n".join(overrides)
-            log.last_error = (audit[:2000])
+            notes.append("[overrides] 本地手工客户被工单覆盖:\n" + "\n".join(overrides))
+        if notes:
+            log.last_error = ("\n".join(notes))[:2000]
         db.add(log); db.commit()
     except Exception as e:
         logger.exception("sync failed: %s", e)
@@ -145,6 +194,8 @@ def sync_customers_from_ticket(
         "updated": updated,
         "skipped": skipped,
         "errors": errors,
+        "demoted": demoted,
+        "tombstoned": tombstoned,
         "sync_log_id": log.id,
     }
 
@@ -155,6 +206,10 @@ def sync_resources_from_cloudcost(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ):
+    """议题 B: 云管侧消失的货源 → 本地软删 (is_deleted=true, deleted_at)；
+    customer_resource 关联保留以便审计 / 手工解绑。
+    本地已软删的同 resource_code → skip（墓碑不复活）。
+    """
     s = get_settings()
     if not s.CLOUDCOST_ENDPOINT:
         raise HTTPException(400, "CLOUDCOST_ENDPOINT not configured")
@@ -166,13 +221,25 @@ def sync_resources_from_cloudcost(
     db.add(log); db.commit(); db.refresh(log)
 
     client = CloudCostClient(s.CLOUDCOST_ENDPOINT)
-    created = updated = skipped = errors = 0
+    created = updated = skipped = errors = soft_deleted = tombstoned = 0
     try:
         accounts = client.list_service_accounts(page=1, page_size=500)
         log.pulled_count = len(accounts)
+        remote_codes = {f"cc-{a.id}" for a in accounts}
+
         for a in accounts:
             try:
                 code = f"cc-{a.id}"          # stable canonical 货源编号
+                # 墓碑：同 code 已被软删 → skip（不复活）
+                tomb = db.query(Resource).filter(
+                    Resource.resource_code == code,
+                    Resource.is_deleted == True,  # noqa: E712
+                ).first()
+                if tomb is not None:
+                    tombstoned += 1
+                    skipped += 1
+                    continue
+
                 existing = db.query(Resource).filter(
                     Resource.resource_code == code, Resource.is_deleted == False,  # noqa: E712
                 ).first()
@@ -205,6 +272,21 @@ def sync_resources_from_cloudcost(
                 logger.exception("sync resource %s failed: %s", a.id, e)
                 errors += 1
 
+        # === 软删云管消失的资源 ===
+        absent_locals = db.query(Resource).filter(
+            Resource.source_system == "cloudcost",
+            Resource.is_deleted == False,  # noqa: E712
+        ).all()
+        for r in absent_locals:
+            if r.resource_code in remote_codes:
+                continue
+            soft_deleted += 1
+            if not dry_run:
+                r.is_deleted = True
+                r.deleted_at = datetime.utcnow()
+                r.resource_status = "DECOMMISSIONED"
+                db.add(r)
+
         if not dry_run:
             db.commit()
 
@@ -214,6 +296,13 @@ def sync_resources_from_cloudcost(
         log.error_count = errors
         log.status = "success" if errors == 0 else "failed"
         log.finished_at = datetime.utcnow()
+        notes: list[str] = []
+        if soft_deleted:
+            notes.append(f"[soft_deleted] {soft_deleted} 个云管侧消失的货源已软删")
+        if tombstoned:
+            notes.append(f"[tombstoned] {tombstoned} 个同 resource_code 命中墓碑, 未复活")
+        if notes:
+            log.last_error = "\n".join(notes)[:2000]
         db.add(log); db.commit()
     except Exception as e:
         log.status = "failed"; log.last_error = str(e)[:2000]
@@ -224,6 +313,8 @@ def sync_resources_from_cloudcost(
     return {
         "dry_run": dry_run, "pulled": log.pulled_count,
         "created": created, "updated": updated, "skipped": skipped, "errors": errors,
+        "soft_deleted": soft_deleted,
+        "tombstoned": tombstoned,
         "sync_log_id": log.id,
     }
 
