@@ -2,28 +2,37 @@
 
 前端客户详情用量/预警/账单 tab 从 local 读; 云管数据通过 sync 接口拉到本地表
 (cc_usage / cc_alert / cc_bill). 不再每次走 bridge 实时代理.
+
+同步业务逻辑集中在 app.services.cloudcost_sync；这里只负责：
+    1. HTTP 路由入参校验
+    2. 构造 CloudCostClient（可回退到转发用户 bearer）
+    3. 调用 service function
+    4. 把 service 返回的 dict 按 HTTP 口径返回（错误 → 502）
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, date as date_cls, timedelta
+from datetime import date as date_cls, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.auth import CurrentUser, require_auth
-from app.config import get_settings
+from app.auth import CurrentUser, require_auth, require_roles
 from app.database import get_db
-from app.integrations import CloudCostClient
 from app.models.customer import Customer
 from app.models.cc_usage import CCUsage
 from app.models.cc_alert import CCAlert
 from app.models.cc_bill import CCBill
-from app.models.sync_log import SyncLog
+from app.services.cloudcost_sync import (
+    build_cloud_client,
+    current_month as _current_month,
+    do_sync_alerts,
+    do_sync_bills,
+    do_sync_usage_all,
+    do_sync_usage_for_customer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,63 +49,25 @@ def _bearer_from_request(request: Request) -> Optional[str]:
     return None
 
 
-def _cloud(request: Request) -> CloudCostClient:
-    s = get_settings()
-    if not s.CLOUDCOST_ENDPOINT:
-        raise HTTPException(400, "CLOUDCOST_ENDPOINT not configured")
-    # AI-BRAIN-API.md §1.2 推荐: 优先 X-API-Key (云管官方推荐的 AI/自动化鉴权方式);
-    # 没配才回退到转发调用方 Casdoor JWT.
-    api_key = s.CLOUDCOST_API_KEY or None
-    return CloudCostClient(
-        s.CLOUDCOST_ENDPOINT,
-        match_field=s.CLOUDCOST_MATCH_FIELD,
-        api_key=api_key,
-        bearer_token=_bearer_from_request(request) if not api_key else None,
-    )
-
-
-def _current_month() -> str:
-    return datetime.utcnow().strftime("%Y-%m")
-
-
-def _dec(v: Any, default: Any = 0) -> Optional[Decimal]:
-    if v is None:
-        return Decimal(str(default)) if default is not None else None
+def _client_for(request: Request):
     try:
-        return Decimal(str(v))
-    except Exception:
-        return Decimal(str(default)) if default is not None else None
+        return build_cloud_client(bearer_token=_bearer_from_request(request))
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
 
 
-def _new_sync_log(
-    db: Session, sync_type: str, user: CurrentUser,
-) -> SyncLog:
-    log = SyncLog(
-        source_system="cloudcost", sync_type=sync_type,
-        triggered_by=f"{user.sub}:{user.name}", status="running",
-    )
-    db.add(log); db.commit(); db.refresh(log)
-    return log
+def _triggered_by(user: CurrentUser) -> str:
+    return f"{user.sub}:{user.name}"
 
 
-def _finish_log(db: Session, log: SyncLog, status: str,
-                pulled: int, created: int, updated: int,
-                skipped: int, errors: int, err_msg: Optional[str] = None) -> None:
-    log.pulled_count = pulled
-    log.created_count = created
-    log.updated_count = updated
-    log.skipped_count = skipped
-    log.error_count = errors
-    log.status = status
-    log.finished_at = datetime.utcnow()
-    if err_msg:
-        log.last_error = err_msg[:2000]
-    db.add(log); db.commit()
+def _raise_if_error(result: Dict[str, Any]) -> None:
+    if not result.get("ok") and result.get("error"):
+        raise HTTPException(502, f"云管同步失败: {result['error']}")
 
 
 # ---------- M2: sync endpoints ----------
 
-@sync_router.post("/usage", summary="从云管同步客户用量到本地 cc_usage 表")
+@sync_router.post("/usage", summary="从云管同步某客户用量到本地 cc_usage 表")
 def sync_cloudcost_usage(
     request: Request,
     customer_id: int = Query(..., description="xiaoshou.customer.id"),
@@ -104,189 +75,36 @@ def sync_cloudcost_usage(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ):
-    """给定客户, 调云管拉近 N 天用量, upsert cc_usage (by customer_code+date).
-
-    匹配逻辑:
-      1. 调 cloudcost.list_service_accounts() 拉全部货源.
-      2. service_account.external_project_id == customer.customer_code → 主匹配.
-      3. 若不匹配, 再看 supplier_name == customer_code 做次级匹配.
-      4. 仍不匹配 → skip, 写 sync_log warning.
-    """
     customer = db.query(Customer).filter(
         Customer.id == customer_id, Customer.is_deleted == False,  # noqa: E712
     ).first()
     if not customer:
         raise HTTPException(404, "客户不存在")
 
-    log = _new_sync_log(db, f"usage:{customer.customer_code}", user)
-    created = updated = skipped = errors = 0
-    pulled = 0
-    warnings: List[str] = []
+    client = _client_for(request)
+    result = do_sync_usage_for_customer(
+        db, client, _triggered_by(user), customer, days=days,
+    )
+    _raise_if_error(result)
+    return result
 
-    try:
-        client = _cloud(request)
-        accounts = client.list_service_accounts(page=1, page_size=500)
 
-        # Match service accounts → this customer
-        code = str(customer.customer_code or "").strip()
-        matched = [
-            a for a in accounts
-            if (a.external_project_id and str(a.external_project_id) == code)
-        ]
-        if not matched:
-            # 次级匹配: supplier_name
-            matched = [
-                a for a in accounts
-                if (a.supplier_name and str(a.supplier_name) == code)
-            ]
-            if matched:
-                warnings.append(f"使用 supplier_name 做次级匹配命中 {len(matched)} 个货源")
-
-        if not matched:
-            warnings.append(f"customer_code={code} 在云管 external_project_id/supplier_name 均未命中")
-            _finish_log(db, log, "success", pulled, created, updated, skipped, errors,
-                        "; ".join(warnings))
-            return {
-                "customer_id": customer_id, "customer_code": code, "days": days,
-                "matched_accounts": 0, "pulled": 0, "created": 0, "updated": 0,
-                "skipped": 0, "errors": 0, "sync_log_id": log.id,
-                "warning": "; ".join(warnings),
-            }
-
-        # Aggregate daily rows across all matched accounts
-        # { date_iso: {"total_cost":D, "total_usage":D, "record_count":int, "raw":{"accounts":[...]}} }
-        agg: Dict[str, Dict[str, Any]] = {}
-
-        # 本地窗口 = 今天 - days → 今天
-        end_d = date_cls.today()
-        start_d = end_d - timedelta(days=max(1, int(days)))
-        start_iso = start_d.isoformat()
-        end_iso = end_d.isoformat()
-
-        for a in matched:
-            # 优先走标准化的 /api/metering/detail（流式分页），失败再退回旧的
-            # /api/service-accounts/{id}/costs —— 云管新接口落地后老接口仍可读，
-            # 我们做双轨兼容以便不同部署节奏下都不会断数据。
-            items_iter: Optional[List[Dict[str, Any]]] = None
-            used_metering = False
-            try:
-                metering_rows = list(client.metering_detail_iter(
-                    start_date=start_iso, end_date=end_iso,
-                    account_id=a.id, page_size=500,
-                ))
-                used_metering = True
-                items_iter = metering_rows
-                pulled += len(metering_rows)
-            except Exception as e:
-                logger.warning(
-                    "metering_detail account=%s failed, falling back to /costs: %s",
-                    a.id, e,
-                )
-
-            if items_iter is None:
-                try:
-                    raw = client.get_customer_usage(a.id, days=days)
-                except Exception as e:
-                    logger.warning("get_customer_usage account=%s failed: %s", a.id, e)
-                    errors += 1
-                    continue
-
-                legacy_items = raw if isinstance(raw, list) else (
-                    (raw or {}).get("items") if isinstance(raw, dict) else None
-                ) or (
-                    (raw or {}).get("data") if isinstance(raw, dict) else None
-                ) or []
-                if not isinstance(legacy_items, list):
-                    legacy_items = []
-                items_iter = [x for x in legacy_items if isinstance(x, dict)]
-                pulled += len(items_iter)
-
-            for it in items_iter:
-                if not isinstance(it, dict):
-                    continue
-                # metering/detail 用 date / usage_date / bill_date;
-                # 老 /costs 用 bill_date / day / cost_date。 兼容读。
-                d_raw = (it.get("date") or it.get("usage_date")
-                         or it.get("bill_date") or it.get("day")
-                         or it.get("cost_date") or "")
-                d_iso = str(d_raw)[:10]
-                if not d_iso:
-                    continue
-                slot = agg.setdefault(d_iso, {
-                    "total_cost": Decimal("0"),
-                    "total_usage": Decimal("0"),
-                    "record_count": 0,
-                    "raw": {"accounts": []},
-                })
-                cost = _dec(
-                    it.get("cost") or it.get("total_cost")
-                    or it.get("amount") or it.get("final_cost") or 0
-                )
-                usage_ = _dec(
-                    it.get("usage") or it.get("total_usage")
-                    or it.get("quantity") or 0
-                )
-                slot["total_cost"] += cost or Decimal("0")
-                slot["total_usage"] += usage_ or Decimal("0")
-                slot["record_count"] += 1
-                slot["raw"]["accounts"].append({
-                    "account_id": a.id,
-                    "service": (it.get("service") or it.get("service_name")
-                                or it.get("name") or "云服务"),
-                    "cost": float(cost or 0),
-                    "usage": float(usage_ or 0),
-                    "date": d_iso,
-                    "source": "metering" if used_metering else "legacy",
-                })
-
-        # upsert into cc_usage
-        for d_iso, vals in agg.items():
-            try:
-                try:
-                    d_obj = date_cls.fromisoformat(d_iso)
-                except Exception:
-                    continue
-                existing = db.query(CCUsage).filter(
-                    CCUsage.customer_code == code, CCUsage.date == d_obj,
-                ).first()
-                if existing:
-                    existing.total_cost = vals["total_cost"]
-                    existing.total_usage = vals["total_usage"]
-                    existing.record_count = vals["record_count"]
-                    existing.raw = vals["raw"]
-                    existing.sync_at = datetime.utcnow()
-                    db.add(existing)
-                    updated += 1
-                else:
-                    db.add(CCUsage(
-                        customer_code=code, date=d_obj,
-                        total_cost=vals["total_cost"],
-                        total_usage=vals["total_usage"],
-                        record_count=vals["record_count"],
-                        raw=vals["raw"],
-                    ))
-                    created += 1
-            except Exception as e:
-                logger.exception("upsert cc_usage %s %s failed: %s", code, d_iso, e)
-                errors += 1
-
-        db.commit()
-        _finish_log(db, log, "success" if errors == 0 else "failed",
-                    pulled, created, updated, skipped, errors,
-                    "; ".join(warnings) if warnings else None)
-    except Exception as e:
-        db.rollback()
-        logger.exception("sync usage failed: %s", e)
-        _finish_log(db, log, "failed", pulled, created, updated, skipped, errors + 1, str(e))
-        raise HTTPException(502, f"云管用量同步失败: {e}")
-
-    return {
-        "customer_id": customer_id, "customer_code": code, "days": days,
-        "matched_accounts": len(matched),
-        "pulled": pulled, "created": created, "updated": updated,
-        "skipped": skipped, "errors": errors, "sync_log_id": log.id,
-        "warning": "; ".join(warnings) if warnings else None,
-    }
+@sync_router.post(
+    "/usage-all",
+    summary="批量同步全部客户的用量 (sales-manager / admin / ops 可触发)",
+    dependencies=[Depends(require_roles("sales-manager", "admin", "ops", "operation", "operations"))],
+)
+def sync_cloudcost_usage_all(
+    request: Request,
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_auth),
+):
+    """遍历所有客户跑用量同步；用于账单中心的"手动同步用量"入口。"""
+    client = _client_for(request)
+    result = do_sync_usage_all(db, client, _triggered_by(user), days=days)
+    _raise_if_error(result)
+    return result
 
 
 @sync_router.post("/alerts", summary="从云管同步预警规则快照到本地 cc_alert 表")
@@ -296,73 +114,10 @@ def sync_cloudcost_alerts(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ):
-    m = month or _current_month()
-    log = _new_sync_log(db, f"alerts:{m}", user)
-    created = updated = skipped = errors = 0
-    pulled = 0
-    try:
-        client = _cloud(request)
-        items = client.alerts_rule_status(m)
-        pulled = len(items) if isinstance(items, list) else 0
-
-        for it in items or []:
-            if not isinstance(it, dict):
-                skipped += 1
-                continue
-            try:
-                rule_id = it.get("rule_id") or it.get("id")
-                if rule_id is None:
-                    skipped += 1
-                    continue
-                rule_id_i = int(rule_id)
-                payload = dict(
-                    rule_id=rule_id_i,
-                    rule_name=(it.get("rule_name") or it.get("name") or "")[:200] or None,
-                    threshold_type=(it.get("threshold_type") or it.get("type") or "")[:40] or None,
-                    threshold_value=_dec(it.get("threshold_value") or it.get("threshold"), None),
-                    actual=_dec(it.get("actual") or it.get("actual_value"), None),
-                    pct=_dec(it.get("pct") or it.get("percent"), None),
-                    triggered=bool(it.get("triggered") or it.get("is_triggered") or False),
-                    account_name=(it.get("account_name") or it.get("account") or "")[:200] or None,
-                    provider=(it.get("provider") or "")[:40] or None,
-                    external_project_id=(it.get("external_project_id")
-                                         or it.get("customer_code") or "")[:200] or None,
-                    month=m,
-                )
-                existing = db.query(CCAlert).filter(
-                    CCAlert.rule_id == rule_id_i, CCAlert.month == m,
-                ).first()
-                if existing:
-                    changed = False
-                    for k, v in payload.items():
-                        if getattr(existing, k, None) != v:
-                            setattr(existing, k, v); changed = True
-                    existing.sync_at = datetime.utcnow()
-                    db.add(existing)
-                    if changed:
-                        updated += 1
-                    else:
-                        skipped += 1
-                else:
-                    db.add(CCAlert(**payload))
-                    created += 1
-            except Exception as e:
-                logger.exception("upsert cc_alert failed: %s", e)
-                errors += 1
-
-        db.commit()
-        _finish_log(db, log, "success" if errors == 0 else "failed",
-                    pulled, created, updated, skipped, errors)
-    except Exception as e:
-        db.rollback()
-        logger.exception("sync alerts failed: %s", e)
-        _finish_log(db, log, "failed", pulled, created, updated, skipped, errors + 1, str(e))
-        raise HTTPException(502, f"云管预警同步失败: {e}")
-
-    return {
-        "month": m, "pulled": pulled, "created": created, "updated": updated,
-        "skipped": skipped, "errors": errors, "sync_log_id": log.id,
-    }
+    client = _client_for(request)
+    result = do_sync_alerts(db, client, _triggered_by(user), month=month)
+    _raise_if_error(result)
+    return result
 
 
 @sync_router.post("/bills", summary="从云管同步月度账单到本地 cc_bill 表")
@@ -372,92 +127,10 @@ def sync_cloudcost_bills(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ):
-    m = month or _current_month()
-    log = _new_sync_log(db, f"bills:{m}", user)
-    created = updated = skipped = errors = 0
-    pulled = 0
-    try:
-        client = _cloud(request)
-        raw = client.bills(month=m, page=1, page_size=500)
-        items = raw if isinstance(raw, list) else (
-            (raw or {}).get("items") or (raw or {}).get("data") or []
-        ) if isinstance(raw, dict) else []
-        if not isinstance(items, list):
-            items = []
-        pulled = len(items)
-
-        # Build external_project_id → customer_code map via service accounts
-        # (用作账单 customer_code 推断)
-        project_to_code: Dict[str, str] = {}
-        try:
-            accounts = client.list_service_accounts(page=1, page_size=500)
-            for a in accounts:
-                if a.external_project_id:
-                    project_to_code[str(a.external_project_id)] = str(a.external_project_id)
-        except Exception:
-            pass
-
-        for it in items:
-            if not isinstance(it, dict):
-                skipped += 1
-                continue
-            try:
-                remote_id = it.get("id")
-                if remote_id is None:
-                    skipped += 1
-                    continue
-                remote_id_i = int(remote_id)
-                ext = (it.get("external_project_id") or it.get("customer_code") or "")
-                customer_code = project_to_code.get(str(ext)) if ext else None
-                if not customer_code and ext:
-                    customer_code = str(ext)
-
-                payload = dict(
-                    remote_id=remote_id_i,
-                    month=(it.get("month") or m)[:7],
-                    provider=(it.get("provider") or "")[:40] or None,
-                    original_cost=_dec(it.get("original_cost") or it.get("original_amount"), None),
-                    markup_rate=_dec(it.get("markup_rate"), None),
-                    final_cost=_dec(it.get("final_cost") or it.get("amount")
-                                    or it.get("total_amount"), None),
-                    adjustment=_dec(it.get("adjustment"), None),
-                    status=(it.get("status") or "")[:20] or None,
-                    notes=it.get("notes"),
-                    customer_code=(customer_code or "")[:80] or None,
-                    raw=it,
-                )
-                existing = db.query(CCBill).filter(CCBill.remote_id == remote_id_i).first()
-                if existing:
-                    changed = False
-                    for k, v in payload.items():
-                        if getattr(existing, k, None) != v:
-                            setattr(existing, k, v); changed = True
-                    existing.sync_at = datetime.utcnow()
-                    db.add(existing)
-                    if changed:
-                        updated += 1
-                    else:
-                        skipped += 1
-                else:
-                    db.add(CCBill(**payload))
-                    created += 1
-            except Exception as e:
-                logger.exception("upsert cc_bill failed: %s", e)
-                errors += 1
-
-        db.commit()
-        _finish_log(db, log, "success" if errors == 0 else "failed",
-                    pulled, created, updated, skipped, errors)
-    except Exception as e:
-        db.rollback()
-        logger.exception("sync bills failed: %s", e)
-        _finish_log(db, log, "failed", pulled, created, updated, skipped, errors + 1, str(e))
-        raise HTTPException(502, f"云管账单同步失败: {e}")
-
-    return {
-        "month": m, "pulled": pulled, "created": created, "updated": updated,
-        "skipped": skipped, "errors": errors, "sync_log_id": log.id,
-    }
+    client = _client_for(request)
+    result = do_sync_bills(db, client, _triggered_by(user), month=month)
+    _raise_if_error(result)
+    return result
 
 
 # ---------- M2: local read endpoints ----------

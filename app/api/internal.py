@@ -19,6 +19,12 @@ from app.integrations.casdoor_m2m import verify_internal
 from app.models.allocation import Allocation
 from app.models.customer import Customer
 from app.models.resource import Resource
+from app.services.cloudcost_sync import (
+    build_cloud_client,
+    do_sync_alerts,
+    do_sync_bills,
+    do_sync_usage_all,
+)
 from app.services.usage_surge_trigger import evaluate_usage_surge_rules
 from app.services.contract_expiry_trigger import evaluate_contract_expiring_rules
 
@@ -134,3 +140,109 @@ def cron_contract_expiring(
         "triggered_events": triggered,
         "evaluated_at": datetime.utcnow().isoformat() + "Z",
     }
+
+
+# ---------- 云管数据同步 cron ----------
+#
+# 这三个入口把 /api/sync/cloudcost/* 的业务逻辑暴露给 M2M 调度器（Azure Container
+# App Job / Logic App / 外部 cron），用 X-Internal-Api-Key 或 M2M JWT 鉴权。
+#
+# 推荐调度频率：
+#   bills   → 每天一次（云管月度账单通常每日增量更新）
+#   usage   → 每小时一次（或至少每 4 小时）
+#   alerts  → 每小时一次（与 cron/usage-surge 对齐）
+#
+# 调用方式：
+#   curl -sf -X POST $API_BASE/api/internal/cron/sync-cloudcost-bills \
+#        -H "X-Internal-Api-Key: $XIAOSHOU_INTERNAL_API_KEY"
+
+
+@router.post(
+    "/cron/sync-cloudcost-bills",
+    summary="云管账单同步 cron（拉 cc_bill）",
+)
+def cron_sync_cloudcost_bills(
+    month: Optional[str] = Query(
+        None, pattern=r"^\d{4}-\d{2}$", description="YYYY-MM；默认当月",
+    ),
+    _auth_dep: None = Depends(_auth),
+    db: Session = Depends(get_db),
+):
+    try:
+        client = build_cloud_client()
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+
+    try:
+        result = do_sync_bills(db, client, triggered_by="cron:internal", month=month)
+    except Exception as exc:
+        logger.exception("cron_sync_bills failed: %s", exc)
+        raise HTTPException(500, f"sync bills error: {exc}") from exc
+
+    logger.info(
+        "cron_sync_bills month=%s pulled=%s created=%s updated=%s errors=%s",
+        result.get("month"), result.get("pulled"),
+        result.get("created"), result.get("updated"), result.get("errors"),
+    )
+    return result
+
+
+@router.post(
+    "/cron/sync-cloudcost-usage",
+    summary="云管用量同步 cron（遍历所有客户，拉 cc_usage）",
+)
+def cron_sync_cloudcost_usage(
+    days: int = Query(30, ge=1, le=365, description="回溯天数"),
+    _auth_dep: None = Depends(_auth),
+    db: Session = Depends(get_db),
+):
+    try:
+        client = build_cloud_client()
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+
+    try:
+        result = do_sync_usage_all(db, client, triggered_by="cron:internal", days=days)
+    except Exception as exc:
+        logger.exception("cron_sync_usage failed: %s", exc)
+        raise HTTPException(500, f"sync usage error: {exc}") from exc
+
+    logger.info(
+        "cron_sync_usage days=%s customers=%s pulled=%s created=%s updated=%s errors=%s",
+        result.get("days"), result.get("customers_processed"),
+        result.get("pulled"), result.get("created"),
+        result.get("updated"), result.get("errors"),
+    )
+    # per_customer 列表对 cron 日志来说过于冗长，剔除掉返回
+    result.pop("per_customer", None)
+    return result
+
+
+@router.post(
+    "/cron/sync-cloudcost-alerts",
+    summary="云管预警规则快照同步 cron（拉 cc_alert）",
+)
+def cron_sync_cloudcost_alerts(
+    month: Optional[str] = Query(
+        None, pattern=r"^\d{4}-\d{2}$", description="YYYY-MM；默认当月",
+    ),
+    _auth_dep: None = Depends(_auth),
+    db: Session = Depends(get_db),
+):
+    try:
+        client = build_cloud_client()
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+
+    try:
+        result = do_sync_alerts(db, client, triggered_by="cron:internal", month=month)
+    except Exception as exc:
+        logger.exception("cron_sync_alerts failed: %s", exc)
+        raise HTTPException(500, f"sync alerts error: {exc}") from exc
+
+    logger.info(
+        "cron_sync_alerts month=%s pulled=%s created=%s updated=%s errors=%s",
+        result.get("month"), result.get("pulled"),
+        result.get("created"), result.get("updated"), result.get("errors"),
+    )
+    return result
