@@ -8,8 +8,8 @@ from app.api import (
     allocation, auth, customer, resource, usage, sync, customer_resources,
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
     customer_insight_agent, sales, external, follow_up, contract, ticket,
-    alert_rule, payment, cc_sync, bills_export, bills_local, manager, orders,
-    customer_stage, manager_metrics, reports,
+    alert_rule, payment, cc_sync, bills_export, bills_local, bill_adjustment,
+    manager, orders, customer_stage, manager_metrics, reports,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -90,6 +90,7 @@ app.include_router(cc_sync.sync_router, dependencies=protected_deps)
 app.include_router(cc_sync.local_router, dependencies=protected_deps)
 app.include_router(bills_export.router, dependencies=protected_deps)
 app.include_router(bills_local.router, dependencies=protected_deps)
+app.include_router(bill_adjustment.router, dependencies=protected_deps)
 app.include_router(manager.router, dependencies=protected_deps)
 app.include_router(orders.router, dependencies=protected_deps)
 app.include_router(customer_stage.customer_router, dependencies=protected_deps)

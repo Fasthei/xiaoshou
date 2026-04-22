@@ -73,10 +73,16 @@ def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db
 
     # 创建分配记录
     allocation_code = generate_allocation_code()
-    unit_cost = resource.unit_cost or Decimal(0)
+    unit_cost = resource.unit_cost
 
-    # 计算毛利
-    profit_data = calculate_profit(unit_cost, allocation.unit_price, allocation.allocated_quantity)
+    # 计算毛利（云后付费：unit_price 可空 → 毛利留空）
+    if unit_cost is not None and allocation.unit_price is not None:
+        profit_data = calculate_profit(unit_cost, allocation.unit_price, allocation.allocated_quantity)
+    else:
+        profit_data = {
+            "total_cost": None, "total_price": None,
+            "profit_amount": None, "profit_rate": None,
+        }
 
     db_allocation = Allocation(
         allocation_code=allocation_code,
@@ -136,10 +142,17 @@ def create_allocations_batch(payload: AllocationBatchCreate, db: Session = Depen
         if not resource:
             raise HTTPException(status_code=404, detail=f"货源不存在 (line {idx}, resource_id={line.resource_id})")
 
-        unit_cost = line.unit_cost if line.unit_cost is not None else (resource.unit_cost or Decimal(0))
+        # 云后付费：unit_price 可空；有填才算毛利，否则留 None 账单中心走 cc_usage
+        unit_cost = line.unit_cost if line.unit_cost is not None else resource.unit_cost
         unit_price = line.unit_price
         quantity = line.quantity
-        profit_data = calculate_profit(unit_cost, unit_price, quantity)
+        if unit_cost is not None and unit_price is not None:
+            profit_data = calculate_profit(unit_cost, unit_price, quantity)
+        else:
+            profit_data = {
+                "total_cost": None, "total_price": None,
+                "profit_amount": None, "profit_rate": None,
+            }
 
         alloc_code = f"{batch_code}-{idx + 1:02d}"
         db_alloc = Allocation(

@@ -67,7 +67,8 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const [step1Values, setStep1Values] = useState<Step1Values | null>(null);
   const [contractFile, setContractFile] = useState<UploadFile | null>(null);
   const [lines, setLines] = useState<OrderLine[]>([
-    { quantity: 1, pre_unit_price: 0, discount_rate: 0, post_unit_price: 0 },
+    // 后付费：原价 / 折后单价 可空，销售只需定折扣率；账单中心按 cc_usage × 折扣率 算折后
+    { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
   ]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [resLoading, setResLoading] = useState(false);
@@ -97,7 +98,9 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
     setCurrent(initialCustomer ? 1 : 0);
     setStep1Values(null);
     setContractFile(null);
-    setLines([{ quantity: 1, pre_unit_price: 0, discount_rate: 0, post_unit_price: 0 }]);
+    setLines([
+      { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
+    ]);
     step1Form.resetFields();
     step2Form.resetFields();
   };
@@ -133,7 +136,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const addLine = () =>
     setLines((prev) => [
       ...prev,
-      { quantity: 1, pre_unit_price: 0, discount_rate: 0, post_unit_price: 0 },
+      { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
     ]);
 
   const removeLine = (idx: number) =>
@@ -161,11 +164,15 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const handleBack = () => setCurrent(0);
 
   const validateLines = (): string | null => {
+    // 新口径（云后付费）：
+    //   - 货源 + 折扣率 必填
+    //   - 数量 至少 1
+    //   - 原价 / 折后单价 可空（后付费销售不预知单价；账单中心按 cc_usage × 折扣率）
     if (lines.length === 0) return '至少一条明细';
     for (const [i, l] of lines.entries()) {
       if (!l.resource_id) return `第 ${i + 1} 行未选货源`;
-      if (!l.quantity || l.quantity <= 0) return `第 ${i + 1} 行数量必须 > 0`;
-      if (l.post_unit_price == null || l.post_unit_price < 0) return `第 ${i + 1} 行折后单价无效`;
+      if (!l.quantity || l.quantity <= 0) return `第 ${i + 1} 行数量必须 ≥ 1`;
+      if (l.discount_rate == null) return `第 ${i + 1} 行必须填写折扣率（可填 0）`;
     }
     return null;
   };
@@ -200,16 +207,16 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         return;
       }
 
-      // 2) 批量创建订单明细
+      // 2) 批量创建订单明细（后付费字段可空）
       await api.post('/api/allocations/batch', {
         customer_id: customerId,
         contract_id: null,
         lines: lines.map((l) => ({
           resource_id: l.resource_id,
           quantity: l.quantity,
-          unit_cost: l.pre_unit_price,
-          unit_price: l.post_unit_price,
-          discount_rate: l.discount_rate,
+          unit_cost: l.pre_unit_price ?? null,
+          unit_price: l.post_unit_price ?? null,
+          discount_rate: l.discount_rate ?? 0,
         })),
       });
 

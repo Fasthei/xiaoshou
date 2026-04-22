@@ -8,7 +8,11 @@ class AllocationBase(BaseModel):
     customer_id: int = Field(..., description="客户ID")
     resource_id: int = Field(..., description="货源ID")
     allocated_quantity: int = Field(..., description="分配数量")
-    unit_price: Decimal = Field(..., description="单位售价")
+    unit_price: Optional[Decimal] = Field(
+        None,
+        description="单位售价（后付费可空；销售不预知单价时留 NULL，"
+                    "账单中心从 cc_usage 反算原价 × (1-折扣)）",
+    )
     remark: Optional[str] = Field(None, description="备注")
     end_user_label: Optional[str] = Field(None, description="渠道订单下终端用户标签 (仅 channel 客户)")
 
@@ -70,11 +74,20 @@ class AllocationApprovalRequest(BaseModel):
 
 
 class AllocationBatchLine(BaseModel):
-    resource_id: int
+    """一条订单明细。
+
+    业务口径（云后付费）：
+    - resource_id：必选（每个货源是独立折扣主体）
+    - discount_rate：必填（%，可为 0，可为负表加价）
+    - quantity：必填（即使后付费也要有约定量，可填 1 占位）
+    - unit_price / unit_cost：**可选**。后付费下销售不预知单价，
+      所以允许留空；账单侧以 cc_usage 做原价、再乘该折扣率出折后。
+    """
+    resource_id: int = Field(..., description="货源 ID（必选）")
     quantity: int = Field(..., ge=1)
-    unit_cost: Optional[Decimal] = Field(None, description="折前单价 / 成本")
-    unit_price: Decimal = Field(..., description="折后单价")
-    discount_rate: Optional[Decimal] = Field(None, description="折扣率 % (0-100, 可负)")
+    unit_cost: Optional[Decimal] = Field(None, description="折前单价 / 成本（后付费可空）")
+    unit_price: Optional[Decimal] = Field(None, description="折后单价（后付费可空）")
+    discount_rate: Decimal = Field(..., description="折扣率 % (0-100, 可负)；必填")
     end_user_label: Optional[str] = None
     remark: Optional[str] = None
 

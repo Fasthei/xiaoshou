@@ -6,11 +6,12 @@ import {
 } from 'antd';
 import {
   ReloadOutlined, DollarOutlined, DownloadOutlined, CalculatorOutlined,
-  BarChartOutlined, CloudSyncOutlined,
+  BarChartOutlined, CloudSyncOutlined, EditOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api, getCurrentRoles } from '../api/axios';
 import DiscountCalculatorDrawer from '../components/DiscountCalculatorDrawer';
+import BillAdjustmentDrawer from '../components/BillAdjustmentDrawer';
 import Reports from './Reports';
 
 const { Title, Text } = Typography;
@@ -20,11 +21,17 @@ interface ResourceBill {
   resource_code: string | null;
   cloud_provider: string | null;
   account_name: string | null;
-  identifier_field: string | null;  // 云管 external_project_id，= cc_bill.customer_code
-  original_cost: number;            // 原价（cc_bill.original_cost）
-  discount_rate: number;            // 折扣率 = (orig - final) / orig
-  final_cost: number;               // 折后价（cc_bill.final_cost）
-  cost: number;                     // 旧别名，= final_cost
+  identifier_field: string | null;  // 云管 external_project_id（= cc_usage.customer_code）
+  original_cost: number;            // 原价 = cc_usage.total_cost (本月)
+  discount_rate: number;            // 有效折扣率 0-1
+  discount_rate_pct: number;        // 订单折扣率 %
+  discount_override: number | null; // 账单中心覆盖的折扣率 %（若有）
+  surcharge: number;                // 附加手续费
+  final_cost: number;               // 折后价 = 原价 × (1 - 有效折扣率) + 手续费
+  cost: number;                     // 旧别名 = final_cost
+  has_allocation: boolean;          // 该 (客户, 货源) 是否有 approved 订单
+  has_adjustment: boolean;          // 本月是否存在 bill_adjustment 覆盖
+  adjustment_notes?: string | null;
 }
 
 interface CustomerBill {
@@ -61,6 +68,11 @@ export default function Bills() {
   // 再点某货源 → 弹出 drawer 级别的按日明细
   const [dayDrill, setDayDrill] = useState<{
     customer_id: number; customer_name: string; items: DayItem[]; loading: boolean;
+  } | null>(null);
+
+  // 账单覆盖 drawer（编辑某客户 × 某货源 × 当月的折扣/手续费）
+  const [adjustTarget, setAdjustTarget] = useState<{
+    customer_id: number; customer_name: string; resource: ResourceBill;
   } | null>(null);
 
   const loadData = async () => {
@@ -279,26 +291,65 @@ export default function Bills() {
       locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
         description="该客户暂无关联货源" /> }}
       columns={[
-        { title: '货源编号', dataIndex: 'resource_code', width: 160 },
-        { title: '云厂商', dataIndex: 'cloud_provider', width: 90,
+        { title: '货源编号', dataIndex: 'resource_code', width: 140 },
+        { title: '云厂商', dataIndex: 'cloud_provider', width: 80,
           render: (v: string | null) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
-        { title: '账号', dataIndex: 'account_name', width: 180,
+        { title: '账号', dataIndex: 'account_name', width: 150,
           render: (v: string | null) => v || '-' },
-        { title: '云账号标识', dataIndex: 'identifier_field', width: 160,
+        { title: '云账号标识', dataIndex: 'identifier_field', width: 150,
           render: (v: string | null) => v ? <Tag>{v}</Tag> : <Text type="secondary">—</Text> },
-        { title: '原价', dataIndex: 'original_cost', width: 120,
+        { title: '原价 (用量)', dataIndex: 'original_cost', width: 110,
           render: (v: number, r: ResourceBill) =>
             <Text type="secondary">¥{Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
-        { title: '折扣率', dataIndex: 'discount_rate', width: 90,
-          render: (v: number) => {
-            const pct = Number(v ?? 0) * 100;
-            return pct > 0
+        {
+          title: '折扣率',
+          width: 130,
+          render: (_: unknown, r: ResourceBill) => {
+            const pct = Number(r.discount_rate ?? 0) * 100;
+            const orderPct = Number(r.discount_rate_pct ?? 0);
+            const chip = pct > 0
               ? <Tag color="orange">{pct.toFixed(2)}%</Tag>
               : <Text type="secondary">—</Text>;
-          } },
-        { title: '折后价', dataIndex: 'final_cost', width: 130,
+            if (r.has_adjustment && r.discount_override != null) {
+              return (
+                <Tooltip title={`订单折扣 ${orderPct.toFixed(2)}% → 账单中心已覆盖为 ${(r.discount_override).toFixed(2)}%`}>
+                  <Space size={4}>{chip}<Tag color="purple">覆盖</Tag></Space>
+                </Tooltip>
+              );
+            }
+            if (!r.has_allocation && pct === 0) {
+              return <Tooltip title="该货源无 approved 订单 → 默认 0%"><Text type="secondary">—</Text></Tooltip>;
+            }
+            return chip;
+          },
+        },
+        { title: '手续费', dataIndex: 'surcharge', width: 100,
+          render: (v: number) => (
+            v ? <Text style={{ color: v > 0 ? '#f59e0b' : '#16a34a' }}>¥{Number(v).toFixed(2)}</Text>
+              : <Text type="secondary">—</Text>
+          ),
+        },
+        { title: '折后价', dataIndex: 'final_cost', width: 120,
           render: (v: number, r: ResourceBill) =>
             <Text strong>¥{Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
+        {
+          title: '操作',
+          width: 100,
+          render: (_: unknown, r: ResourceBill) => (
+            <Button
+              size="small"
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => setAdjustTarget({
+                customer_id: row.customer_id,
+                customer_name: row.customer_name,
+                resource: r,
+              })}
+            >
+              编辑
+            </Button>
+          ),
+        },
       ]}
     />
   );
@@ -449,6 +500,27 @@ export default function Bills() {
       />
 
       <DiscountCalculatorDrawer open={calcOpen} onClose={() => setCalcOpen(false)} />
+
+      {/* 账单覆盖 (客户 × 货源 × 月) drawer */}
+      {adjustTarget && (
+        <BillAdjustmentDrawer
+          open
+          onClose={() => setAdjustTarget(null)}
+          onSaved={() => loadData()}
+          customer_id={adjustTarget.customer_id}
+          customer_name={adjustTarget.customer_name}
+          resource_id={adjustTarget.resource.resource_id}
+          resource_code={adjustTarget.resource.resource_code}
+          identifier_field={adjustTarget.resource.identifier_field}
+          month={month?.format('YYYY-MM') || ''}
+          original_cost={Number(adjustTarget.resource.original_cost || 0)}
+          discount_rate_pct={Number(adjustTarget.resource.discount_rate_pct || 0)}
+          discount_override={adjustTarget.resource.discount_override}
+          surcharge={Number(adjustTarget.resource.surcharge || 0)}
+          notes={adjustTarget.resource.adjustment_notes}
+          has_adjustment={adjustTarget.resource.has_adjustment}
+        />
+      )}
     </div>
   );
 }
