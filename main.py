@@ -24,16 +24,47 @@ logger = logging.getLogger("xiaoshou")
 async def lifespan(_: FastAPI):
     """应用启动/关闭生命周期。
 
-    v2 schema 由 alembic 003 + 004 迁移维护，不再需要 _ensure_* helper 手动 ALTER。
-    所有列（source_label / approval 列 / customer_type / referrer / channel_notes /
-    lifecycle_stage / recycled_* / end_user_label）均已在 alembic 迁移中落地。
+    1. Base.metadata.create_all — 创建缺失的表 (如新加的 bill_adjustment)
+    2. _ensure_columns — 对已存在的表补齐新列 (IF NOT EXISTS, idempotent)
+       Best effort：alembic entrypoint 跑成功时这一步没事做；
+       alembic 失败 (如 sync_log 主键类型问题等) 时作为兜底。
     """
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("DB tables ensured via metadata.create_all")
     except Exception as e:
         logger.error("DB init failed: %s", e)
+    try:
+        _ensure_columns()
+    except Exception as e:
+        logger.error("DB column patch failed: %s", e)
     yield
+
+
+# 议题 A/B 新列的兜底 —— 对应 alembic 006 / 007。
+# 如果生产 alembic 已经跑过，这些 ALTER 会因 IF NOT EXISTS 直接空跑。
+_STARTUP_COLUMN_PATCHES = [
+    # alembic 006: bill_adjustment 已经在 ORM metadata 里，create_all 会处理
+    # alembic 007: customer / resource 的两级删除策略列
+    "ALTER TABLE IF EXISTS customer ADD COLUMN IF NOT EXISTS demoted_at TIMESTAMP",
+    "ALTER TABLE IF EXISTS customer ADD COLUMN IF NOT EXISTS demoted_reason VARCHAR(200)",
+    "ALTER TABLE IF EXISTS customer ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+    "ALTER TABLE IF EXISTS customer ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(200)",
+    "ALTER TABLE IF EXISTS customer ADD COLUMN IF NOT EXISTS deletion_reason VARCHAR(200)",
+    "ALTER TABLE IF EXISTS resource ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+]
+
+
+def _ensure_columns() -> None:
+    """补齐 ORM 预期存在但生产库可能缺的列；幂等。"""
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        for stmt in _STARTUP_COLUMN_PATCHES:
+            try:
+                conn.execute(text(stmt))
+            except Exception as e:
+                logger.warning("column patch skipped (%s): %s", stmt, e)
+    logger.info("column patches applied (idempotent)")
 
 
 app = FastAPI(
