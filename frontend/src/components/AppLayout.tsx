@@ -41,7 +41,7 @@ const ALL_MENU_ITEMS: MenuEntry[] = [
   { key: '/allocations', icon: <AppstoreOutlined />,   label: <Link to="/allocations">订单管理</Link> },
   { key: '/alerts',      icon: <AlertOutlined />,      label: <Link to="/alerts">预警中心</Link>, roles: ['sales'], noAdminBypass: true },
   { key: '/bills',       icon: <DollarOutlined />,     label: <Link to="/bills">账单中心</Link>, roles: ['sales', 'sales-manager'] },
-  // 报表 BI 不再作为独立菜单，已作为账单中心内的一个 Tab（仅 sales-manager/admin 可见）。
+  // 报表 BI 不再作为独立菜单，已作为主管中心 (/manager?tab=reports) 的一个 Tab（仅 sales-manager/admin 可见）。
 ];
 
 function filterMenuByRoles(roles: string[]): MenuEntry[] {

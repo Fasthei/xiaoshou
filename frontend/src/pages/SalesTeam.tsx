@@ -7,6 +7,7 @@ import {
   PlusOutlined, ThunderboltOutlined, UserOutlined, ApartmentOutlined,
   EditOutlined, DeleteOutlined, ReloadOutlined, ClockCircleOutlined,
   RetweetOutlined, CloudDownloadOutlined, AimOutlined, CalendarOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 import SalesPlanDrawer from '../components/SalesPlanDrawer';
@@ -458,6 +459,13 @@ const openEditUser = (u: SalesUser) => {
             ),
           },
           {
+            key: 'assignment',
+            label: <Space><SettingOutlined />分配管理</Space>,
+            children: (
+              <Tabs
+                type="card"
+                items={[
+          {
             key: 'rules',
             label: <Space><ApartmentOutlined />分配规则 <Tag>{rules.length}</Tag></Space>,
             children: (
@@ -601,6 +609,10 @@ const openEditUser = (u: SalesUser) => {
                   )}
                 </Space>
               </Card>
+            ),
+          },
+                ]}
+              />
             ),
           },
         ]}
