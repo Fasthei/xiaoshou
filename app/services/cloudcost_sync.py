@@ -22,9 +22,11 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.integrations import CloudCostClient
 from app.models.customer import Customer
+from app.models.customer_resource import CustomerResource
 from app.models.cc_usage import CCUsage
 from app.models.cc_alert import CCAlert
 from app.models.cc_bill import CCBill
+from app.models.resource import Resource
 from app.models.sync_log import SyncLog
 
 logger = logging.getLogger(__name__)
@@ -109,13 +111,17 @@ def do_sync_bills(
             items = []
         pulled = len(items)
 
-        # external_project_id → customer_code map（账单 customer_code 推断）
-        project_to_code: Dict[str, str] = {}
+        # account_id → external_project_id map（账单 join key 推断）。
+        # 硬不变量 (docs/CLOUDCOST_API.md §4):
+        #   cc_bill.customer_code = service_account.external_project_id
+        # 云管账单 item 通常只带 account_id / service_account_id，不直接带
+        # external_project_id；必须经 service_account 反查。
+        account_to_project: Dict[str, str] = {}
         try:
             accounts = client.list_service_accounts(page=1, page_size=500)
             for a in accounts:
-                if a.external_project_id:
-                    project_to_code[str(a.external_project_id)] = str(a.external_project_id)
+                if a.id is not None and a.external_project_id:
+                    account_to_project[str(a.id)] = str(a.external_project_id)
         except Exception:
             pass
 
@@ -129,10 +135,23 @@ def do_sync_bills(
                     skipped += 1
                     continue
                 remote_id_i = int(remote_id)
-                ext = (it.get("external_project_id") or it.get("customer_code") or "")
-                customer_code = project_to_code.get(str(ext)) if ext else None
-                if not customer_code and ext:
-                    customer_code = str(ext)
+                # 优先取 item 自身的 external_project_id / customer_code；否则按
+                # account_id / service_account_id 反查。最后留空兜底。
+                ext = (
+                    it.get("external_project_id")
+                    or it.get("customer_code")
+                    or ""
+                )
+                if not ext:
+                    acct_id = (
+                        it.get("account_id")
+                        or it.get("service_account_id")
+                        or it.get("account")
+                        or it.get("service_account")
+                    )
+                    if acct_id is not None:
+                        ext = account_to_project.get(str(acct_id), "")
+                customer_code = str(ext) if ext else None
 
                 payload = dict(
                     remote_id=remote_id_i,
@@ -270,48 +289,97 @@ def do_sync_usage_for_customer(
     db: Session, client: CloudCostClient, triggered_by: str,
     customer: Customer, days: int = 30,
 ) -> Dict[str, Any]:
-    """拉近 N 天用量 upsert 到 cc_usage (by customer_code+date)."""
+    """拉近 N 天用量 upsert 到 cc_usage.
+
+    硬不变量（docs/CLOUDCOST_API.md §4）：
+        cc_usage.customer_code = service_account.external_project_id
+                               = resource.identifier_field
+
+    匹配链路：
+        customer → customer_resource → resource.identifier_field
+        → service_account.external_project_id → metering/detail
+
+    cc_usage row 粒度 = (external_project_id, date) —— 每个客户可能分配了多个
+    external_project_id 的货源，各自一条日记录；读侧 bills_local.py 按
+    `CCUsage.customer_code.in_(identifiers)` 聚合。
+    """
     log = _new_sync_log(db, f"usage:{customer.customer_code}", triggered_by)
     created = updated = skipped = errors = 0
     pulled = 0
     warnings: List[str] = []
     error_msg: Optional[str] = None
+    matched: List[Any] = []
 
     try:
-        accounts = client.list_service_accounts(page=1, page_size=500)
-        code = str(customer.customer_code or "").strip()
-
-        matched = [
-            a for a in accounts
-            if (a.external_project_id and str(a.external_project_id) == code)
-        ]
-        if not matched:
-            matched = [
-                a for a in accounts
-                if (a.supplier_name and str(a.supplier_name) == code)
+        # 1) 销售分配关系 → 本地货源 identifier_field 白名单
+        link_rows = db.query(CustomerResource.resource_id).filter(
+            CustomerResource.customer_id == customer.id,
+        ).all()
+        res_ids = [int(r[0]) for r in link_rows if r[0] is not None]
+        identifiers: List[str] = []
+        if res_ids:
+            identifiers = [
+                str(r.identifier_field) for r in
+                db.query(Resource).filter(
+                    Resource.id.in_(res_ids),
+                    Resource.identifier_field.isnot(None),
+                ).all()
+                if r.identifier_field
             ]
-            if matched:
-                warnings.append(f"使用 supplier_name 做次级匹配命中 {len(matched)} 个货源")
 
-        if not matched:
-            warnings.append(f"customer_code={code} 在云管 external_project_id/supplier_name 均未命中")
+        if not identifiers:
+            warnings.append(
+                "客户未分配任何带 identifier_field 的货源 (customer_resource 空)；"
+                "请先在客户详情「关联货源」里勾选货源。",
+            )
             _finish_log(db, log, "success", pulled, created, updated, skipped, errors,
                         "; ".join(warnings))
             return {
                 "ok": True,
-                "customer_id": customer.id, "customer_code": code, "days": days,
-                "matched_accounts": 0, "pulled": 0, "created": 0, "updated": 0,
+                "customer_id": customer.id,
+                "customer_code": customer.customer_code,
+                "days": days, "matched_accounts": 0,
+                "pulled": 0, "created": 0, "updated": 0,
                 "skipped": 0, "errors": 0, "sync_log_id": log.id,
                 "warning": "; ".join(warnings),
             }
 
-        agg: Dict[str, Dict[str, Any]] = {}
+        # 2) 云管 service_account 列表 → 按 external_project_id 过滤出需要拉的 account
+        accounts = client.list_service_accounts(page=1, page_size=500)
+        identifier_set = set(identifiers)
+        matched = [
+            a for a in accounts
+            if a.external_project_id and str(a.external_project_id) in identifier_set
+        ]
+        if not matched:
+            warnings.append(
+                f"云管 service_account 里没有任何 external_project_id 命中客户的 "
+                f"identifier_field 白名单 ({len(identifiers)} 条)",
+            )
+            _finish_log(db, log, "success", pulled, created, updated, skipped, errors,
+                        "; ".join(warnings))
+            return {
+                "ok": True,
+                "customer_id": customer.id,
+                "customer_code": customer.customer_code,
+                "days": days, "matched_accounts": 0,
+                "pulled": 0, "created": 0, "updated": 0,
+                "skipped": 0, "errors": 0, "sync_log_id": log.id,
+                "warning": "; ".join(warnings),
+            }
+
+        # 3) 逐 account 拉 metering/detail，按 (external_project_id, date) 分桶
         end_d = date_cls.today()
         start_d = end_d - timedelta(days=max(1, int(days)))
         start_iso = start_d.isoformat()
         end_iso = end_d.isoformat()
 
+        # agg: external_project_id -> date -> {total_cost, total_usage, record_count, raw.accounts[]}
+        agg: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
         for a in matched:
+            epid = str(a.external_project_id)
+            per_proj = agg.setdefault(epid, {})
             items_iter: Optional[List[Dict[str, Any]]] = None
             used_metering = False
             try:
@@ -355,7 +423,7 @@ def do_sync_usage_for_customer(
                 d_iso = str(d_raw)[:10]
                 if not d_iso:
                     continue
-                slot = agg.setdefault(d_iso, {
+                slot = per_proj.setdefault(d_iso, {
                     "total_cost": Decimal("0"),
                     "total_usage": Decimal("0"),
                     "record_count": 0,
@@ -374,6 +442,7 @@ def do_sync_usage_for_customer(
                 slot["record_count"] += 1
                 slot["raw"]["accounts"].append({
                     "account_id": a.id,
+                    "external_project_id": epid,
                     "service": (it.get("service") or it.get("service_name")
                                 or it.get("name") or "云服务"),
                     "cost": float(cost or 0),
@@ -382,35 +451,37 @@ def do_sync_usage_for_customer(
                     "source": "metering" if used_metering else "legacy",
                 })
 
-        for d_iso, vals in agg.items():
-            try:
+        # 4) upsert —— 每个 (external_project_id, date) 一行
+        for epid, by_date in agg.items():
+            for d_iso, vals in by_date.items():
                 try:
-                    d_obj = date_cls.fromisoformat(d_iso)
-                except Exception:
-                    continue
-                existing = db.query(CCUsage).filter(
-                    CCUsage.customer_code == code, CCUsage.date == d_obj,
-                ).first()
-                if existing:
-                    existing.total_cost = vals["total_cost"]
-                    existing.total_usage = vals["total_usage"]
-                    existing.record_count = vals["record_count"]
-                    existing.raw = vals["raw"]
-                    existing.sync_at = datetime.utcnow()
-                    db.add(existing)
-                    updated += 1
-                else:
-                    db.add(CCUsage(
-                        customer_code=code, date=d_obj,
-                        total_cost=vals["total_cost"],
-                        total_usage=vals["total_usage"],
-                        record_count=vals["record_count"],
-                        raw=vals["raw"],
-                    ))
-                    created += 1
-            except Exception as e:
-                logger.exception("upsert cc_usage %s %s failed: %s", code, d_iso, e)
-                errors += 1
+                    try:
+                        d_obj = date_cls.fromisoformat(d_iso)
+                    except Exception:
+                        continue
+                    existing = db.query(CCUsage).filter(
+                        CCUsage.customer_code == epid, CCUsage.date == d_obj,
+                    ).first()
+                    if existing:
+                        existing.total_cost = vals["total_cost"]
+                        existing.total_usage = vals["total_usage"]
+                        existing.record_count = vals["record_count"]
+                        existing.raw = vals["raw"]
+                        existing.sync_at = datetime.utcnow()
+                        db.add(existing)
+                        updated += 1
+                    else:
+                        db.add(CCUsage(
+                            customer_code=epid, date=d_obj,
+                            total_cost=vals["total_cost"],
+                            total_usage=vals["total_usage"],
+                            record_count=vals["record_count"],
+                            raw=vals["raw"],
+                        ))
+                        created += 1
+                except Exception as e:
+                    logger.exception("upsert cc_usage %s %s failed: %s", epid, d_iso, e)
+                    errors += 1
 
         db.commit()
     except Exception as e:

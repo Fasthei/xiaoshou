@@ -24,8 +24,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app.models.cc_bill import CCBill
 from app.models.cc_usage import CCUsage
 from app.models.customer import Customer
+from app.models.customer_resource import CustomerResource
+from app.models.resource import Resource
 from app.models.sync_log import SyncLog
 from main import app
 from app.integrations.cloudcost import ServiceAccount
@@ -67,11 +70,22 @@ def client(db_session):
 
 @pytest.fixture()
 def seed_customer(db_session):
+    """Customer + linked resource whose identifier_field = "PROJ-X1".
+
+    The new sync flow matches service_accounts by resource.identifier_field,
+    not by customer.customer_code. We mirror that via customer_resource here.
+    """
     c = Customer(
-        id=1, customer_code="PROJ-X1", customer_name="X1 客户",
+        id=1, customer_code="CUST-X1", customer_name="X1 客户",
         customer_status="active", lifecycle_stage="active", is_deleted=False,
     )
-    db_session.add(c)
+    r = Resource(
+        id=1, resource_code="res-proj-x1", resource_type="cloud",
+        cloud_provider="AZURE", identifier_field="PROJ-X1",
+        resource_status="AVAILABLE",
+    )
+    link = CustomerResource(customer_id=1, resource_id=1)
+    db_session.add_all([c, r, link])
     db_session.commit()
     return c
 
@@ -267,7 +281,8 @@ def test_usage_sync_falls_back_to_legacy_when_metering_raises(
 def test_usage_sync_no_matching_account_returns_warning(
     client, db_session, seed_customer, monkeypatch,
 ):
-    # No service account matches PROJ-X1
+    # Customer has a resource with identifier_field "PROJ-X1",
+    # but cloud side has no account with that external_project_id.
     fake = _FakeCloud(accounts=[_svc(99, "OTHER-PROJ")])
     _install_fake_cloud(monkeypatch, fake)
     _stub_sync_log(monkeypatch)
@@ -277,30 +292,141 @@ def test_usage_sync_no_matching_account_returns_warning(
     body = r.json()
     assert body["matched_accounts"] == 0
     assert body["pulled"] == 0
-    assert "warning" in body and "未命中" in (body.get("warning") or "")
+    assert "warning" in body and "没有任何 external_project_id 命中" in (body.get("warning") or "")
 
     # Nothing written to cc_usage
     assert db_session.query(CCUsage).count() == 0
 
 
-def test_usage_sync_supplier_name_fallback(client, db_session, seed_customer, monkeypatch):
-    # external_project_id miss, supplier_name hit
-    today = date.today()
-    d = today.isoformat()
+def test_usage_sync_customer_without_resources_returns_warning(
+    client, db_session, monkeypatch,
+):
+    """新口径: 没分配货源 (无 customer_resource) 就不去云管拉数据."""
+    c = Customer(
+        id=42, customer_code="CUST-Y", customer_name="无分配客户",
+        customer_status="active", is_deleted=False,
+    )
+    db_session.add(c)
+    db_session.commit()
+
     fake = _FakeCloud(
-        accounts=[_svc(30, "UNRELATED", supplier="PROJ-X1")],
+        accounts=[_svc(10, "PROJ-Y")],
+        metering_rows=[{"_account_id": 10, "date": date.today().isoformat(),
+                        "cost": "1", "usage": 1}],
+    )
+    _install_fake_cloud(monkeypatch, fake)
+    _stub_sync_log(monkeypatch)
+
+    r = client.post("/api/sync/cloudcost/usage?customer_id=42&days=3")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matched_accounts"] == 0
+    assert body["pulled"] == 0
+    assert "未分配任何带 identifier_field" in (body.get("warning") or "")
+    # 未调用云管 service_accounts —— 早期返回；metering_calls 空
+    assert fake.metering_calls == []
+    assert db_session.query(CCUsage).count() == 0
+
+
+def test_bills_sync_resolves_customer_code_via_account_id(
+    client, db_session, monkeypatch,
+):
+    """回归 Bug A: cc_bill.customer_code 必须等于 service_account.external_project_id.
+
+    云管账单 item 通常只带 account_id / service_account_id, 不直接带
+    external_project_id; 同步时必须用 account_id 反查 service_account,
+    拿到 external_project_id, 再写入 cc_bill.customer_code。
+    之前的实现构造了一个 identity mapping (external_project_id →
+    external_project_id), 结果 cc_bill.customer_code 全部写成 NULL。
+    """
+
+    class _FakeBillsCloud:
+        def __init__(self):
+            # 两个账号，分别属于不同的 external_project_id
+            self._accounts = [_svc(101, "PROJ-A"), _svc(102, "PROJ-B")]
+
+        def list_service_accounts(self, page=1, page_size=500):
+            return list(self._accounts)
+
+        def bills(self, month=None, page=1, page_size=500, **kw):
+            # 模拟云管账单响应: 只有 account_id 字段, 没有 external_project_id
+            return [
+                {"id": 9001, "account_id": 101, "month": month,
+                 "original_cost": "100", "final_cost": "90", "status": "draft"},
+                {"id": 9002, "service_account_id": 102, "month": month,
+                 "original_cost": "200", "final_cost": "180", "status": "confirmed"},
+                # item 自带 external_project_id 时也应直接用
+                {"id": 9003, "external_project_id": "PROJ-A", "month": month,
+                 "original_cost": "50", "final_cost": "45", "status": "draft"},
+            ]
+
+    fake = _FakeBillsCloud()
+    _install_fake_cloud(monkeypatch, fake)
+    _stub_sync_log(monkeypatch)
+
+    r = client.post("/api/sync/cloudcost/bills?month=2026-04")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["pulled"] == 3
+    assert body["created"] == 3
+    assert body["errors"] == 0
+
+    bills = db_session.query(CCBill).order_by(CCBill.remote_id).all()
+    assert len(bills) == 3
+    by_remote = {b.remote_id: b for b in bills}
+    # account_id=101 反查 → PROJ-A
+    assert by_remote[9001].customer_code == "PROJ-A"
+    # service_account_id=102 反查 → PROJ-B
+    assert by_remote[9002].customer_code == "PROJ-B"
+    # 自带 external_project_id → 直接用
+    assert by_remote[9003].customer_code == "PROJ-A"
+
+
+def test_usage_sync_stores_by_external_project_id_not_customer_code(
+    client, db_session, monkeypatch,
+):
+    """回归: cc_usage.customer_code 必须等于 external_project_id, 不是 CUST-XXX.
+
+    读侧 bills_local.py 是按 resource.identifier_field (=external_project_id)
+    去 join cc_usage 的; 写侧不能存 customer.customer_code。
+    """
+    c = Customer(
+        id=77, customer_code="CUST-Z", customer_name="Z",
+        customer_status="active", is_deleted=False,
+    )
+    r1 = Resource(id=77, resource_code="res-z-1", resource_type="cloud",
+                  cloud_provider="AZURE", identifier_field="PROJ-Z-1",
+                  resource_status="AVAILABLE")
+    r2 = Resource(id=78, resource_code="res-z-2", resource_type="cloud",
+                  cloud_provider="AZURE", identifier_field="PROJ-Z-2",
+                  resource_status="AVAILABLE")
+    db_session.add_all([
+        c, r1, r2,
+        CustomerResource(customer_id=77, resource_id=77),
+        CustomerResource(customer_id=77, resource_id=78),
+    ])
+    db_session.commit()
+
+    today = date.today()
+    fake = _FakeCloud(
+        accounts=[_svc(1, "PROJ-Z-1"), _svc(2, "PROJ-Z-2")],
         metering_rows=[
-            {"_account_id": 30, "date": d, "cost": "1.50", "usage": 3, "service": "Cost"},
+            {"_account_id": 1, "date": today.isoformat(),
+             "cost": "10", "usage": 1, "service": "S1"},
+            {"_account_id": 2, "date": today.isoformat(),
+             "cost": "20", "usage": 2, "service": "S2"},
         ],
     )
     _install_fake_cloud(monkeypatch, fake)
     _stub_sync_log(monkeypatch)
 
-    r = client.post("/api/sync/cloudcost/usage?customer_id=1&days=3")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["matched_accounts"] == 1
-    assert body["pulled"] == 1
+    r = client.post("/api/sync/cloudcost/usage?customer_id=77&days=3")
+    assert r.status_code == 200, r.text
+    assert r.json()["matched_accounts"] == 2
 
-    row = db_session.query(CCUsage).filter_by(customer_code="PROJ-X1").one()
-    assert Decimal(row.total_cost) == Decimal("1.50")
+    rows = db_session.query(CCUsage).order_by(CCUsage.customer_code).all()
+    codes = {row.customer_code for row in rows}
+    # 每个 external_project_id 单独一条; 不能把所有都聚合到 CUST-Z 下
+    assert codes == {"PROJ-Z-1", "PROJ-Z-2"}
+    assert "CUST-Z" not in codes
