@@ -30,8 +30,9 @@ from app.services.cloudcost_sync import (
     current_month as _current_month,
     do_sync_alerts,
     do_sync_bills,
-    do_sync_usage_all,
+    do_sync_incremental,
     do_sync_usage_for_customer,
+    last_successful_sync_at,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,21 +90,39 @@ def sync_cloudcost_usage(
     return result
 
 
+@sync_router.get(
+    "/last-sync",
+    summary="查询最近一次成功同步的时间戳（前端用于显示距上次同步 X 天）",
+)
+def get_last_sync(
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    ts = last_successful_sync_at(db)
+    return {
+        "last_sync_at": ts.isoformat() + "Z" if ts else None,
+    }
+
+
 @sync_router.post(
-    "/usage-all",
-    summary="批量同步全部客户的用量 (sales-manager / admin / ops 可触发)",
+    "/run",
+    summary="增量同步云管 → 本地 (账单/用量/预警)；距上次成功同步以来的时间差",
     dependencies=[Depends(require_roles("sales-manager", "admin", "ops", "operation", "operations"))],
 )
-def sync_cloudcost_usage_all(
+def sync_cloudcost_run(
     request: Request,
-    days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ):
-    """遍历所有客户跑用量同步；用于账单中心的"手动同步用量"入口。"""
+    """账单中心`同步云管`按钮入口。
+
+    - days 由后端根据 sync_log 里最近一次 success 的 started_at 自动算；首次
+      同步 days=365.
+    - 三段子任务各自写 SyncLog；本 endpoint 只做编排和汇总。
+    - 任一子任务 errors>0 则整体返回 ok=false，但已成功的子任务数据已落库。
+    """
     client = _client_for(request)
-    result = do_sync_usage_all(db, client, _triggered_by(user), days=days)
-    _raise_if_error(result)
+    result = do_sync_incremental(db, client, _triggered_by(user))
     return result
 
 

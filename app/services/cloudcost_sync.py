@@ -434,6 +434,72 @@ def do_sync_usage_for_customer(
     }
 
 
+def last_successful_sync_at(db: Session) -> Optional[datetime]:
+    """返回最近一次 cloudcost 侧 SyncLog 状态=success 的 started_at。
+
+    用于"距离上次同步的增量同步"语义 —— 新 endpoint POST /run 据此计算 days。
+    """
+    row = (
+        db.query(SyncLog)
+        .filter(
+            SyncLog.source_system == "cloudcost",
+            SyncLog.status == "success",
+        )
+        .order_by(SyncLog.started_at.desc())
+        .first()
+    )
+    return row.started_at if row else None
+
+
+def do_sync_incremental(
+    db: Session, client: CloudCostClient, triggered_by: str,
+    fallback_days: int = 365, max_days: int = 365,
+) -> Dict[str, Any]:
+    """一键增量同步 —— 距上次成功同步至今的天数.
+
+    计算 days:
+      - 有上次成功记录: days = max(1, ceil((now - last).total_seconds() / 86400))
+      - 无记录 (首次): days = fallback_days
+      - 上限 max_days
+
+    执行顺序:
+      1. bills (当月) — cloudcost 月度账单每日增量更新，当月覆盖一次即可
+      2. alerts (当月) — 规则快照
+      3. usage-all (days) — 真正的时间差增量
+
+    三段单独计数；整体 ok 当且仅当三段都 errors=0.
+    """
+    now = datetime.utcnow()
+    last = last_successful_sync_at(db)
+    if last is None:
+        days = fallback_days
+    else:
+        delta = (now - last).total_seconds() / 86400
+        # 向上取整并至少 1；上次同步<24h 也拉 1 天，确保"今天当日"数据补齐
+        import math
+        days = max(1, math.ceil(delta))
+    days = min(days, max_days)
+
+    m = current_month()
+    bills_r = do_sync_bills(db, client, triggered_by, month=m)
+    alerts_r = do_sync_alerts(db, client, triggered_by, month=m)
+    usage_r = do_sync_usage_all(db, client, triggered_by, days=days)
+
+    all_ok = bool(bills_r.get("ok") and alerts_r.get("ok") and usage_r.get("ok"))
+    return {
+        "ok": all_ok,
+        "last_sync_at": last.isoformat() + "Z" if last else None,
+        "days_covered": days,
+        "started_at": now.isoformat() + "Z",
+        "bills": bills_r,
+        "alerts": alerts_r,
+        "usage": {
+            # usage_r.per_customer 对前端过于冗长，剔掉
+            k: v for k, v in usage_r.items() if k != "per_customer"
+        },
+    }
+
+
 def do_sync_usage_all(
     db: Session, client: CloudCostClient, triggered_by: str,
     days: int = 30,
