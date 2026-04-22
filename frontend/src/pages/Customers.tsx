@@ -6,6 +6,7 @@ import {
 import {
   PlusOutlined, ReloadOutlined, SearchOutlined, SyncOutlined,
   EyeOutlined, EditOutlined, DownloadOutlined, UploadOutlined, DownOutlined,
+  DeleteOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { Upload } from 'antd';
 import { api } from '../api/axios';
@@ -166,17 +167,69 @@ export default function Customers() {
         : <span style={{ color: '#6B7280' }}>—</span>,
     },
     {
-      title: '操作', width: 180, fixed: 'right' as const,
-      render: (_: unknown, r: Customer) => (
-        <Space size={4}>
-          <Button size="small" type="link" icon={<EyeOutlined />}
-            onClick={() => setDetail(r)}>详情</Button>
-          <Button size="small" type="link" icon={<EditOutlined />}
-            onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true); }}>编辑</Button>
-        </Space>
-      ),
+      title: '操作', width: 240, fixed: 'right' as const,
+      render: (_: unknown, r: Customer) => {
+        const isLead = (r.lifecycle_stage || 'lead') === 'lead';
+        return (
+          <Space size={4}>
+            <Button size="small" type="link" icon={<EyeOutlined />}
+              onClick={() => setDetail(r)}>详情</Button>
+            <Button size="small" type="link" icon={<EditOutlined />}
+              onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true); }}>编辑</Button>
+            <Tooltip title={isLead
+              ? '彻底删除（档案保留, 工单同名不复活）'
+              : '仅允许在商机池 lead 阶段删除；正式/跟进客户请先退回商机池'}>
+              <Button
+                size="small" type="link" danger
+                icon={<DeleteOutlined />}
+                disabled={!isLead}
+                onClick={() => confirmHardDelete(r)}
+              >删除</Button>
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
+
+  // 议题 B：商机池彻底删除（is_deleted=true，档案保留）
+  const confirmHardDelete = (c: Customer) => {
+    let reason = '';
+    Modal.confirm({
+      title: <Space><ExclamationCircleOutlined style={{ color: '#cf1322' }} /><span>彻底删除客户</span></Space>,
+      icon: null,
+      content: (
+        <div>
+          <p style={{ marginTop: 0 }}>
+            即将彻底删除：<b>{c.customer_name}</b>{c.customer_code ? <Tag style={{ marginLeft: 8 }}>{c.customer_code}</Tag> : null}
+          </p>
+          <ul style={{ paddingLeft: 18, color: '#6B7280', fontSize: 12 }}>
+            <li>客户列表不再显示，但档案（关联货源 / 订单 / 账单）仍可查</li>
+            <li>若工单系统以后又同名拉回来，<b>不会</b>自动复活（命中墓碑）</li>
+          </ul>
+          <Input.TextArea
+            rows={2} placeholder="删除原因（可选, 用于审计）"
+            maxLength={200} showCount
+            onChange={(e) => { reason = e.target.value; }}
+          />
+        </div>
+      ),
+      okText: '确认彻底删除', okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await api.post(`/api/customers/${c.id}/hard-delete`, { reason: reason || null });
+          antdMessage.success('客户已彻底删除，档案保留');
+          load();
+        } catch (e: any) {
+          antdMessage.error(
+            '删除失败: ' + (e?.response?.data?.detail || e?.message || '未知错误'),
+          );
+          throw e;   // 让 Modal 不关闭
+        }
+      },
+    });
+  };
 
   return (
     <div className="page-fade">

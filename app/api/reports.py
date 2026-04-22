@@ -35,13 +35,15 @@ _manager_dep = Depends(require_roles("sales-manager", "admin"))
 # ──────────────────────────────────────────────
 
 def _parse_date(d: Optional[str]) -> Optional[datetime]:
-    """'YYYY-MM-DD' → datetime; None → None."""
+    """'YYYY-MM-DD' 或 'YYYY-MM' → datetime; None → None."""
     if not d:
         return None
-    try:
-        return datetime.strptime(d, "%Y-%m-%d")
-    except ValueError:
-        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m"):
+        try:
+            return datetime.strptime(d, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def _to_month_label(dt: datetime) -> str:
@@ -69,12 +71,19 @@ def _profit_rate(price: float, cost: float) -> float:
 
 @router.get("/sales-trend", summary="销售趋势聚合")
 def sales_trend(
-    dim: str = Query("month", description="month | customer | sales | region | industry"),
-    from_: Optional[str] = Query(None, alias="from", description="起始日期 YYYY-MM-DD"),
-    to: Optional[str] = Query(None, description="截止日期 YYYY-MM-DD"),
+    dim: Optional[str] = Query(None, description="month | customer | sales | region | industry"),
+    dimension: Optional[str] = Query(None, description="同 dim (前端别名)"),
+    from_: Optional[str] = Query(None, alias="from", description="起始日期 YYYY-MM-DD 或 YYYY-MM"),
+    to: Optional[str] = Query(None, description="截止日期 YYYY-MM-DD 或 YYYY-MM"),
+    start: Optional[str] = Query(None, description="同 from (前端别名)"),
+    end: Optional[str] = Query(None, description="同 to (前端别名)"),
     db: Session = Depends(get_db),
     _=_manager_dep,
 ) -> List[dict]:
+    # 别名映射：前端传 dimension/start/end，后端原来叫 dim/from/to
+    dim = (dim or dimension or "month")
+    from_ = from_ or start
+    to = to or end
     """按不同维度聚合 allocation 的销售额 / 利润 / 笔数。"""
     from_dt = _parse_date(from_)
     to_dt = _parse_date(to)
@@ -149,6 +158,11 @@ def sales_trend(
     for r in result:
         r["total_sales"] = round(r["total_sales"], 2)
         r["total_profit"] = round(r["total_profit"], 2)
+        # 兼容前端字段
+        r["period"] = r["label"]
+        r["revenue"] = r["total_sales"]
+        r["orders"] = r["count"]
+        r["customers"] = r["count"]  # sales-trend 按维度聚合，没拆客户独立数；暂用 orders
     return result
 
 
@@ -158,13 +172,19 @@ def sales_trend(
 
 @router.get("/profit-analysis", summary="利润分析（多维度拆解）")
 def profit_analysis(
-    dim: str = Query("month", description="month | customer | sales | region | industry"),
+    dim: Optional[str] = Query(None, description="month | customer | sales | region | industry"),
+    dimension: Optional[str] = Query(None, description="同 dim (前端别名)"),
     breakdown: Optional[str] = Query(None, description="customer_level | industry"),
     from_: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
+    start: Optional[str] = Query(None, description="同 from (前端别名)"),
+    end: Optional[str] = Query(None, description="同 to (前端别名)"),
     db: Session = Depends(get_db),
     _=_manager_dep,
 ) -> List[dict]:
+    dim = (dim or dimension or "month")
+    from_ = from_ or start
+    to = to or end
     """按主维度 + 拆解维度的双层聚合，返回成本 / 售价 / 利润 / 利润率。"""
     from_dt = _parse_date(from_)
     to_dt = _parse_date(to)
@@ -237,6 +257,11 @@ def profit_analysis(
         v["total_price"] = round(v["total_price"], 2)
         v["profit_amount"] = round(v["profit_amount"], 2)
         v["profit_rate"] = _profit_rate(v["total_price"], v["total_cost"])
+        # 兼容前端字段
+        v["period"] = v["label"]
+        v["revenue"] = v["total_price"]
+        v["cost"] = v["total_cost"]
+        v["profit"] = v["profit_amount"]
         result.append(v)
     return result
 
@@ -249,12 +274,17 @@ def profit_analysis(
 def funnel(
     from_: Optional[str] = Query(None, alias="from"),
     to: Optional[str] = Query(None),
+    start: Optional[str] = Query(None, description="同 from (前端别名)"),
+    end: Optional[str] = Query(None, description="同 to (前端别名)"),
+    dimension: Optional[str] = Query(None, description="占位接受前端参数"),
     db: Session = Depends(get_db),
     _=_manager_dep,
-) -> dict:
+):
     """基于 customer.lifecycle_stage 当前分布计算漏斗转化率。
-    avg_lead_to_active_days 通过 customer_stage_request 审批历史计算。
+    返回 list 形态便于前端表格/漏斗图直接渲染，同时附 `_summary` 原始汇总。
     """
+    from_ = from_ or start
+    to = to or end
     from_dt = _parse_date(from_)
     to_dt = _parse_date(to)
 
@@ -314,14 +344,18 @@ def funnel(
         if deltas:
             avg_days = round(sum(deltas) / len(deltas), 1)
 
-    return {
-        "lead": lead_count,
-        "contacting": contacting_count,
-        "active": active_count,
-        "lead_to_contacting_rate": lead_to_contacting_rate,
-        "contacting_to_active_rate": contacting_to_active_rate,
-        "avg_lead_to_active_days": avg_days,
-    }
+    # 新口径：返回列表 [{stage, label, count, rate?}]，前端 FunnelPoint[] 可直渲
+    return [
+        {"stage": "lead", "label": "商机池",
+         "count": lead_count, "rate": None},
+        {"stage": "contacting", "label": "跟进中",
+         "count": contacting_count, "rate": lead_to_contacting_rate},
+        {"stage": "active", "label": "正式客户",
+         "count": active_count, "rate": contacting_to_active_rate},
+        # 附件：lead→active 平均天数，作为元指标项
+        {"stage": "avg_lead_to_active_days", "label": "lead→active 平均天数",
+         "count": avg_days if avg_days is not None else 0, "rate": None},
+    ]
 
 
 # ──────────────────────────────────────────────
@@ -398,10 +432,17 @@ def _generate_periods(period: str, now: datetime) -> list[str]:
 @router.get("/yoy", summary="同比 / 环比分析")
 def yoy(
     metric: str = Query("sales", description="sales | profit"),
-    period: str = Query("month", description="month | quarter"),
+    period: Optional[str] = Query(None, description="month | quarter"),
+    dimension: Optional[str] = Query(None, description="前端别名; month/quarter/year/salesperson → 映射 period"),
+    start: Optional[str] = Query(None, description="前端占位参数，yoy 目前按当年生成"),
+    end: Optional[str] = Query(None, description="前端占位参数"),
     db: Session = Depends(get_db),
     _=_manager_dep,
 ) -> List[dict]:
+    # 前端传 dimension=month/quarter/year/salesperson；仅 month/quarter 与 yoy period 概念对齐
+    if dimension in ("month", "quarter"):
+        period = period or dimension
+    period = period or "month"
     """当年每个 period 的指标值，附同比 (yoy_pct) 和环比 (mom_pct)。"""
     now = datetime.utcnow()
     periods = _generate_periods(period, now)
@@ -435,6 +476,11 @@ def yoy(
             "previous": round(previous, 2),
             "yoy_pct": yoy_pct,
             "mom_pct": mom_pct,
+            # 前端别名
+            "current_year": round(current, 2),
+            "last_year": round(yoy_val, 2),
+            "yoy": (yoy_pct / 100.0) if yoy_pct is not None else None,
+            "mom": (mom_pct / 100.0) if mom_pct is not None else None,
         })
         prev_current = current
 
@@ -469,14 +515,20 @@ def _profit_analysis_to_csv(data: List[dict]) -> tuple[list[str], list[list]]:
     return headers, rows
 
 
-def _funnel_to_csv(data: dict) -> tuple[list[str], list[list]]:
+def _funnel_to_csv(data) -> tuple[list[str], list[list]]:
     headers = ["阶段", "数量", "转化率(%)"]
-    rows = [
-        ["lead", data["lead"], ""],
-        ["contacting", data["contacting"], data["lead_to_contacting_rate"]],
-        ["active", data["active"], data["contacting_to_active_rate"]],
-        ["avg_lead_to_active_days", data.get("avg_lead_to_active_days") or "", ""],
-    ]
+    rows = []
+    # 新口径 data 是 list[{stage,label,count,rate}]；向后兼容老 dict
+    if isinstance(data, list):
+        for d in data:
+            rows.append([d.get("stage") or "", d.get("count", ""), d.get("rate") if d.get("rate") is not None else ""])
+    elif isinstance(data, dict):
+        rows.extend([
+            ["lead", data.get("lead", ""), ""],
+            ["contacting", data.get("contacting", ""), data.get("lead_to_contacting_rate", "")],
+            ["active", data.get("active", ""), data.get("contacting_to_active_rate", "")],
+            ["avg_lead_to_active_days", data.get("avg_lead_to_active_days") or "", ""],
+        ])
     return headers, rows
 
 
@@ -511,16 +563,28 @@ def export_report(
         raise HTTPException(status_code=400, detail="仅支持 format=csv，xlsx 暂未实现")
 
     if type == "sales-trend":
-        data = sales_trend(dim=dim, from_=from_, to=to, db=db, _=None)
+        data = sales_trend(
+            dim=dim, dimension=None, from_=from_, to=to,
+            start=None, end=None, db=db, _=None,
+        )
         headers, rows = _sales_trend_to_csv(data)
     elif type == "profit":
-        data = profit_analysis(dim=dim, breakdown=breakdown, from_=from_, to=to, db=db, _=None)
+        data = profit_analysis(
+            dim=dim, dimension=None, breakdown=breakdown,
+            from_=from_, to=to, start=None, end=None, db=db, _=None,
+        )
         headers, rows = _profit_analysis_to_csv(data)
     elif type == "funnel":
-        data = funnel(from_=from_, to=to, db=db, _=None)
+        data = funnel(
+            from_=from_, to=to, start=None, end=None,
+            dimension=None, db=db, _=None,
+        )
         headers, rows = _funnel_to_csv(data)
     elif type == "yoy":
-        data = yoy(metric=metric, period=period, db=db, _=None)
+        data = yoy(
+            metric=metric, period=period, dimension=None,
+            start=None, end=None, db=db, _=None,
+        )
         headers, rows = _yoy_to_csv(data)
     else:
         from fastapi import HTTPException

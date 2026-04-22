@@ -220,25 +220,30 @@ def test_profit_analysis_has_profit_rate(client, seed):
 # 3. funnel
 # ──────────────────────────────────────────────
 
+def _funnel_by_stage(resp_json):
+    """新口径：funnel 返回 list[{stage, count, rate}]；把它索引回 dict 方便断言."""
+    return {item["stage"]: item for item in resp_json}
+
+
 def test_funnel_stage_counts(client, seed):
     """漏斗应正确统计各 stage 数量。seed 有: active=1, contacting=1, lead=1。"""
     r = client.get("/api/reports/funnel")
     assert r.status_code == 200
-    data = r.json()
-    assert data["lead"] == 1
-    assert data["contacting"] == 1
-    assert data["active"] == 1
+    by_stage = _funnel_by_stage(r.json())
+    assert by_stage["lead"]["count"] == 1
+    assert by_stage["contacting"]["count"] == 1
+    assert by_stage["active"]["count"] == 1
 
 
 def test_funnel_conversion_rates(client, seed):
     """lead_to_contacting_rate = (contacting+active)/(total) * 100 = 2/3 * 100 ≈ 66.67。"""
     r = client.get("/api/reports/funnel")
     assert r.status_code == 200
-    data = r.json()
-    # total=3, (contacting+active)=2 → 66.67%
-    assert data["lead_to_contacting_rate"] == pytest.approx(66.67, abs=0.1)
-    # contacting+active=2, active=1 → 50%
-    assert data["contacting_to_active_rate"] == pytest.approx(50.0, abs=0.1)
+    by_stage = _funnel_by_stage(r.json())
+    # contacting 行 rate = lead_to_contacting_rate
+    assert by_stage["contacting"]["rate"] == pytest.approx(66.67, abs=0.1)
+    # active 行 rate = contacting_to_active_rate
+    assert by_stage["active"]["rate"] == pytest.approx(50.0, abs=0.1)
 
 
 def test_funnel_avg_days_with_stage_requests(client, db_session, seed):
@@ -262,8 +267,8 @@ def test_funnel_avg_days_with_stage_requests(client, db_session, seed):
 
     r = client.get("/api/reports/funnel")
     assert r.status_code == 200
-    data = r.json()
-    assert data["avg_lead_to_active_days"] == pytest.approx(10.0, abs=0.5)
+    by_stage = _funnel_by_stage(r.json())
+    assert by_stage["avg_lead_to_active_days"]["count"] == pytest.approx(10.0, abs=0.5)
 
 
 # ──────────────────────────────────────────────
