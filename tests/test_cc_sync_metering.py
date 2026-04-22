@@ -30,6 +30,7 @@ from app.models.sync_log import SyncLog
 from main import app
 from app.integrations.cloudcost import ServiceAccount
 import app.api.cc_sync as cc_sync
+import app.services.cloudcost_sync as cloudcost_sync
 
 
 # ---------- Fixtures ----------
@@ -119,8 +120,9 @@ class _FakeCloud:
 # ---------- Helpers ----------
 
 def _install_fake_cloud(monkeypatch, fake: _FakeCloud) -> None:
-    # Replace the _cloud() factory so every call returns our stub.
-    monkeypatch.setattr(cc_sync, "_cloud", lambda _request: fake)
+    # cc_sync._client_for(request) is the HTTP-layer factory — override it so
+    # every route invocation under test returns the stubbed cloudcost client.
+    monkeypatch.setattr(cc_sync, "_client_for", lambda _request: fake)
 
 
 def _stub_sync_log(monkeypatch) -> None:
@@ -129,18 +131,19 @@ def _stub_sync_log(monkeypatch) -> None:
     Production runs on Postgres where BigInteger + server-side sequence just
     works; SQLite in-memory doesn't auto-fill BigInteger PKs, so we replace
     _new_sync_log / _finish_log with noops that never touch the DB.
+    After the sync refactor these helpers live on app.services.cloudcost_sync.
     """
     from datetime import datetime as _dt
 
     _counter = {"n": 0}
 
-    def _fake_new_sync_log(db, sync_type, user):
+    def _fake_new_sync_log(db, sync_type, triggered_by):
         _counter["n"] += 1
         log = SyncLog(
             id=_counter["n"],
             source_system="cloudcost", sync_type=sync_type,
             status="running", started_at=_dt.utcnow(),
-            triggered_by=f"{user.sub}:{user.name}",
+            triggered_by=triggered_by,
         )
         return log
 
@@ -153,8 +156,8 @@ def _stub_sync_log(monkeypatch) -> None:
         log.error_count = errors
         log.last_error = err_msg
 
-    monkeypatch.setattr(cc_sync, "_new_sync_log", _fake_new_sync_log)
-    monkeypatch.setattr(cc_sync, "_finish_log", _fake_finish_log)
+    monkeypatch.setattr(cloudcost_sync, "_new_sync_log", _fake_new_sync_log)
+    monkeypatch.setattr(cloudcost_sync, "_finish_log", _fake_finish_log)
 
 
 def _svc(id_: int, ext: str, supplier: Optional[str] = None) -> ServiceAccount:
