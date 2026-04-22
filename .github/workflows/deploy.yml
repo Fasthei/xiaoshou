@@ -50,6 +50,27 @@ jobs:
             -n $CONTAINER_APP \
             --image $ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
 
+      - name: Sync SMTP secret + env vars
+        env:
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          if [ -z "$SMTP_PASSWORD" ]; then
+            echo "SMTP_PASSWORD secret not set, skipping SMTP env sync"
+            exit 0
+          fi
+          az containerapp secret set \
+            -g $RESOURCE_GROUP -n $CONTAINER_APP \
+            --secrets smtp-password="$SMTP_PASSWORD"
+          az containerapp update \
+            -g $RESOURCE_GROUP -n $CONTAINER_APP \
+            --set-env-vars \
+              SMTP_SERVER=smtp.189.cn \
+              SMTP_PORT=465 \
+              SMTP_EMAIL=taijiagent@189.cn \
+              SMTP_USE_SSL=true \
+              SMTP_FROM_NAME=销售系统 \
+              SMTP_PASSWORD=secretref:smtp-password
+
       - name: Wait for new revision to be ready
         run: |
           for i in {1..30}; do
