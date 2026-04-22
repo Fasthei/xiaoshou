@@ -359,10 +359,6 @@ const openEditUser = (u: SalesUser) => {
                     message={`Casdoor 同步 (${casdoorResult.dry_run ? 'dry-run' : '已落库'}): 抓取 ${casdoorResult.total_fetched} 人 | 新增 ${casdoorResult.created} · 更新 ${casdoorResult.updated} · 不变 ${casdoorResult.unchanged} · 跳过 ${casdoorResult.skipped}`}
                   />
                 )}
-                <Alert
-                  type="warning" showIcon style={{ marginBottom: 12 }}
-                  message="建议: 不要手动建销售, 用 '从 Casdoor 同步' 拉统一认证里的用户, 这样 casdoor_user_id 能对得上, 登录/退出会自动联动."
-                />
                 {teamAgg && (
                   <Card
                     size="small" style={{ marginBottom: 12, borderRadius: 12, background: '#fafafa' }}
