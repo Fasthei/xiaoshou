@@ -4,7 +4,7 @@
 export const casdoor = {
   endpoint: (import.meta.env.VITE_CASDOOR_ENDPOINT || '').replace(/\/$/, ''),
   clientId: import.meta.env.VITE_CASDOOR_CLIENT_ID || '',
-  org: import.meta.env.VITE_CASDOOR_ORG || 'operation',
+  org: import.meta.env.VITE_CASDOOR_ORG || 'built-in',
   app: import.meta.env.VITE_CASDOOR_APP || 'sales',
   redirect: import.meta.env.VITE_CASDOOR_REDIRECT || `${window.location.origin}/auth/callback`,
 };

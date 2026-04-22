@@ -14,7 +14,7 @@
     "kvSecretPgPassword":           { "value": "xiaoshou-pg-password" },
     "kvSecretCasdoorClientSecret":  { "value": "xiaoshou-casdoor-client-secret" },
     "casdoorEndpoint":              { "value": "https://casdoor.ashyglacier-8207efd2.eastasia.azurecontainerapps.io" },
-    "casdoorOrg":                   { "value": "operation" },
+    "casdoorOrg":                   { "value": "built-in" },
     "casdoorAppName":               { "value": "sales" },
     "casdoorClientId":              { "value": "d886e62a3d88caa515c1" }
   }

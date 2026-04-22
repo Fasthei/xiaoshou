@@ -12,7 +12,7 @@ COPY . .
 ARG VITE_API_BASE=http://localhost:8000
 ARG VITE_CASDOOR_ENDPOINT=https://casdoor.ashyglacier-8207efd2.eastasia.azurecontainerapps.io
 ARG VITE_CASDOOR_CLIENT_ID=d886e62a3d88caa515c1
-ARG VITE_CASDOOR_ORG=operation
+ARG VITE_CASDOOR_ORG=built-in
 ARG VITE_CASDOOR_APP=sales
 ARG VITE_CASDOOR_REDIRECT=http://localhost:5173/auth/callback
 ARG VITE_TICKET_FRONT=https://gongdan-b5fzbtgteqd5gzfb.eastasia-01.azurewebsites.net
