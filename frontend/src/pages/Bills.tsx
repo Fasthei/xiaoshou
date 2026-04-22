@@ -130,11 +130,13 @@ export default function Bills() {
     }
   };
 
-  // 手动同步云管 —— sales-manager / admin / ops 可见。
+  // 手动同步云管 —— sales / sales-manager / admin / ops 可见。
+  // 销售侧也需要能拉账单（触发增量同步），权限和后端 /api/sync/cloudcost/run 一致。
   // 单按钮触发"距上次成功同步至今的增量"后端编排：bills(当月) + alerts(当月) + usage(days=时间差).
   const canManualSync = useMemo(() => {
     const r = getCurrentRoles();
-    return r.includes('sales-manager') || r.includes('admin') || r.includes('root')
+    return r.includes('sales') || r.includes('sales-manager')
+      || r.includes('admin') || r.includes('root')
       || r.includes('ops') || r.includes('operation') || r.includes('operations');
   }, []);
 

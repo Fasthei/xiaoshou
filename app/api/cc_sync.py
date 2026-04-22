@@ -107,7 +107,7 @@ def get_last_sync(
 @sync_router.post(
     "/run",
     summary="增量同步云管 → 本地 (账单/用量/预警)；距上次成功同步以来的时间差",
-    dependencies=[Depends(require_roles("sales-manager", "admin", "ops", "operation", "operations"))],
+    dependencies=[Depends(require_roles("sales", "sales-manager", "admin", "ops", "operation", "operations"))],
 )
 def sync_cloudcost_run(
     request: Request,
