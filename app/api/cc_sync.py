@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from app.auth import CurrentUser, require_auth, require_roles
+from app.auth import CurrentUser, require_auth
 from app.database import get_db
 from app.models.customer import Customer
 from app.models.cc_usage import CCUsage
@@ -30,7 +30,6 @@ from app.services.cloudcost_sync import (
     current_month as _current_month,
     do_sync_alerts,
     do_sync_bills,
-    do_sync_usage_all,
     do_sync_usage_for_customer,
 )
 
@@ -85,24 +84,6 @@ def sync_cloudcost_usage(
     result = do_sync_usage_for_customer(
         db, client, _triggered_by(user), customer, days=days,
     )
-    _raise_if_error(result)
-    return result
-
-
-@sync_router.post(
-    "/usage-all",
-    summary="批量同步全部客户的用量 (sales-manager / admin / ops 可触发)",
-    dependencies=[Depends(require_roles("sales-manager", "admin", "ops", "operation", "operations"))],
-)
-def sync_cloudcost_usage_all(
-    request: Request,
-    days: int = Query(30, ge=1, le=365),
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_auth),
-):
-    """遍历所有客户跑用量同步；用于账单中心的"手动同步用量"入口。"""
-    client = _client_for(request)
-    result = do_sync_usage_all(db, client, _triggered_by(user), days=days)
     _raise_if_error(result)
     return result
 

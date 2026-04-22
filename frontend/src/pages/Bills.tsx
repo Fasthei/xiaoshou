@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Table, Tag, Typography, Space, DatePicker, Button, Statistic,
-  Row, Col, Empty, Alert, Modal, Tabs, Dropdown,
+  Row, Col, Empty, Alert, Modal, Tabs,
   message as antdMessage,
 } from 'antd';
 import {
   ReloadOutlined, DollarOutlined, DownloadOutlined, CalculatorOutlined,
-  BarChartOutlined, CloudSyncOutlined, DownOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api, getCurrentRoles } from '../api/axios';
@@ -54,7 +54,6 @@ export default function Bills() {
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [calcOpen, setCalcOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [syncing, setSyncing] = useState<null | 'bills' | 'usage' | 'alerts'>(null);
 
   // 下钻状态: expandedRowKeys 控制客户行展开 → 子表 (按货源)
   // 再点某货源 → 弹出 drawer 级别的按日明细
@@ -126,59 +125,6 @@ export default function Bills() {
       antdMessage.error('导出失败: ' + (e?.message || '网络错误'));
     } finally {
       setExporting(false);
-    }
-  };
-
-  // 手动同步云管 —— 只有 sales-manager / admin / ops 能看到。
-  // bills 和 alerts 全局单次，usage-all 会遍历全部客户（耗时可能到分钟级）。
-  const canManualSync = useMemo(() => {
-    const r = getCurrentRoles();
-    return r.includes('sales-manager') || r.includes('admin') || r.includes('root')
-      || r.includes('ops') || r.includes('operation') || r.includes('operations');
-  }, []);
-
-  const runSync = async (kind: 'bills' | 'usage' | 'alerts') => {
-    const m = month?.format('YYYY-MM');
-    if (!m && kind !== 'usage') {
-      antdMessage.warning('请先选择月份');
-      return;
-    }
-    setSyncing(kind);
-    const hide = antdMessage.loading(
-      kind === 'bills' ? '正在同步账单…'
-        : kind === 'usage' ? '正在同步所有客户用量（可能耗时较长）…'
-        : '正在同步预警…',
-      0,
-    );
-    try {
-      let resp;
-      if (kind === 'bills') {
-        resp = await api.post('/api/sync/cloudcost/bills', null, { params: { month: m } });
-      } else if (kind === 'alerts') {
-        resp = await api.post('/api/sync/cloudcost/alerts', null, { params: { month: m } });
-      } else {
-        resp = await api.post('/api/sync/cloudcost/usage-all', null, { params: { days: 30 } });
-      }
-      const d = resp.data || {};
-      const pulled = d.pulled ?? 0;
-      const created = d.created ?? 0;
-      const updated = d.updated ?? 0;
-      const errors = d.errors ?? 0;
-      antdMessage.success(
-        `${kind === 'bills' ? '账单' : kind === 'usage' ? '用量' : '预警'}同步完成：`
-        + `拉取 ${pulled}，新增 ${created}，更新 ${updated}`
-        + (errors ? `，错误 ${errors}` : ''),
-      );
-      if (kind === 'bills' || kind === 'usage') {
-        await loadData();
-      }
-    } catch (e: any) {
-      antdMessage.error(
-        '同步失败：' + (e?.response?.data?.detail || e?.message || '未知错误'),
-      );
-    } finally {
-      hide();
-      setSyncing(null);
     }
   };
 
@@ -356,27 +302,6 @@ export default function Bills() {
           <Space wrap>
             <DatePicker picker="month" value={month} onChange={setMonth} allowClear={false} />
             <Button icon={<ReloadOutlined />} onClick={loadData}>刷新</Button>
-            {canManualSync && (
-              <Dropdown
-                disabled={!!syncing}
-                menu={{
-                  items: [
-                    { key: 'bills', label: '同步账单（当月 cc_bill）' },
-                    { key: 'usage', label: '同步用量（全部客户，近 30 天）' },
-                    { key: 'alerts', label: '同步预警规则快照（当月 cc_alert）' },
-                  ],
-                  onClick: ({ key }) => runSync(key as 'bills' | 'usage' | 'alerts'),
-                }}
-              >
-                <Button
-                  icon={<CloudSyncOutlined />}
-                  type="primary"
-                  loading={!!syncing}
-                >
-                  手动同步云管 <DownOutlined />
-                </Button>
-              </Dropdown>
-            )}
             <Button icon={<CalculatorOutlined />} onClick={() => setCalcOpen(true)}>
               折扣计算器
             </Button>
