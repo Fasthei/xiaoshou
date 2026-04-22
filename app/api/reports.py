@@ -34,16 +34,30 @@ _manager_dep = Depends(require_roles("sales-manager", "admin"))
 # helpers
 # ──────────────────────────────────────────────
 
-def _parse_date(d: Optional[str]) -> Optional[datetime]:
-    """'YYYY-MM-DD' 或 'YYYY-MM' → datetime; None → None."""
+def _parse_date(d: Optional[str], *, end_inclusive: bool = False) -> Optional[datetime]:
+    """'YYYY-MM-DD' 或 'YYYY-MM' → datetime; None → None.
+
+    当输入形如 'YYYY-MM' 且 end_inclusive=True 时，返回下个月 1 日（作为闭区间
+    右端 → 开区间右端）。这样前端传 start=2025-11 end=2026-04 被正确解读为
+    "2025-11-01 ≤ t < 2026-05-01"，即 11 月到 4 月的整月区间。
+    """
     if not d:
         return None
-    for fmt in ("%Y-%m-%d", "%Y-%m"):
-        try:
-            return datetime.strptime(d, fmt)
-        except ValueError:
-            continue
-    return None
+    # YYYY-MM-DD 精确
+    try:
+        return datetime.strptime(d, "%Y-%m-%d")
+    except ValueError:
+        pass
+    # YYYY-MM 月粒度
+    try:
+        dt = datetime.strptime(d, "%Y-%m")
+    except ValueError:
+        return None
+    if end_inclusive:
+        if dt.month == 12:
+            return datetime(dt.year + 1, 1, 1)
+        return datetime(dt.year, dt.month + 1, 1)
+    return dt
 
 
 def _to_month_label(dt: datetime) -> str:
@@ -86,7 +100,7 @@ def sales_trend(
     to = to or end
     """按不同维度聚合 allocation 的销售额 / 利润 / 笔数。"""
     from_dt = _parse_date(from_)
-    to_dt = _parse_date(to)
+    to_dt = _parse_date(to, end_inclusive=True)
 
     q = (
         db.query(Allocation)
@@ -187,7 +201,7 @@ def profit_analysis(
     to = to or end
     """按主维度 + 拆解维度的双层聚合，返回成本 / 售价 / 利润 / 利润率。"""
     from_dt = _parse_date(from_)
-    to_dt = _parse_date(to)
+    to_dt = _parse_date(to, end_inclusive=True)
 
     q = (
         db.query(Allocation)
@@ -286,7 +300,7 @@ def funnel(
     from_ = from_ or start
     to = to or end
     from_dt = _parse_date(from_)
-    to_dt = _parse_date(to)
+    to_dt = _parse_date(to, end_inclusive=True)
 
     base_q = db.query(Customer).filter(Customer.is_deleted == False)  # noqa: E712
     if from_dt:
