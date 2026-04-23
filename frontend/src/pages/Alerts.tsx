@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Card, Table, Tag, Typography, Space, DatePicker, Button,
+  Card, Table, Tag, Typography, Space, DatePicker, Button, Statistic, Row, Col, Alert, Empty, Tooltip,
   Tabs, Modal, Form, Input, InputNumber, Select, Switch, message as antdMessage,
 } from 'antd';
-import { ReloadOutlined, AlertOutlined, PlusOutlined, CheckOutlined, BellOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
+import {
+  ReloadOutlined, AlertOutlined, PlusOutlined, CheckOutlined, BellOutlined,
+  BarChartOutlined,
+} from '@ant-design/icons';
+import dayjs, { Dayjs } from 'dayjs';
 import { api } from '../api/axios';
 
 const { Title, Text } = Typography;
@@ -450,6 +453,261 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
   );
 }
 
+// ---------- usage breakdown tab (每客户 → 每货源 → 具体服务) ----------
+interface UsageService {
+  name: string;
+  category: 'compute' | 'ai' | 'database' | 'storage' | 'network' | 'other';
+  category_label: string;
+  cost: number;
+  usage: number;
+  record_count: number;
+}
+
+interface UsageResourceRow {
+  resource_id: number;
+  resource_code: string | null;
+  account_name: string | null;
+  cloud_provider: string | null;
+  identifier_field: string | null;
+  total_cost: number;
+  total_usage: number;
+  service_count: number;
+  services: UsageService[];
+}
+
+interface UsageCustomerRow {
+  customer_id: number;
+  customer_name: string;
+  customer_code: string | null;
+  customer_type?: string | null;
+  total_cost: number;
+  total_usage: number;
+  resource_count: number;
+  resources: UsageResourceRow[];
+}
+
+interface UsageBreakdownResp {
+  month: string;
+  total_cost: number;
+  total_usage: number;
+  customer_count: number;
+  categories: string[];
+  category_labels: Record<string, string>;
+  customers: UsageCustomerRow[];
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  compute:  'geekblue',
+  ai:       'magenta',
+  database: 'cyan',
+  storage:  'gold',
+  network:  'green',
+  other:    'default',
+};
+
+function UsageBreakdownTab() {
+  const [month, setMonth] = useState<Dayjs | null>(dayjs());
+  const [loading, setLoading] = useState(false);
+  const [resp, setResp] = useState<UsageBreakdownResp | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    const m = month?.format('YYYY-MM');
+    if (!m) return;
+    setLoading(true);
+    setErrMsg(null);
+    try {
+      const { data } = await api.get<UsageBreakdownResp>('/api/usage/breakdown', { params: { month: m } });
+      setResp(data);
+    } catch (e: any) {
+      setErrMsg(e?.response?.data?.detail || e?.message || '加载失败');
+      setResp(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [month]);
+
+  // 当月按类别总合（供 Header 展示 compute/ai/...）
+  const categoryTotals = useMemo(() => {
+    const tot: Record<string, number> = {};
+    resp?.customers.forEach((c) => {
+      c.resources.forEach((r) => {
+        r.services.forEach((s) => {
+          tot[s.category] = (tot[s.category] || 0) + s.cost;
+        });
+      });
+    });
+    return tot;
+  }, [resp]);
+
+  // 服务子表（最里层）
+  const renderServiceTable = (resource: UsageResourceRow) => (
+    <Table<UsageService>
+      rowKey={(r) => `${resource.resource_id}-${r.name}`}
+      size="small"
+      pagination={false}
+      dataSource={resource.services}
+      locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无服务明细" /> }}
+      columns={[
+        { title: '服务类型', dataIndex: 'category_label', width: 100,
+          render: (_: any, r: UsageService) => (
+            <Tag color={CATEGORY_COLORS[r.category] || 'default'}>{r.category_label}</Tag>
+          ) },
+        { title: '服务名称', dataIndex: 'name', width: 260 },
+        { title: '用量', dataIndex: 'usage', width: 140,
+          render: (v: number) => <Text>{Number(v).toFixed(4)}</Text> },
+        { title: '费用', dataIndex: 'cost', width: 140,
+          render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
+        { title: '明细条数', dataIndex: 'record_count', width: 100 },
+      ]}
+    />
+  );
+
+  // 货源子表（中间层；每行再 expand 出服务子表）
+  const renderResourceSubTable = (cust: UsageCustomerRow) => (
+    <Table<UsageResourceRow>
+      rowKey="resource_id"
+      size="small"
+      pagination={false}
+      dataSource={cust.resources}
+      locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该客户暂无关联货源" /> }}
+      expandable={{
+        expandedRowRender: renderServiceTable,
+        rowExpandable: (r) => r.services.length > 0,
+      }}
+      columns={[
+        { title: '货源编号', dataIndex: 'resource_code', width: 160 },
+        { title: '云厂商', dataIndex: 'cloud_provider', width: 100,
+          render: (v: string | null) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
+        { title: '账号', dataIndex: 'account_name', width: 200,
+          render: (v: string | null) => v || '-' },
+        { title: '云账号标识', dataIndex: 'identifier_field', width: 160,
+          render: (v: string | null) => v ? <Tag>{v}</Tag> : <Text type="secondary">—</Text> },
+        { title: '服务数', dataIndex: 'service_count', width: 80,
+          render: (v: number) => <Tag color={v > 0 ? 'blue' : 'default'}>{v}</Tag> },
+        { title: '用量合计', dataIndex: 'total_usage', width: 130,
+          render: (v: number) => Number(v).toFixed(4) },
+        { title: '费用合计', dataIndex: 'total_cost', width: 140,
+          render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
+      ]}
+    />
+  );
+
+  // 客户顶层表
+  const customerColumns = [
+    { title: '客户名称', dataIndex: 'customer_name', width: 220,
+      render: (v: string, r: UsageCustomerRow) => (
+        <Space>
+          <Text strong>{v}</Text>
+          {r.customer_code && <Tag color="default">{r.customer_code}</Tag>}
+          {r.customer_type === 'channel' && <Tag color="purple">渠道</Tag>}
+        </Space>
+      ),
+    },
+    { title: '货源数', dataIndex: 'resource_count', width: 90,
+      render: (v: number) => <Tag color={v > 0 ? 'blue' : 'default'}>{v}</Tag> },
+    { title: '用量合计', dataIndex: 'total_usage', width: 140,
+      render: (v: number) => Number(v).toFixed(4) },
+    { title: '费用合计', dataIndex: 'total_cost', width: 160,
+      render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
+  ];
+
+  const categories = resp?.categories ?? ['compute', 'ai', 'database', 'storage', 'network', 'other'];
+  const labels = resp?.category_labels ?? {};
+
+  return (
+    <div>
+      <Row gutter={12} style={{ marginBottom: 16 }}>
+        <Col xs={24} md={8}>
+          <Card bordered size="small">
+            <Statistic
+              title={<Text type="secondary">当月总费用</Text>}
+              value={resp?.total_cost ?? 0} precision={2} prefix="¥"
+              valueStyle={{ fontWeight: 600 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card bordered size="small">
+            <Statistic
+              title={<Text type="secondary">客户数</Text>}
+              value={resp?.customer_count ?? 0}
+              valueStyle={{ fontWeight: 600 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card bordered size="small">
+            <Statistic
+              title={<Text type="secondary">当月用量（含所有服务）</Text>}
+              value={resp?.total_usage ?? 0} precision={4}
+              valueStyle={{ fontWeight: 600 }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 类别分布条 */}
+      {resp && resp.total_cost > 0 && (
+        <Card size="small" bordered style={{ marginBottom: 16 }}>
+          <Space wrap size={6}>
+            <Text type="secondary">类别费用分布：</Text>
+            {categories.map((cat) => {
+              const v = categoryTotals[cat] || 0;
+              if (v === 0) return null;
+              const pct = (v / resp.total_cost) * 100;
+              return (
+                <Tooltip key={cat} title={`¥${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
+                  <Tag color={CATEGORY_COLORS[cat] || 'default'}>
+                    {labels[cat] || cat}: ¥{v.toFixed(2)}（{pct.toFixed(1)}%）
+                  </Tag>
+                </Tooltip>
+              );
+            })}
+          </Space>
+        </Card>
+      )}
+
+      <Card
+        bordered={false}
+        style={{ borderRadius: 12 }}
+        title={<Title level={5} style={{ margin: 0 }}>客户 → 货源 → 服务</Title>}
+        extra={
+          <Space>
+            <DatePicker picker="month" value={month} onChange={setMonth} allowClear={false} />
+            <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+          </Space>
+        }
+      >
+        {errMsg && (
+          <Alert type="error" showIcon style={{ marginBottom: 12 }}
+            message="加载失败" description={errMsg} />
+        )}
+        {resp && resp.customers.length === 0 && !loading && !errMsg && (
+          <Alert
+            type="info" showIcon style={{ marginBottom: 12 }}
+            message="本月暂无用量数据"
+            description='确认客户已在客户详情的"关联货源"勾选，并且云管 cc_usage 已同步（账单中心"同步云管"按钮）。'
+          />
+        )}
+        <Table<UsageCustomerRow>
+          rowKey="customer_id"
+          loading={loading}
+          dataSource={resp?.customers ?? []}
+          pagination={{ pageSize: 20, showSizeChanger: true }}
+          columns={customerColumns}
+          expandable={{
+            expandedRowRender: renderResourceSubTable,
+            rowExpandable: (r) => r.resources.length > 0,
+          }}
+        />
+      </Card>
+    </div>
+  );
+}
+
 // ---------- page root ----------
 export default function Alerts() {
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
@@ -488,8 +746,9 @@ export default function Alerts() {
 
       <Card bordered={false} style={{ borderRadius: 12 }}>
         <Tabs
-          defaultActiveKey="my-rules"
+          defaultActiveKey="usage-breakdown"
           items={[
+            { key: 'usage-breakdown', label: <><BarChartOutlined /> 用量查看</>, children: <UsageBreakdownTab /> },
             { key: 'my-rules', label: '我的规则', children: <MyRulesTab customers={customers} /> },
             { key: 'payments', label: '收款超期', children: <PaymentsTab customers={customers} /> },
             { key: 'triggered', label: <><BellOutlined /> 触发记录</>, children: <TriggeredEventsTab customers={customers} /> },

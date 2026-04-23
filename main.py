@@ -9,7 +9,7 @@ from app.api import (
     internal, enrich, bridge, briefing, health_score, customer_timeline, trend,
     customer_insight_agent, sales, external, follow_up, contract, ticket,
     alert_rule, payment, cc_sync, bills_export, bills_local, bill_adjustment,
-    manager, orders, customer_stage, manager_metrics, reports,
+    manager, orders, customer_stage, manager_metrics, reports, usage_breakdown,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -128,6 +128,7 @@ app.include_router(customer_stage.customer_router, dependencies=protected_deps)
 app.include_router(customer_stage.request_router, dependencies=protected_deps)
 app.include_router(manager_metrics.router, dependencies=protected_deps)
 app.include_router(reports.router, dependencies=protected_deps)
+app.include_router(usage_breakdown.router, dependencies=protected_deps)
 
 
 @app.get("/")
