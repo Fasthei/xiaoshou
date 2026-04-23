@@ -14,8 +14,9 @@
 
 - **客户与生命周期**：客户档案、跟进记录、时间线、阶段流转与审批
 - **订单与审批**：客户侧发起分配/订单，主管审批，支持批量场景
-- **货源与云管同步**：货源以 cloudcost 为准，支持同步和本地查询
-- **账单中心**：本地账单聚合、客户维度查询、导出
+- **货源与云管同步**：货源以 cloudcost 为准，支持本地化同步（`cc_usage` / `cc_alert` / `cc_bill`）
+- **账单中心**：本地账单聚合、按客户/按日下钻、CSV 导出、折扣计算器、账单同步
+- **报表 BI（内嵌）**：作为账单中心 Tab，仅 `sales-manager` / `admin` / `root` 可见
 - **销售管理看板**：主管视角 KPI、审批中心、团队目标相关指标
 - **AI 洞察**：客户多源信息洞察（外部信息 + 本地销售数据）
 
@@ -82,8 +83,16 @@ pytest -v
 - `/api/*`：前端业务接口（Casdoor JWT）
 - `/api/internal/*`：内部桥接/同步接口（M2M）
 - `/api/external/*`：对 super-ops 暴露的只读接口（`X-Api-Key`）
+- `/api/sync/cloudcost/*`：云管数据同步到本地表（受角色和 JWT 保护）
 
 路由挂载可直接看 `main.py`。
+
+## 前端路由（当前）
+
+- 通用：`/login`、`/auth/callback`
+- 销售主路径：`/home`、`/customers`、`/follow-ups`、`/resources`、`/allocations`、`/alerts`、`/bills`
+- 主管路径：`/manager`（含团队/审批）、`/reports`（受角色保护）
+- 兼容跳转：`/usage` 已重定向到 `/bills`
 
 ## 目录结构
 
