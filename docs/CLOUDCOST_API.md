@@ -36,10 +36,19 @@
 | `GET /api/metering/summary` | 指定时间窗的总成本/总用量/记录数 | 趋势、汇总面板（替代本地 `by_status` 侧边凑数） |
 | `GET /api/metering/daily` | 按日分桶成本/用量 | 客户抽屉里 **日度趋势** 图；主管 dashboard 的趋势线 |
 | `GET /api/metering/by-service` | 按云服务名 (EC2/S3/BLOB/…) 分桶 | 客户详情 `by_service` panel |
-| `GET /api/metering/detail` | 明细行（分页） | **cc_usage 同步的新真源**：`CloudCostClient.metering_detail_iter(...)` 按 account_id 流式拉全量，本地重聚合到 `cc_usage (customer_code × date)` |
+| `GET /api/metering/detail` | 明细行（分页） | **cc_usage 同步的新真源**：`CloudCostClient.metering_detail_iter(...)` 按 account_id 流式拉全量，本地重聚合到 `cc_usage (customer_code × date)`；每行 metering 的 `service` 同时存入 `cc_usage.raw.accounts[]`，供 `/api/usage/breakdown` 二次聚合到「客户 → 货源 → 服务类目」三层下钻 |
 | `GET /api/metering/detail/count` | 明细总行数 | 分页决策；防止死循环 |
 | `GET /api/billing/detail` | 单笔账单明细（分页） | 账单导出 / 审计；未来 `bills_export` 按 line 导 CSV 时会切到这个 |
 | `GET /api/billing/detail/count` | 账单明细总行数 | 分页决策 |
+
+### 销售系统暴露出去给前端的对齐接口（非云管接口，仅供对照）
+
+| 接口 | 作用 | 数据来源 |
+|---|---|---|
+| `POST /api/sync/cloudcost/run` | 账单中心「同步云管」按钮；距上次成功 SyncLog 起算 days，串行跑 bills(当月) + alerts(当月) + usage(days)；首次 365 天 | 调上面 cloudcost 的 `metering/detail` / `/api/bills/` / `/api/alerts/rule-status` |
+| `GET /api/sync/cloudcost/last-sync` | 前端展示"距上次同步 X 天" | 本地 `sync_log` 表 |
+| `GET /api/bills/by-customer` | 账单中心列表（客户 × 货源）| 本地 `cc_usage.total_cost`（原价）+ `allocation.discount_rate`（订单折扣）+ `bill_adjustment`（覆盖）|
+| `GET /api/usage/breakdown` | 预警中心「用量查看」（客户 → 货源 → 服务）| 本地 `cc_usage.raw.accounts[]` 按 `service` 分桶 + 类目 mapping |
 
 ---
 
@@ -61,7 +70,7 @@
 - `customer-assignments/sync` 是云管侧的反向同步接口（把云管推断的归属写进 xiaoshou 或反过来）。一旦双写，两边会竞争同一份归属数据，人工勾选可能被自动推断覆盖。
 - 本轮不做双向写同步，维持单向关系：
   - 云管负责 **原始计量** (metering/detail) + **账号元数据** (service-accounts)
-  - 销售系统负责 **客户归属** (customer_resource) + **本地聚合** (cc_usage/cc_bill/bills_by_customer)
+  - 销售系统负责 **客户归属** (customer_resource) + **本地聚合** (cc_usage / cc_bill / bills_by_customer / usage_breakdown)
 
 ### `POST /api/*` 任何写接口（创建 service account / rule / bill / 调价）
 
@@ -108,12 +117,46 @@ cc_usage = {
 
 如果 `metering/detail` 调用失败，同步链路自动退回到旧的 `GET /api/service-accounts/{id}/costs`，`raw.accounts[*].source = "legacy"`，保证运维节奏与云管部署节奏解耦。
 
-### bills_by_customer 聚合（不变）
+### 客户 → 货源 解析（bills_by_customer / usage_breakdown 共用）
 
-`/api/bills/by-customer` 的口径**本轮不变**：
-- 以 `customer_resource` 为真源，查出该客户的货源 `resource_id` 列表
-- 每个 `resource.identifier_field` 去 `cc_bill` 里汇总
-- 货源无 `identifier_field` / `cc_bill` 无命中 → fallback 到 `cc_usage.total_cost`
+账单中心（`/api/bills/by-customer`）和用量查看（`/api/usage/breakdown`）共用一个 helper：`app/services/customer_resource_resolver.resolve_customer_resources()`。两层策略：
+
+1. **手工关联**（`customer_resource` 表）：始终生效。销售在客户详情里勾选的真源。
+2. **自然匹配兜底**：`resource.identifier_field == customer.customer_code`。**只对销售主管 / admin / ops 启用**。
+
+> 为什么加第 2 层？业务要求"销售主管不会去关联客户，但必须看到所有客户用量"（CLAUDE.md §2）。销售主管不承担手工勾选工作，让他在账单中心/用量查看里仍能看到完整视图。销售角色不启用自然匹配，避免越权。
+
+### bills_by_customer 聚合口径
+
+`/api/bills/by-customer` 对每个 (客户, 货源) 出一行：
+
+```
+原价     = Σ cc_usage.total_cost   (按 resource.identifier_field × 当月)
+折扣率   = 最近一条 approved allocation.discount_rate   (订单上定的)
+覆盖     = bill_adjustment.discount_rate_override ± surcharge   (账单中心手工调整)
+折后价   = 原价 × (1 − 有效折扣率/100) + surcharge
+```
+
+> **不再读 cc_bill 的 original_cost / final_cost** — 避免把云管成本视角暴露给销售。
+
+### usage_breakdown 聚合（/api/usage/breakdown）
+
+每层聚合：
+
+```
+客户 (customer)
+ └─ 货源 (resource — resolve_customer_resources 给出的集合)
+     └─ 服务 (按 cc_usage.raw.accounts[].service 分桶)
+         + 类目 category = compute / ai / database / storage / network / other
+           （按 service name 关键词推断，详见 app/api/usage_breakdown.py _CATEGORIES）
+```
+
+输出三段：
+- `total_cost / total_usage / customer_count` 顶部统计
+- `categories / category_labels` 前端画类目 Tag 用
+- `customers[*].resources[*].services[*]` 三层嵌套数组，每层都带 `total_cost / total_usage`
+
+类目判定的关键词模式**顺序敏感**：compute → ai → database → storage → network → other（一条云服务名按顺序匹配第一条）。加新关键词直接改 `_CATEGORIES` 常量。
 
 ## 5. 错误处理约定
 
@@ -126,3 +169,8 @@ cc_usage = {
 ## 6. 变更记录
 
 - 2026-04-19: 扩展 Client 支持 `/api/auth/me`、`/api/metering/*`、`/api/billing/detail*`；`cc_sync` 用量同步切到 `metering/detail`，保留 legacy fallback；明确不接入 `customer-assignments/sync`。
+- 2026-04-22: 同步层从路由里剥出 `app/services/cloudcost_sync.py`；新增 `POST /api/sync/cloudcost/run`（账单中心「同步云管」按钮，按 `sync_log` 上次成功时间算 days 增量）+ `GET /api/sync/cloudcost/last-sync`。权限 `sales / sales-manager / admin / ops`。
+- 2026-04-23:
+  - 新增 `GET /api/usage/breakdown`（预警中心「用量查看」Tab，客户 → 货源 → 服务三层下钻，按服务名关键词推断类目 compute/ai/database/storage/network/other）。
+  - 抽出 `customer_resource_resolver` 共享 helper：`bills_by_customer` 和 `usage_breakdown` 都走它；销售主管 / admin / ops 启用 `identifier_field == customer_code` 自然匹配兜底（业务需求：销售主管不去关联客户也要看到全部客户用量）；销售视角不自动补。
+  - 账单中心聚合口径改为「原价(cc_usage) × 订单折扣(allocation) + 覆盖/手续费(bill_adjustment)」，不再读 cc_bill.original_cost / final_cost。

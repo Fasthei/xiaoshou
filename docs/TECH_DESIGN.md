@@ -211,6 +211,7 @@
 - `GET /api/usage/trend` - 用量趋势分析
 - `GET /api/usage/forecast` - 用量预测
 - `POST /api/usage/sync` - 从云管系统同步用量数据
+- `GET /api/usage/breakdown` - 三层下钻：客户 → 货源 → 服务（按类目 compute/ai/database/storage/network/other 分桶）；数据源 `cc_usage.raw.accounts[]`，前端在**预警中心**「用量查看」Tab 消费
 
 **数据库表**：
 - `usage_record` - 用量记录（ClickHouse）
