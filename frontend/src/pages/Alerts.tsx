@@ -645,9 +645,10 @@ function UsageBreakdownTab() {
   const chartHeight = Math.max(380, chartData.length * 44 + 40);
 
   // 自定义 Y 轴 tick：两行 SVG text（第一行产品短名，第二行 SKU 短形）
+  // recharts tick 要求返回 ReactElement（不接受 null），找不到 datum 时返回空 <g/>
   const renderYTick = ({ x, y, payload }: any) => {
     const d = chartData.find((row) => row.key === payload.value);
-    if (!d) return null;
+    if (!d) return <g />;
     return (
       <g transform={`translate(${x},${y})`}>
         <text x={-8} y={-2} textAnchor="end" fontSize={12} fill="#1F2937" fontWeight={500}>
