@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Card, Table, Tag, Typography, Space, DatePicker, Button, Statistic, Row, Col, Alert, Empty, Tooltip,
-  Tabs, Modal, Form, Input, InputNumber, Select, Switch, message as antdMessage,
+  Card, Table, Tag, Typography, Space, DatePicker, Button, Statistic, Row, Col, Alert, Empty,
+  Tooltip as AntTooltip, Tabs, Modal, Form, Input, InputNumber, Select, Switch, Slider,
+  message as antdMessage,
 } from 'antd';
 import {
   ReloadOutlined, AlertOutlined, PlusOutlined, CheckOutlined, BellOutlined,
   BarChartOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell, ResponsiveContainer,
+  Tooltip as RTooltip,
+} from 'recharts';
 import { api } from '../api/axios';
 
 const { Title, Text } = Typography;
@@ -453,9 +458,17 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
   );
 }
 
-// ---------- usage breakdown tab (每客户 → 每货源 → 具体服务) ----------
-interface UsageService {
-  name: string;
+// ---------- usage breakdown tab (按 SKU 粒度的横向条形图) ----------
+// 数据结构对应后端 /api/usage/breakdown。
+// 每个 resource 下挂一个 skus 数组，每个 SKU 已按 (provider, product, sku,
+// region, usage_unit) 去重聚合过，附带 category 类目（compute/ai/...）。
+
+interface UsageSku {
+  provider: string | null;
+  product: string;
+  sku: string;
+  region: string | null;
+  usage_unit: string | null;
   category: 'compute' | 'ai' | 'database' | 'storage' | 'network' | 'other';
   category_label: string;
   cost: number;
@@ -471,8 +484,8 @@ interface UsageResourceRow {
   identifier_field: string | null;
   total_cost: number;
   total_usage: number;
-  service_count: number;
-  services: UsageService[];
+  sku_count: number;
+  skus: UsageSku[];
 }
 
 interface UsageCustomerRow {
@@ -496,7 +509,16 @@ interface UsageBreakdownResp {
   customers: UsageCustomerRow[];
 }
 
-const CATEGORY_COLORS: Record<string, string> = {
+// recharts 用的 hex 色（和账单里的 antd color 对应）
+const CATEGORY_HEX: Record<string, string> = {
+  compute:  '#2F54EB',
+  ai:       '#EB2F96',
+  database: '#13C2C2',
+  storage:  '#FAAD14',
+  network:  '#52C41A',
+  other:    '#8C8C8C',
+};
+const CATEGORY_ANTD_COLOR: Record<string, string> = {
   compute:  'geekblue',
   ai:       'magenta',
   database: 'cyan',
@@ -505,11 +527,34 @@ const CATEGORY_COLORS: Record<string, string> = {
   other:    'default',
 };
 
+// 单行条形图 datum
+interface SkuBarDatum {
+  key: string;           // 唯一键 = customer|resource|provider|product|sku|region|unit
+  label: string;         // Y 轴 label：客户 · 货源 · 产品 / SKU
+  customer: string;
+  resource: string;
+  provider: string;
+  product: string;
+  sku: string;
+  region: string;
+  unit: string;
+  cost: number;
+  usage: number;
+  category: string;
+  category_label: string;
+}
+
 function UsageBreakdownTab() {
   const [month, setMonth] = useState<Dayjs | null>(dayjs());
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<UsageBreakdownResp | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // 筛选：选客户 / 货源 / 类目；TopN 控制条数
+  const [filterCustomerId, setFilterCustomerId] = useState<number | undefined>(undefined);
+  const [filterResourceId, setFilterResourceId] = useState<number | undefined>(undefined);
+  const [filterCategories, setFilterCategories] = useState<string[]>([]);
+  const [topN, setTopN] = useState<number>(30);
 
   const load = async () => {
     const m = month?.format('YYYY-MM');
@@ -529,90 +574,63 @@ function UsageBreakdownTab() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [month]);
 
-  // 当月按类别总合（供 Header 展示 compute/ai/...）
+  // 客户/货源列表用于筛选下拉
+  const customerOptions = useMemo(
+    () => (resp?.customers ?? []).map((c) => ({ label: c.customer_name, value: c.customer_id })),
+    [resp],
+  );
+  const resourceOptions = useMemo(() => {
+    const pool = filterCustomerId
+      ? resp?.customers.filter((c) => c.customer_id === filterCustomerId) ?? []
+      : resp?.customers ?? [];
+    return pool.flatMap((c) => c.resources.map((r) => ({
+      label: `${r.resource_code ?? r.identifier_field ?? '(无编号)'} · ${r.account_name ?? '-'}`,
+      value: r.resource_id,
+    })));
+  }, [resp, filterCustomerId]);
+
+  // 扁平化 → 按筛选 + topN 裁剪
+  const chartData: SkuBarDatum[] = useMemo(() => {
+    if (!resp) return [];
+    const cats = new Set(filterCategories);
+    const rows: SkuBarDatum[] = [];
+    for (const c of resp.customers) {
+      if (filterCustomerId !== undefined && c.customer_id !== filterCustomerId) continue;
+      for (const r of c.resources) {
+        if (filterResourceId !== undefined && r.resource_id !== filterResourceId) continue;
+        for (const s of r.skus) {
+          if (cats.size > 0 && !cats.has(s.category)) continue;
+          rows.push({
+            key: [c.customer_id, r.resource_id, s.provider ?? '', s.product, s.sku, s.region ?? '', s.usage_unit ?? ''].join('|'),
+            label: `${c.customer_name} · ${r.resource_code ?? r.account_name ?? r.identifier_field ?? '货源'} · ${s.product} / ${s.sku}`,
+            customer: c.customer_name,
+            resource: r.resource_code ?? r.account_name ?? r.identifier_field ?? '',
+            provider: s.provider ?? '',
+            product: s.product,
+            sku: s.sku,
+            region: s.region ?? '',
+            unit: s.usage_unit ?? '',
+            cost: s.cost,
+            usage: s.usage,
+            category: s.category,
+            category_label: s.category_label,
+          });
+        }
+      }
+    }
+    rows.sort((a, b) => b.cost - a.cost);
+    return rows.slice(0, topN);
+  }, [resp, filterCustomerId, filterResourceId, filterCategories, topN]);
+
+  // 按 category 汇总（图下方的分布标签）
   const categoryTotals = useMemo(() => {
     const tot: Record<string, number> = {};
-    resp?.customers.forEach((c) => {
-      c.resources.forEach((r) => {
-        r.services.forEach((s) => {
-          tot[s.category] = (tot[s.category] || 0) + s.cost;
-        });
-      });
-    });
+    chartData.forEach((d) => { tot[d.category] = (tot[d.category] || 0) + d.cost; });
     return tot;
-  }, [resp]);
+  }, [chartData]);
 
-  // 服务子表（最里层）
-  const renderServiceTable = (resource: UsageResourceRow) => (
-    <Table<UsageService>
-      rowKey={(r) => `${resource.resource_id}-${r.name}`}
-      size="small"
-      pagination={false}
-      dataSource={resource.services}
-      locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无服务明细" /> }}
-      columns={[
-        { title: '服务类型', dataIndex: 'category_label', width: 100,
-          render: (_: any, r: UsageService) => (
-            <Tag color={CATEGORY_COLORS[r.category] || 'default'}>{r.category_label}</Tag>
-          ) },
-        { title: '服务名称', dataIndex: 'name', width: 260 },
-        { title: '用量', dataIndex: 'usage', width: 140,
-          render: (v: number) => <Text>{Number(v).toFixed(4)}</Text> },
-        { title: '费用', dataIndex: 'cost', width: 140,
-          render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
-        { title: '明细条数', dataIndex: 'record_count', width: 100 },
-      ]}
-    />
-  );
-
-  // 货源子表（中间层；每行再 expand 出服务子表）
-  const renderResourceSubTable = (cust: UsageCustomerRow) => (
-    <Table<UsageResourceRow>
-      rowKey="resource_id"
-      size="small"
-      pagination={false}
-      dataSource={cust.resources}
-      locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该客户暂无关联货源" /> }}
-      expandable={{
-        expandedRowRender: renderServiceTable,
-        rowExpandable: (r) => r.services.length > 0,
-      }}
-      columns={[
-        { title: '货源编号', dataIndex: 'resource_code', width: 160 },
-        { title: '云厂商', dataIndex: 'cloud_provider', width: 100,
-          render: (v: string | null) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
-        { title: '账号', dataIndex: 'account_name', width: 200,
-          render: (v: string | null) => v || '-' },
-        { title: '云账号标识', dataIndex: 'identifier_field', width: 160,
-          render: (v: string | null) => v ? <Tag>{v}</Tag> : <Text type="secondary">—</Text> },
-        { title: '服务数', dataIndex: 'service_count', width: 80,
-          render: (v: number) => <Tag color={v > 0 ? 'blue' : 'default'}>{v}</Tag> },
-        { title: '用量合计', dataIndex: 'total_usage', width: 130,
-          render: (v: number) => Number(v).toFixed(4) },
-        { title: '费用合计', dataIndex: 'total_cost', width: 140,
-          render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
-      ]}
-    />
-  );
-
-  // 客户顶层表
-  const customerColumns = [
-    { title: '客户名称', dataIndex: 'customer_name', width: 220,
-      render: (v: string, r: UsageCustomerRow) => (
-        <Space>
-          <Text strong>{v}</Text>
-          {r.customer_code && <Tag color="default">{r.customer_code}</Tag>}
-          {r.customer_type === 'channel' && <Tag color="purple">渠道</Tag>}
-        </Space>
-      ),
-    },
-    { title: '货源数', dataIndex: 'resource_count', width: 90,
-      render: (v: number) => <Tag color={v > 0 ? 'blue' : 'default'}>{v}</Tag> },
-    { title: '用量合计', dataIndex: 'total_usage', width: 140,
-      render: (v: number) => Number(v).toFixed(4) },
-    { title: '费用合计', dataIndex: 'total_cost', width: 160,
-      render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
-  ];
+  // 图表高度 = 每行约 28px，最小 360
+  const chartHeight = Math.max(360, chartData.length * 28 + 40);
 
   const categories = resp?.categories ?? ['compute', 'ai', 'database', 'storage', 'network', 'other'];
   const labels = resp?.category_labels ?? {};
@@ -620,7 +638,7 @@ function UsageBreakdownTab() {
   return (
     <div>
       <Row gutter={12} style={{ marginBottom: 16 }}>
-        <Col xs={24} md={8}>
+        <Col xs={24} md={6}>
           <Card bordered size="small">
             <Statistic
               title={<Text type="secondary">当月总费用</Text>}
@@ -629,7 +647,7 @@ function UsageBreakdownTab() {
             />
           </Card>
         </Col>
-        <Col xs={24} md={8}>
+        <Col xs={24} md={6}>
           <Card bordered size="small">
             <Statistic
               title={<Text type="secondary">客户数</Text>}
@@ -638,10 +656,19 @@ function UsageBreakdownTab() {
             />
           </Card>
         </Col>
-        <Col xs={24} md={8}>
+        <Col xs={24} md={6}>
           <Card bordered size="small">
             <Statistic
-              title={<Text type="secondary">当月用量（含所有服务）</Text>}
+              title={<Text type="secondary">SKU 条数 (筛选后)</Text>}
+              value={chartData.length}
+              valueStyle={{ fontWeight: 600 }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered size="small">
+            <Statistic
+              title={<Text type="secondary">当月用量合计</Text>}
               value={resp?.total_usage ?? 0} precision={4}
               valueStyle={{ fontWeight: 600 }}
             />
@@ -649,21 +676,22 @@ function UsageBreakdownTab() {
         </Col>
       </Row>
 
-      {/* 类别分布条 */}
-      {resp && resp.total_cost > 0 && (
+      {/* 类别分布 Tag */}
+      {chartData.length > 0 && (
         <Card size="small" bordered style={{ marginBottom: 16 }}>
           <Space wrap size={6}>
-            <Text type="secondary">类别费用分布：</Text>
+            <Text type="secondary">筛选后类别分布：</Text>
             {categories.map((cat) => {
               const v = categoryTotals[cat] || 0;
               if (v === 0) return null;
-              const pct = (v / resp.total_cost) * 100;
+              const total = chartData.reduce((s, d) => s + d.cost, 0);
+              const pct = total > 0 ? (v / total) * 100 : 0;
               return (
-                <Tooltip key={cat} title={`¥${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
-                  <Tag color={CATEGORY_COLORS[cat] || 'default'}>
+                <AntTooltip key={cat} title={`¥${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
+                  <Tag color={CATEGORY_ANTD_COLOR[cat] || 'default'}>
                     {labels[cat] || cat}: ¥{v.toFixed(2)}（{pct.toFixed(1)}%）
                   </Tag>
-                </Tooltip>
+                </AntTooltip>
               );
             })}
           </Space>
@@ -673,14 +701,54 @@ function UsageBreakdownTab() {
       <Card
         bordered={false}
         style={{ borderRadius: 12 }}
-        title={<Title level={5} style={{ margin: 0 }}>客户 → 货源 → 服务</Title>}
+        title={<Title level={5} style={{ margin: 0 }}>SKU 费用分布（客户 × 货源 × 服务 × SKU）</Title>}
         extra={
-          <Space>
+          <Space wrap>
             <DatePicker picker="month" value={month} onChange={setMonth} allowClear={false} />
             <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
           </Space>
         }
       >
+        {/* 筛选行 */}
+        <Row gutter={[12, 8]} style={{ marginBottom: 12 }}>
+          <Col xs={24} md={6}>
+            <Select
+              allowClear showSearch placeholder="筛选客户" style={{ width: '100%' }}
+              options={customerOptions} value={filterCustomerId}
+              onChange={(v) => { setFilterCustomerId(v); setFilterResourceId(undefined); }}
+              filterOption={(input, opt) =>
+                String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Select
+              allowClear showSearch placeholder="筛选货源" style={{ width: '100%' }}
+              options={resourceOptions} value={filterResourceId}
+              onChange={setFilterResourceId}
+              filterOption={(input, opt) =>
+                String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Select
+              allowClear mode="multiple" placeholder="筛选类目" style={{ width: '100%' }}
+              value={filterCategories} onChange={setFilterCategories}
+              options={categories.map((c) => ({ label: labels[c] || c, value: c }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Space style={{ width: '100%' }}>
+              <Text type="secondary">Top N</Text>
+              <Slider
+                min={5} max={100} step={5}
+                value={topN} onChange={(v) => setTopN(Number(v))}
+                style={{ flex: 1, minWidth: 120 }}
+              />
+              <Text strong>{topN}</Text>
+            </Space>
+          </Col>
+        </Row>
+
         {errMsg && (
           <Alert type="error" showIcon style={{ marginBottom: 12 }}
             message="加载失败" description={errMsg} />
@@ -692,17 +760,53 @@ function UsageBreakdownTab() {
             description='确认客户已在客户详情的"关联货源"勾选，并且云管 cc_usage 已同步（账单中心"同步云管"按钮）。'
           />
         )}
-        <Table<UsageCustomerRow>
-          rowKey="customer_id"
-          loading={loading}
-          dataSource={resp?.customers ?? []}
-          pagination={{ pageSize: 20, showSizeChanger: true }}
-          columns={customerColumns}
-          expandable={{
-            expandedRowRender: renderResourceSubTable,
-            rowExpandable: (r) => r.resources.length > 0,
-          }}
-        />
+        {!loading && chartData.length === 0 && resp && resp.customers.length > 0 && (
+          <Alert type="info" showIcon style={{ marginBottom: 12 }}
+            message="当前筛选下没有 SKU"
+            description="放宽筛选条件或调大 TopN。" />
+        )}
+
+        {/* 条形图 —— 水平方向，Y 轴是 SKU label，X 轴是费用 */}
+        {chartData.length > 0 && (
+          <div style={{ width: '100%', height: chartHeight }}>
+            <ResponsiveContainer>
+              <BarChart
+                data={chartData}
+                layout="vertical"
+                margin={{ top: 8, right: 32, left: 16, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) => `¥${Number(v).toFixed(0)}`}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  width={340}
+                  tick={{ fontSize: 12 }}
+                  interval={0}
+                />
+                <RTooltip
+                  formatter={(value: any, _name: any, ctx: any) => {
+                    const row = ctx?.payload as SkuBarDatum | undefined;
+                    if (!row) return [`¥${Number(value).toFixed(2)}`, '费用'];
+                    return [
+                      `¥${row.cost.toFixed(2)} · 用量 ${row.usage.toFixed(4)} ${row.unit || ''}`,
+                      `${row.category_label} · ${row.provider || '-'}${row.region ? ' / ' + row.region : ''}`,
+                    ];
+                  }}
+                  labelFormatter={(label) => String(label)}
+                />
+                <Bar dataKey="cost" name="费用" radius={[0, 4, 4, 0]}>
+                  {chartData.map((d) => (
+                    <Cell key={d.key} fill={CATEGORY_HEX[d.category] || CATEGORY_HEX.other} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </Card>
     </div>
   );
