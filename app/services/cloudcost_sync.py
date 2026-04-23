@@ -440,11 +440,27 @@ def do_sync_usage_for_customer(
                 slot["total_cost"] += cost or Decimal("0")
                 slot["total_usage"] += usage_ or Decimal("0")
                 slot["record_count"] += 1
+                # metering/detail 真实字段（见 docs/CLOUDCOST_API.md §4）：
+                #   product       -> 服务名 ("Azure App Service" / "Claude Sonnet 4 ...")
+                #   usage_type    -> SKU 粒度 ("P0v3 App" / "USE1-MP:USE1_OutputTokenCount-Units")
+                #   region        -> "eastus2" / "use1"
+                #   usage_unit    -> "1 Hour" / "1 GB" / "Units"
+                #   provider      -> "azure" / "aws"
+                # 旧 legacy /costs 接口只有 service/service_name，此处做兼容回退.
+                product = (it.get("product") or it.get("service")
+                           or it.get("service_name") or it.get("name") or "云服务")
+                sku = (it.get("usage_type") or it.get("sku")
+                       or it.get("sku_name") or product)
                 slot["raw"]["accounts"].append({
                     "account_id": a.id,
                     "external_project_id": epid,
-                    "service": (it.get("service") or it.get("service_name")
-                                or it.get("name") or "云服务"),
+                    "provider": (it.get("provider") or None),
+                    "product": product,
+                    "sku": sku,
+                    "region": (it.get("region") or None),
+                    "usage_unit": (it.get("usage_unit") or it.get("unit") or None),
+                    # 老字段保留向后兼容：service === product
+                    "service": product,
                     "cost": float(cost or 0),
                     "usage": float(usage_ or 0),
                     "date": d_iso,
