@@ -1,40 +1,55 @@
-# 销售系统 API (xiaoshou)
+# xiaoshou 销售系统
 
-基于 FastAPI 开发的销售系统后端，部署到 **Azure Container Apps**，认证由 **Casdoor** 统一承担。
+`xiaoshou` 是一个面向销售团队的全栈系统：后端使用 FastAPI，前端使用 React + Vite + Ant Design，认证统一接入 Casdoor，并部署在 Azure（Container Apps + Static Web Apps）。
 
-> 📚 **所有产品 / 架构 / 接口文档已归档到 [docs/](./docs/README.md)**。
-> - 运营大脑 (super-ops) 对接 → **[docs/SUPER_OPS_API.md](./docs/SUPER_OPS_API.md)**
-> - 云管 (cloudcost) 消费契约 → [docs/CLOUDCOST_API.md](./docs/CLOUDCOST_API.md)
-> - 产品方案 → [docs/PRODUCT_PLAN.md](./docs/PRODUCT_PLAN.md) / 技术方案 → [docs/TECH_DESIGN.md](./docs/TECH_DESIGN.md)
+## 系统定位
 
-## 功能模块
+- 销售为主，运营为辅
+- 角色分工：`sales-manager`、`sales`、`ops`
+- 核心场景：客户管理、订单审批、货源关联、跟进与时间线、账单与导出、AI 洞察
 
-- **客户管理**：客户主档、联系人管理、客户列表查询
-- **货源看板**：货源池管理、可分配货源查询
-- **分配管理**：货源分配、毛利计算
-- **用量查询**：客户用量、用量趋势、用量汇总
+详细产品规则与角色约束请先阅读：[`AGENTS.md`](./AGENTS.md)（同内容也见 [`CLAUDE.md`](./CLAUDE.md)）。
+
+## 主要能力（当前代码）
+
+- **客户与生命周期**：客户档案、跟进记录、时间线、阶段流转与审批
+- **订单与审批**：客户侧发起分配/订单，主管审批，支持批量场景
+- **货源与云管同步**：货源以 cloudcost 为准，支持同步和本地查询
+- **账单中心**：本地账单聚合、客户维度查询、导出
+- **销售管理看板**：主管视角 KPI、审批中心、团队目标相关指标
+- **AI 洞察**：客户多源信息洞察（外部信息 + 本地销售数据）
 
 ## 技术栈
 
-- **框架**：FastAPI 0.109
-- **数据库**：PostgreSQL 16 + SQLAlchemy 2
-- **缓存**：Redis 7
-- **认证**：Casdoor OAuth2 / OIDC (RS256 JWT)
-- **容器**：Docker → Azure Container Apps
-- **CI/CD**：GitHub Actions (OIDC 到 Azure)
-- **IaC**：Bicep (`infra/main.bicep`)
+- 后端：FastAPI、SQLAlchemy 2、Alembic、PostgreSQL、Redis
+- 前端：React 18、TypeScript、Vite 5、Ant Design 5、Recharts
+- 认证：Casdoor OAuth2/OIDC（JWT）
+- 部署：Docker、Azure Container Apps、Azure Static Web Apps
+- 基础设施：Bicep（见 `infra/`）
 
-## 快速开始（本地）
+## 快速开始（推荐 Docker）
+
+1) 准备环境变量：
 
 ```bash
 cp .env.example .env
-# 编辑 .env：填 Casdoor client_id / secret；或临时 AUTH_ENABLED=false 跳过认证
-
-docker compose up --build
-# 访问 http://localhost:8000/docs
 ```
 
-不用 Docker：
+2) 启动全部服务：
+
+```bash
+docker compose up --build
+```
+
+3) 访问地址：
+
+- 前端：`http://localhost:5173`
+- 后端 OpenAPI：`http://localhost:8000/docs`
+- 健康检查：`http://localhost:8000/health`
+
+## 本地开发（不使用 Docker）
+
+后端：
 
 ```bash
 pip install -r requirements.txt
@@ -42,74 +57,57 @@ alembic upgrade head
 uvicorn main:app --reload
 ```
 
-## 部署到 Azure
+前端：
 
-详见：
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — 资源开通、CI/CD OIDC、发布流程
-- [`docs/AUTH.md`](docs/AUTH.md) — 本系统 Casdoor 接入细节
-- [`docs/SSO.md`](docs/SSO.md) — **跨系统（销售/工单/运营中心/云管）统一认证架构**
-- [`docs/ROLES.md`](docs/ROLES.md) — **共享角色定义**
-- [`docs/TEST.md`](docs/TEST.md) — **测试方案（单元 / 集成 / 部署后冒烟 / 认证 E2E）**
-- [`infra/README.md`](infra/README.md) — Bicep 资源清单 + 月成本估算
-
-## API 路由
-
-| 路由 | 认证 | 说明 |
-|---|---|---|
-| `GET /` | 公开 | 欢迎信息 |
-| `GET /health` | 公开 | 健康检查 |
-| `GET /api/auth/login` | 公开 | 跳转 Casdoor 登录 |
-| `GET /api/auth/callback` | 公开 | OAuth2 回调，换 token |
-| `GET /api/auth/me` | **需 JWT** | 当前用户信息 |
-| `/api/customers/*` | **需 JWT** | 客户管理 |
-| `/api/resources/*` | **需 JWT** | 货源看板 |
-| `/api/allocations/*` | **需 JWT** | 分配管理 |
-| `/api/usage/*` | **需 JWT** | 用量查询 |
-
-## 项目结构
-
+```bash
+cd frontend
+npm install
+npm run dev
 ```
+
+## 常用测试命令
+
+```bash
+# 后端单测
+pytest -v
+
+# 本地冒烟（需先启动 docker compose）
+./scripts/smoke-test.sh
+```
+
+完整测试策略见 [`docs/TEST.md`](./docs/TEST.md)。
+
+## API 分层（快速理解）
+
+- `/api/*`：前端业务接口（Casdoor JWT）
+- `/api/internal/*`：内部桥接/同步接口（M2M）
+- `/api/external/*`：对 super-ops 暴露的只读接口（`X-Api-Key`）
+
+路由挂载可直接看 `main.py`。
+
+## 目录结构
+
+```text
 xiaoshou/
-├── app/                     # FastAPI 后端
-│   ├── api/                 # 路由
-│   ├── auth/                # Casdoor JWT 校验 & 依赖
-│   ├── models/              # SQLAlchemy 模型
-│   ├── schemas/             # Pydantic 模型
-│   ├── config.py
-│   └── database.py
-├── frontend/                # React + Vite + Antd SPA
-│   ├── src/
-│   │   ├── api/             # axios + interceptor
-│   │   ├── components/      # 布局 / 路由守卫
-│   │   ├── contexts/        # AuthContext
-│   │   ├── config/          # Casdoor 配置
-│   │   ├── pages/           # Login / Callback / Customers / Resources / Allocations / Usage
-│   │   └── types/
-│   └── staticwebapp.config.json
-├── infra/                   # Bicep IaC
-├── docs/                    # 部署 / 认证 / SSO / 角色 / 测试
-├── tests/                   # pytest
-├── .github/workflows/       # ci.yml (后端测试) + deploy.yml (后端 Container App) + frontend-deploy.yml (SWA)
-├── Dockerfile
-├── docker-compose.yml
-├── main.py
-└── requirements.txt
+├── app/                  # FastAPI 业务代码（api/auth/models/schemas/agents）
+├── frontend/             # React SPA（路由、页面、组件、鉴权上下文）
+├── tests/                # pytest
+├── docs/                 # 文档中心（产品、接口、部署、认证、测试）
+├── infra/                # Azure Bicep IaC
+├── docker-compose.yml    # 本地一键启动（postgres/redis/api/web）
+├── Dockerfile            # 后端镜像
+└── main.py               # 应用入口与路由挂载
 ```
 
-## 在线地址
+## 文档入口
 
-- 后端 API：https://xiaoshou-api.braveglacier-e1a32a70.eastasia.azurecontainerapps.io/docs
-- 前端 SPA：https://purple-rock-072562e00.7.azurestaticapps.net
+- 文档总索引：[`docs/README.md`](./docs/README.md)
+- 云管对接：[`docs/CLOUDCOST_API.md`](./docs/CLOUDCOST_API.md)、[`docs/CLOUDCOST_AUTH.md`](./docs/CLOUDCOST_AUTH.md)
+- 认证与角色：[`docs/AUTH.md`](./docs/AUTH.md)、[`docs/ROLES.md`](./docs/ROLES.md)、[`docs/SSO.md`](./docs/SSO.md)
+- 部署：[`docs/DEPLOY.md`](./docs/DEPLOY.md)、[`infra/README.md`](./infra/README.md)
+- 对外 API（super-ops）：[`docs/SUPER_OPS_API.md`](./docs/SUPER_OPS_API.md)
 
-## 开发计划
+## 线上地址
 
-- [x] 基础 CRUD（客户 / 货源 / 分配 / 用量）
-- [x] Casdoor 认证接入
-- [x] Azure 部署 (Bicep + Container Apps)
-- [x] GitHub Actions CI/CD
-- [ ] 角色细粒度授权
-- [ ] 预警、CRM 商机、账单、Agent 分析
-
-## License
-
-MIT
+- 前端：<https://purple-rock-072562e00.7.azurestaticapps.net>
+- 后端：<https://xiaoshou-api.braveglacier-e1a32a70.eastasia.azurecontainerapps.io/docs>
