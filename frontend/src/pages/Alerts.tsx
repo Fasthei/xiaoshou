@@ -527,21 +527,32 @@ const CATEGORY_ANTD_COLOR: Record<string, string> = {
   other:    'default',
 };
 
-// 单行条形图 datum
+// 单行条形图 datum。Y 轴上只显示 product + sku，客户/货源塞进 tooltip.
 interface SkuBarDatum {
   key: string;           // 唯一键 = customer|resource|provider|product|sku|region|unit
-  label: string;         // Y 轴 label：客户 · 货源 · 产品 / SKU
   customer: string;
   resource: string;
   provider: string;
   product: string;
+  productShort: string;  // 去掉括号内容后的短形式，Y 轴第一行展示
   sku: string;
+  skuShort: string;      // 长 SKU 截短
   region: string;
   unit: string;
   cost: number;
   usage: number;
   category: string;
   category_label: string;
+}
+
+// 把 "Claude Opus 4.6 (Amazon Bedrock Edition)" → "Claude Opus 4.6"
+function trimProduct(s: string): string {
+  return s.replace(/\s*\([^)]*\)\s*/g, '').trim() || s;
+}
+// 把过长 SKU 截断
+function trimSku(s: string, max = 40): string {
+  if (!s) return '';
+  return s.length <= max ? s : s.slice(0, max - 1) + '…';
 }
 
 function UsageBreakdownTab() {
@@ -602,12 +613,13 @@ function UsageBreakdownTab() {
           if (cats.size > 0 && !cats.has(s.category)) continue;
           rows.push({
             key: [c.customer_id, r.resource_id, s.provider ?? '', s.product, s.sku, s.region ?? '', s.usage_unit ?? ''].join('|'),
-            label: `${c.customer_name} · ${r.resource_code ?? r.account_name ?? r.identifier_field ?? '货源'} · ${s.product} / ${s.sku}`,
             customer: c.customer_name,
             resource: r.resource_code ?? r.account_name ?? r.identifier_field ?? '',
             provider: s.provider ?? '',
             product: s.product,
+            productShort: trimProduct(s.product),
             sku: s.sku,
+            skuShort: trimSku(s.sku),
             region: s.region ?? '',
             unit: s.usage_unit ?? '',
             cost: s.cost,
@@ -629,8 +641,60 @@ function UsageBreakdownTab() {
     return tot;
   }, [chartData]);
 
-  // 图表高度 = 每行约 28px，最小 360
-  const chartHeight = Math.max(360, chartData.length * 28 + 40);
+  // 图表高度 = 每行约 44px（两行标签 + 间距），最小 380
+  const chartHeight = Math.max(380, chartData.length * 44 + 40);
+
+  // 自定义 Y 轴 tick：两行 SVG text（第一行产品短名，第二行 SKU 短形）
+  const renderYTick = ({ x, y, payload }: any) => {
+    const d = chartData.find((row) => row.key === payload.value);
+    if (!d) return null;
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text x={-8} y={-2} textAnchor="end" fontSize={12} fill="#1F2937" fontWeight={500}>
+          {d.productShort}
+        </text>
+        <text x={-8} y={14} textAnchor="end" fontSize={10.5} fill="#6B7280">
+          {d.skuShort}
+        </text>
+      </g>
+    );
+  };
+
+  // 自定义 Tooltip：结构化展示所有维度
+  const renderTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    const d: SkuBarDatum = payload[0].payload;
+    return (
+      <div style={{
+        background: '#fff', border: '1px solid #E1DFDD', borderRadius: 6,
+        padding: '8px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', maxWidth: 360,
+      }}>
+        <div style={{ marginBottom: 4 }}>
+          <Tag color={CATEGORY_ANTD_COLOR[d.category] || 'default'} style={{ marginRight: 4 }}>
+            {d.category_label}
+          </Tag>
+          {d.provider && <Tag>{d.provider}</Tag>}
+          {d.region && <Tag>{d.region}</Tag>}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>{d.product}</div>
+        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6, wordBreak: 'break-all' }}>{d.sku}</div>
+        <div style={{ fontSize: 12, color: '#1F2937' }}>
+          <b>客户</b>：{d.customer}
+        </div>
+        <div style={{ fontSize: 12, color: '#1F2937' }}>
+          <b>货源</b>：{d.resource || '-'}
+        </div>
+        <div style={{ marginTop: 6, fontSize: 13 }}>
+          <b>¥ {d.cost.toFixed(2)}</b>
+          {d.usage > 0 && (
+            <span style={{ color: '#6B7280', marginLeft: 8 }}>
+              用量 {d.usage.toFixed(4)} {d.unit}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const categories = resp?.categories ?? ['compute', 'ai', 'database', 'storage', 'network', 'other'];
   const labels = resp?.category_labels ?? {};
@@ -638,7 +702,7 @@ function UsageBreakdownTab() {
   return (
     <div>
       <Row gutter={12} style={{ marginBottom: 16 }}>
-        <Col xs={24} md={6}>
+        <Col xs={24} md={8}>
           <Card bordered size="small">
             <Statistic
               title={<Text type="secondary">当月总费用</Text>}
@@ -647,7 +711,7 @@ function UsageBreakdownTab() {
             />
           </Card>
         </Col>
-        <Col xs={24} md={6}>
+        <Col xs={24} md={8}>
           <Card bordered size="small">
             <Statistic
               title={<Text type="secondary">客户数</Text>}
@@ -656,31 +720,38 @@ function UsageBreakdownTab() {
             />
           </Card>
         </Col>
-        <Col xs={24} md={6}>
+        <Col xs={24} md={8}>
           <Card bordered size="small">
             <Statistic
-              title={<Text type="secondary">SKU 条数 (筛选后)</Text>}
+              title={<Text type="secondary">SKU 条数（筛选后 / 共显示）</Text>}
               value={chartData.length}
-              valueStyle={{ fontWeight: 600 }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} md={6}>
-          <Card bordered size="small">
-            <Statistic
-              title={<Text type="secondary">当月用量合计</Text>}
-              value={resp?.total_usage ?? 0} precision={4}
               valueStyle={{ fontWeight: 600 }}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* 类别分布 Tag */}
+      {/* 固定颜色 legend —— 给 6 个 category 说明 */}
+      <Card size="small" bordered style={{ marginBottom: 12 }}>
+        <Space wrap size={4}>
+          <Text type="secondary" style={{ marginRight: 4 }}>服务类目：</Text>
+          {(['compute', 'ai', 'database', 'storage', 'network', 'other'] as const).map((cat) => (
+            <Space key={cat} size={4} style={{ marginRight: 8 }}>
+              <span style={{
+                display: 'inline-block', width: 12, height: 12, borderRadius: 2,
+                background: CATEGORY_HEX[cat],
+              }} />
+              <Text style={{ fontSize: 12 }}>{labels[cat] || cat}</Text>
+            </Space>
+          ))}
+        </Space>
+      </Card>
+
+      {/* 筛选后实际占比（只展示有数据的类目） */}
       {chartData.length > 0 && (
         <Card size="small" bordered style={{ marginBottom: 16 }}>
           <Space wrap size={6}>
-            <Text type="secondary">筛选后类别分布：</Text>
+            <Text type="secondary">筛选后占比：</Text>
             {categories.map((cat) => {
               const v = categoryTotals[cat] || 0;
               if (v === 0) return null;
@@ -766,14 +837,15 @@ function UsageBreakdownTab() {
             description="放宽筛选条件或调大 TopN。" />
         )}
 
-        {/* 条形图 —— 水平方向，Y 轴是 SKU label，X 轴是费用 */}
+        {/* 条形图 —— 水平方向；Y 轴两行 (产品/SKU)，X 轴是费用；Tooltip 给全部维度 */}
         {chartData.length > 0 && (
           <div style={{ width: '100%', height: chartHeight }}>
             <ResponsiveContainer>
               <BarChart
                 data={chartData}
                 layout="vertical"
-                margin={{ top: 8, right: 32, left: 16, bottom: 8 }}
+                margin={{ top: 8, right: 40, left: 8, bottom: 8 }}
+                barCategoryGap="30%"
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis
@@ -782,22 +854,12 @@ function UsageBreakdownTab() {
                 />
                 <YAxis
                   type="category"
-                  dataKey="label"
-                  width={340}
-                  tick={{ fontSize: 12 }}
+                  dataKey="key"
+                  width={260}
                   interval={0}
+                  tick={renderYTick}
                 />
-                <RTooltip
-                  formatter={(value: any, _name: any, ctx: any) => {
-                    const row = ctx?.payload as SkuBarDatum | undefined;
-                    if (!row) return [`¥${Number(value).toFixed(2)}`, '费用'];
-                    return [
-                      `¥${row.cost.toFixed(2)} · 用量 ${row.usage.toFixed(4)} ${row.unit || ''}`,
-                      `${row.category_label} · ${row.provider || '-'}${row.region ? ' / ' + row.region : ''}`,
-                    ];
-                  }}
-                  labelFormatter={(label) => String(label)}
-                />
+                <RTooltip content={renderTooltip} />
                 <Bar dataKey="cost" name="费用" radius={[0, 4, 4, 0]}>
                   {chartData.map((d) => (
                     <Cell key={d.key} fill={CATEGORY_HEX[d.category] || CATEGORY_HEX.other} />
