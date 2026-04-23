@@ -38,7 +38,7 @@ from app.models.allocation import Allocation
 from app.models.bill_adjustment import BillAdjustment
 from app.models.cc_usage import CCUsage
 from app.models.customer import Customer
-from app.models.customer_resource import CustomerResource
+from app.services.customer_resource_resolver import resolve_customer_resources
 from app.models.resource import Resource
 from app.models.sales import SalesUser
 
@@ -211,31 +211,29 @@ def bills_by_customer(
 
     # 1) 授权客户集
     q = db.query(Customer).filter(Customer.is_deleted == False)  # noqa: E712
-    if not _can_see_all(user):
+    see_all = _can_see_all(user)
+    if not see_all:
         q = q.filter(_sales_filter_clause(db, user))
     customers = q.all()
     if not customers:
         return []
     cust_by_id = {c.id: c for c in customers}
 
-    # 2) customer_resource → (cid, rid) pairs
-    links = db.query(CustomerResource).filter(
-        CustomerResource.customer_id.in_(cust_by_id.keys()),
-    ).all()
-    cust_to_res_ids: Dict[int, List[int]] = defaultdict(list)
-    for link in links:
-        cust_to_res_ids[link.customer_id].append(link.resource_id)
+    # 2) 客户 → 货源：手工 customer_resource + 销售主管视角的自然匹配 fallback
+    #    （销售主管不会去关联客户，但必须看到所有客户用量；resolver 对非 manager
+    #    角色 include_auto_match=False，销售视角口径不变）
+    cust_to_resources = resolve_customer_resources(
+        db, customers, include_auto_match=see_all,
+    )
+    cust_to_res_ids: Dict[int, List[int]] = {
+        cid: [r.id for r in rs] for cid, rs in cust_to_resources.items()
+    }
     if not cust_to_res_ids and not include_empty:
         return []
 
-    # 3) 货源元数据
-    all_res_ids = {rid for rids in cust_to_res_ids.values() for rid in rids}
-    resources = (
-        db.query(Resource).filter(Resource.id.in_(all_res_ids)).all()
-        if all_res_ids else []
-    )
-    res_by_id = {r.id: r for r in resources}
-    all_identifiers = [r.identifier_field for r in resources if r.identifier_field]
+    # 3) 货源元数据（已在 resolver 拿到，直接用）
+    res_by_id = {r.id: r for rs in cust_to_resources.values() for r in rs}
+    all_identifiers = [r.identifier_field for r in res_by_id.values() if r.identifier_field]
 
     # 4) 云管用量 + 订单折扣 + 账单覆盖
     usages_by_id = _fetch_usage_by_identifier(db, all_identifiers, month)
@@ -320,19 +318,14 @@ def bills_by_customer_detail(
         raise HTTPException(404, "客户不存在")
 
     # 权限
-    if not _can_see_all(user):
+    see_all = _can_see_all(user)
+    if not see_all:
         sid = _resolve_my_sales_user_id(db, user)
         if sid is None or cust.sales_user_id != sid:
             raise HTTPException(403, "无权查看该客户账单")
 
-    links = db.query(CustomerResource).filter(
-        CustomerResource.customer_id == customer_id,
-    ).all()
-    res_ids = [l.resource_id for l in links]
-    resources = (
-        db.query(Resource).filter(Resource.id.in_(res_ids)).all()
-        if res_ids else []
-    )
+    # 客户 → 货源：手工关联 + 销售主管视角的自然匹配兜底
+    resources = resolve_customer_resources(db, [cust], include_auto_match=see_all).get(customer_id, [])
     identifiers = [r.identifier_field for r in resources if r.identifier_field]
 
     if granularity == "resource":
@@ -434,28 +427,23 @@ def bills_by_customer_export(
 
     # 权限过滤
     q = db.query(Customer).filter(Customer.is_deleted == False)  # noqa: E712
-    if not _can_see_all(user):
+    see_all = _can_see_all(user)
+    if not see_all:
         q = q.filter(_sales_filter_clause(db, user))
     customers = q.all()
 
     if not customers:
         logger.warning("bills export: no customers found for user %s", user.sub)
 
-    cust_to_res_ids: Dict[int, List[int]] = defaultdict(list)
-    if customers:
-        links = db.query(CustomerResource).filter(
-            CustomerResource.customer_id.in_([c.id for c in customers]),
-        ).all()
-        for link in links:
-            cust_to_res_ids[link.customer_id].append(link.resource_id)
-
-    all_res_ids = {rid for rids in cust_to_res_ids.values() for rid in rids}
-    resources = (
-        db.query(Resource).filter(Resource.id.in_(all_res_ids)).all()
-        if all_res_ids else []
+    # 客户 → 货源：手工关联 + 销售主管视角的自然匹配兜底
+    cust_to_resources = resolve_customer_resources(
+        db, customers, include_auto_match=see_all,
     )
-    res_by_id = {r.id: r for r in resources}
-    identifiers = [r.identifier_field for r in resources if r.identifier_field]
+    cust_to_res_ids: Dict[int, List[int]] = {
+        cid: [r.id for r in rs] for cid, rs in cust_to_resources.items()
+    }
+    res_by_id = {r.id: r for rs in cust_to_resources.values() for r in rs}
+    identifiers = [r.identifier_field for r in res_by_id.values() if r.identifier_field]
 
     usages_by_id = _fetch_usage_by_identifier(db, identifiers, month)
     pairs = [(cid, rid) for cid, rids in cust_to_res_ids.items() for rid in rids]
