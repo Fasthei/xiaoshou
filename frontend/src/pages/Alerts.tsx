@@ -561,10 +561,10 @@ function UsageBreakdownTab() {
   const [resp, setResp] = useState<UsageBreakdownResp | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  // 筛选：选客户 / 货源 / 类目；TopN 控制条数
+  // 筛选：选客户 / 货源 / 服务名称（云管 product 字段，非本地推断的类目）；TopN 控制条数
   const [filterCustomerId, setFilterCustomerId] = useState<number | undefined>(undefined);
   const [filterResourceId, setFilterResourceId] = useState<number | undefined>(undefined);
-  const [filterCategories, setFilterCategories] = useState<string[]>([]);
+  const [filterProducts, setFilterProducts] = useState<string[]>([]);
   const [topN, setTopN] = useState<number>(30);
 
   const load = async () => {
@@ -600,17 +600,35 @@ function UsageBreakdownTab() {
     })));
   }, [resp, filterCustomerId]);
 
+  // 服务名称下拉（来自云管真实 product，跟着客户/货源联动）。
+  // 按字母排序 + 去重 —— 是云管 metering.product 原样，不做本地分类加工。
+  const productOptions = useMemo(() => {
+    const pool = filterCustomerId
+      ? resp?.customers.filter((c) => c.customer_id === filterCustomerId) ?? []
+      : resp?.customers ?? [];
+    const set = new Set<string>();
+    for (const c of pool) {
+      for (const r of c.resources) {
+        if (filterResourceId !== undefined && r.resource_id !== filterResourceId) continue;
+        for (const s of r.skus) {
+          if (s.product) set.add(s.product);
+        }
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b)).map((p) => ({ label: p, value: p }));
+  }, [resp, filterCustomerId, filterResourceId]);
+
   // 扁平化 → 按筛选 + topN 裁剪
   const chartData: SkuBarDatum[] = useMemo(() => {
     if (!resp) return [];
-    const cats = new Set(filterCategories);
+    const prodFilter = new Set(filterProducts);
     const rows: SkuBarDatum[] = [];
     for (const c of resp.customers) {
       if (filterCustomerId !== undefined && c.customer_id !== filterCustomerId) continue;
       for (const r of c.resources) {
         if (filterResourceId !== undefined && r.resource_id !== filterResourceId) continue;
         for (const s of r.skus) {
-          if (cats.size > 0 && !cats.has(s.category)) continue;
+          if (prodFilter.size > 0 && !prodFilter.has(s.product)) continue;
           rows.push({
             key: [c.customer_id, r.resource_id, s.provider ?? '', s.product, s.sku, s.region ?? '', s.usage_unit ?? ''].join('|'),
             customer: c.customer_name,
@@ -632,14 +650,7 @@ function UsageBreakdownTab() {
     }
     rows.sort((a, b) => b.cost - a.cost);
     return rows.slice(0, topN);
-  }, [resp, filterCustomerId, filterResourceId, filterCategories, topN]);
-
-  // 按 category 汇总（图下方的分布标签）
-  const categoryTotals = useMemo(() => {
-    const tot: Record<string, number> = {};
-    chartData.forEach((d) => { tot[d.category] = (tot[d.category] || 0) + d.cost; });
-    return tot;
-  }, [chartData]);
+  }, [resp, filterCustomerId, filterResourceId, filterProducts, topN]);
 
   // 图表高度 = 每行约 44px（两行标签 + 间距），最小 380
   const chartHeight = Math.max(380, chartData.length * 44 + 40);
@@ -697,8 +708,6 @@ function UsageBreakdownTab() {
     );
   };
 
-  const categories = resp?.categories ?? ['compute', 'ai', 'database', 'storage', 'network', 'other'];
-  const labels = resp?.category_labels ?? {};
 
   return (
     <div>
@@ -732,40 +741,27 @@ function UsageBreakdownTab() {
         </Col>
       </Row>
 
-      {/* 固定颜色 legend —— 给 6 个 category 说明 */}
-      <Card size="small" bordered style={{ marginBottom: 12 }}>
-        <Space wrap size={4}>
-          <Text type="secondary" style={{ marginRight: 4 }}>服务类目：</Text>
-          {(['compute', 'ai', 'database', 'storage', 'network', 'other'] as const).map((cat) => (
-            <Space key={cat} size={4} style={{ marginRight: 8 }}>
-              <span style={{
-                display: 'inline-block', width: 12, height: 12, borderRadius: 2,
-                background: CATEGORY_HEX[cat],
-              }} />
-              <Text style={{ fontSize: 12 }}>{labels[cat] || cat}</Text>
-            </Space>
-          ))}
-        </Space>
-      </Card>
-
-      {/* 筛选后实际占比（只展示有数据的类目） */}
+      {/* 按云管 product 聚合 Top 5 占比 —— 真实服务名，不做本地类目推断 */}
       {chartData.length > 0 && (
         <Card size="small" bordered style={{ marginBottom: 16 }}>
           <Space wrap size={6}>
-            <Text type="secondary">筛选后占比：</Text>
-            {categories.map((cat) => {
-              const v = categoryTotals[cat] || 0;
-              if (v === 0) return null;
-              const total = chartData.reduce((s, d) => s + d.cost, 0);
-              const pct = total > 0 ? (v / total) * 100 : 0;
-              return (
-                <AntTooltip key={cat} title={`¥${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
-                  <Tag color={CATEGORY_ANTD_COLOR[cat] || 'default'}>
-                    {labels[cat] || cat}: ¥{v.toFixed(2)}（{pct.toFixed(1)}%）
-                  </Tag>
-                </AntTooltip>
-              );
-            })}
+            <Text type="secondary">Top 服务占比：</Text>
+            {(() => {
+              const byProd: Record<string, number> = {};
+              chartData.forEach((d) => { byProd[d.product] = (byProd[d.product] || 0) + d.cost; });
+              const total = Object.values(byProd).reduce((s, v) => s + v, 0);
+              const top = Object.entries(byProd)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 5);
+              return top.map(([name, v]) => {
+                const pct = total > 0 ? (v / total) * 100 : 0;
+                return (
+                  <AntTooltip key={name} title={`¥${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
+                    <Tag>{trimProduct(name)}: ¥{v.toFixed(2)}（{pct.toFixed(1)}%）</Tag>
+                  </AntTooltip>
+                );
+              });
+            })()}
           </Space>
         </Card>
       )}
@@ -803,9 +799,13 @@ function UsageBreakdownTab() {
           </Col>
           <Col xs={24} md={6}>
             <Select
-              allowClear mode="multiple" placeholder="筛选类目" style={{ width: '100%' }}
-              value={filterCategories} onChange={setFilterCategories}
-              options={categories.map((c) => ({ label: labels[c] || c, value: c }))}
+              allowClear showSearch mode="multiple"
+              placeholder="筛选服务（云管 product）" style={{ width: '100%' }}
+              value={filterProducts} onChange={setFilterProducts}
+              options={productOptions}
+              maxTagCount="responsive"
+              filterOption={(input, opt) =>
+                String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
             />
           </Col>
           <Col xs={24} md={6}>
