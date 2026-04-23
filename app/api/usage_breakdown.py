@@ -111,11 +111,21 @@ def _usage_rows_by_identifier(
     return out
 
 
-def _aggregate_services_for_resource(
+def _aggregate_skus_for_resource(
     usage_rows: List[CCUsage],
 ) -> List[Dict[str, Any]]:
-    """把一个 identifier 对应的 cc_usage 行里的 raw.accounts[] 按 service 聚合."""
-    buckets: Dict[str, Dict[str, float]] = {}
+    """把一个 identifier 对应的 cc_usage 行里的 raw.accounts[] 按 SKU 聚合.
+
+    聚合 key = (provider, product, sku, region, usage_unit) — SKU 是 cloudcost
+    metering/detail 里的 `usage_type`，是产品下的计费规格粒度（如 "P0v3 App" /
+    "USE1-MP:USE1_OutputTokenCount-Units"）。
+
+    兼容老数据：同步器旧版本只存 `service` 不存 `product/sku`，此处退回用
+    service 作为 product + sku（此时 product==sku，前端仍能画图，只是 SKU 粒度
+    退化成 service 粒度）。新数据同步后自动升级.
+    """
+    # key = (provider, product, sku, region, unit) → {cost, usage, records}
+    buckets: Dict[tuple, Dict[str, Any]] = {}
     for u in usage_rows:
         raw = u.raw if isinstance(u.raw, dict) else {}
         accounts = raw.get("accounts") if isinstance(raw, dict) else None
@@ -124,8 +134,18 @@ def _aggregate_services_for_resource(
         for entry in accounts:
             if not isinstance(entry, dict):
                 continue
-            svc = entry.get("service") or entry.get("service_name") or "云服务"
-            slot = buckets.setdefault(svc, {"cost": 0.0, "usage": 0.0, "records": 0})
+            product = (
+                entry.get("product")
+                or entry.get("service")
+                or entry.get("service_name")
+                or "云服务"
+            )
+            sku = entry.get("sku") or entry.get("usage_type") or product
+            provider = entry.get("provider") or None
+            region = entry.get("region") or None
+            unit = entry.get("usage_unit") or entry.get("unit") or None
+            key = (provider, product, sku, region, unit)
+            slot = buckets.setdefault(key, {"cost": 0.0, "usage": 0.0, "records": 0})
             try:
                 slot["cost"] += float(entry.get("cost") or 0)
             except (TypeError, ValueError):
@@ -135,20 +155,24 @@ def _aggregate_services_for_resource(
             except (TypeError, ValueError):
                 pass
             slot["records"] += 1
-    services = []
-    for name, vals in buckets.items():
-        cat = _service_category(name)
-        services.append({
-            "name": name,
+
+    skus: List[Dict[str, Any]] = []
+    for (provider, product, sku, region, unit), vals in buckets.items():
+        cat = _service_category(product)
+        skus.append({
+            "provider": provider,
+            "product": product,
+            "sku": sku,
+            "region": region,
+            "usage_unit": unit,
             "category": cat,
             "category_label": _CATEGORY_LABELS.get(cat, "其他"),
             "cost": round(vals["cost"], 2),
             "usage": round(vals["usage"], 4),
             "record_count": int(vals["records"]),
         })
-    # 默认按费用降序
-    services.sort(key=lambda s: s["cost"], reverse=True)
-    return services
+    skus.sort(key=lambda s: s["cost"], reverse=True)
+    return skus
 
 
 # ---------- endpoint ----------
@@ -204,9 +228,9 @@ def usage_breakdown(
         for r in resources:
             rid = r.identifier_field
             usage_rows = usage_by_id.get(rid or "", [])
-            services = _aggregate_services_for_resource(usage_rows)
-            r_cost = sum(s["cost"] for s in services)
-            r_usage = sum(s["usage"] for s in services)
+            skus = _aggregate_skus_for_resource(usage_rows)
+            r_cost = sum(s["cost"] for s in skus)
+            r_usage = sum(s["usage"] for s in skus)
             if r_cost == 0 and r_usage == 0 and not include_empty:
                 continue
             cust_cost += r_cost
@@ -219,8 +243,8 @@ def usage_breakdown(
                 "identifier_field": r.identifier_field,
                 "total_cost": round(r_cost, 2),
                 "total_usage": round(r_usage, 4),
-                "service_count": len(services),
-                "services": services,
+                "sku_count": len(skus),
+                "skus": skus,
             })
         if not resource_rows and not include_empty:
             continue

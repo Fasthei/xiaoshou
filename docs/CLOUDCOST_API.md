@@ -103,12 +103,18 @@ cc_usage = {
   record_count  = count of metering_row
   raw.accounts  = [
     {
-      account_id = a.id,
-      service    = metering_row.service / service_name,
-      cost       = metering_row.cost,
-      usage      = metering_row.usage,
-      date       = metering_row.date,
-      source     = "metering" | "legacy"          # 标记数据来源
+      account_id          = a.id,
+      external_project_id = a.external_project_id,
+      provider            = metering_row.provider          # "azure" / "aws" / ...
+      product             = metering_row.product           # "Azure App Service" / "Claude Sonnet 4 (Bedrock)"
+      sku                 = metering_row.usage_type        # **SKU 粒度**，如 "P0v3 App" / "USE1-MP:USE1_OutputTokenCount-Units"
+      region              = metering_row.region            # "eastus2" / "use1"
+      usage_unit          = metering_row.usage_unit        # "1 Hour" / "1 GB" / "Units"
+      service             = product                         # 兼容老字段，=== product
+      cost                = metering_row.cost,
+      usage               = metering_row.usage_quantity,
+      date                = metering_row.date,
+      source              = "metering" | "legacy"         # 标记数据来源
     },
     ...
   ],
@@ -141,20 +147,31 @@ cc_usage = {
 
 ### usage_breakdown 聚合（/api/usage/breakdown）
 
-每层聚合：
+粒度已从"服务"下放到 **SKU**（cloudcost `usage_type`）。每层聚合：
 
 ```
 客户 (customer)
  └─ 货源 (resource — resolve_customer_resources 给出的集合)
-     └─ 服务 (按 cc_usage.raw.accounts[].service 分桶)
+     └─ SKU (按 (provider, product, sku, region, usage_unit) 去重分桶)
          + 类目 category = compute / ai / database / storage / network / other
-           （按 service name 关键词推断，详见 app/api/usage_breakdown.py _CATEGORIES）
+           （按 product name 关键词推断，详见 app/api/usage_breakdown.py _CATEGORIES）
 ```
 
-输出三段：
+输出：
 - `total_cost / total_usage / customer_count` 顶部统计
 - `categories / category_labels` 前端画类目 Tag 用
-- `customers[*].resources[*].services[*]` 三层嵌套数组，每层都带 `total_cost / total_usage`
+- `customers[*].resources[*].skus[*]` 嵌套数组；每个 `sku` 条目包含
+  `provider / product / sku / region / usage_unit / category / category_label /
+  cost / usage / record_count`
+- `customers[*].total_cost / resources[*].total_cost` 逐层累计
+
+前端（预警中心「用量查看」Tab）把 `customers[*].resources[*].skus[*]` 扁平化
+后按 cost 降序，用 **recharts 水平条形图** 画 TopN（默认 30）。一条柱子 = 一个
+"客户 · 货源 · 产品 / SKU"。颜色按 category 着色。支持筛选客户 / 货源 / 类目。
+
+兼容老数据：同步器旧版本只往 `raw.accounts[*]` 写 `service` 字段；聚合端 read
+时优先 `product`/`sku`，回退 `service`（此时 product==sku，SKU 粒度退化成服务
+粒度，前端仍可画图）。新数据同步后自动升级。
 
 类目判定的关键词模式**顺序敏感**：compute → ai → database → storage → network → other（一条云服务名按顺序匹配第一条）。加新关键词直接改 `_CATEGORIES` 常量。
 
@@ -174,3 +191,12 @@ cc_usage = {
   - 新增 `GET /api/usage/breakdown`（预警中心「用量查看」Tab，客户 → 货源 → 服务三层下钻，按服务名关键词推断类目 compute/ai/database/storage/network/other）。
   - 抽出 `customer_resource_resolver` 共享 helper：`bills_by_customer` 和 `usage_breakdown` 都走它；销售主管 / admin / ops 启用 `identifier_field == customer_code` 自然匹配兜底（业务需求：销售主管不去关联客户也要看到全部客户用量）；销售视角不自动补。
   - 账单中心聚合口径改为「原价(cc_usage) × 订单折扣(allocation) + 覆盖/手续费(bill_adjustment)」，不再读 cc_bill.original_cost / final_cost。
+- 2026-04-23b: 用量查看下沉到 **SKU 粒度**。
+  - 同步器 (`cloudcost_sync.do_sync_usage_for_customer`) 把 metering/detail 的
+    `product / usage_type / region / usage_unit / provider` 一并存进
+    `cc_usage.raw.accounts[]`；旧的 `service` 字段保留作为 `product` 别名.
+  - `/api/usage/breakdown` 聚合 key 从 `service` 改为
+    `(provider, product, sku, region, usage_unit)`；响应里 `resources[*].services`
+    字段更名为 `resources[*].skus`，每个 SKU 带完整规格信息.
+  - 预警中心「用量查看」Tab 前端改为 recharts 水平条形图 (一柱 = 一个客户×货源×SKU)，
+    支持客户 / 货源 / 类目筛选 + TopN 滑杆；删除原嵌套表格.
