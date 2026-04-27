@@ -3,6 +3,8 @@
 // We can't use axios for SSE (no streaming body in XHR). Use fetch + ReadableStream.
 // Auth token comes from localStorage — same place axios interceptor reads it.
 
+import { apiBase } from '../config/casdoor';
+
 export type InsightEvent =
   | { type: 'run_created'; data: { run_id: number; customer_id: number } }
   | { type: 'run_started'; data: { run_id: number; customer_id: number; max_steps: number } }
@@ -58,7 +60,7 @@ export function startInsightRun(
 
   (async () => {
     try {
-      const resp = await fetch(`/api/customer/${customerId}/insight/run`, {
+      const resp = await fetch(`${apiBase}/api/customer/${customerId}/insight/run`, {
         method: 'POST',
         headers: { Accept: 'text/event-stream', ...authHeader() },
         signal: controller.signal,
