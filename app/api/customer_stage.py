@@ -50,11 +50,13 @@ class StageRejectBody(BaseModel):
 class StageRequestOut(BaseModel):
     id: int
     customer_id: int
+    customer_name: Optional[str] = None  # joined from customer.customer_name (含已 soft-delete)
     from_stage: str
     to_stage: str
     reason: Optional[str]
     status: str
     requested_by: Optional[str]
+    requester_name: Optional[str] = None  # alias of requested_by, 兼容前端字段
     decided_by: Optional[str]
     decision_comment: Optional[str]
     created_at: Optional[datetime]
@@ -62,6 +64,30 @@ class StageRequestOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+def _to_out(req: "CustomerStageRequest", db: Session) -> dict:
+    """Serialize a stage_request with joined customer_name + requester_name alias."""
+    cust_name: Optional[str] = None
+    if req.customer_id:
+        c = db.query(Customer.customer_name).filter(Customer.id == req.customer_id).first()
+        if c:
+            cust_name = c[0]
+    return {
+        "id": req.id,
+        "customer_id": req.customer_id,
+        "customer_name": cust_name,
+        "from_stage": req.from_stage,
+        "to_stage": req.to_stage,
+        "reason": req.reason,
+        "status": req.status,
+        "requested_by": req.requested_by,
+        "requester_name": req.requested_by,
+        "decided_by": req.decided_by,
+        "decision_comment": req.decision_comment,
+        "created_at": req.created_at,
+        "decided_at": req.decided_at,
+    }
 
 
 # ---------- helpers (also used by hooks) ----------
@@ -202,12 +228,13 @@ def list_stage_requests(
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ):
-    return (
+    rows = (
         db.query(CustomerStageRequest)
         .filter(CustomerStageRequest.status == status)
         .order_by(CustomerStageRequest.id.desc())
         .all()
     )
+    return [_to_out(r, db) for r in rows]
 
 
 @request_router.post("/{request_id}/approve", response_model=StageRequestOut,
@@ -223,30 +250,35 @@ def approve_stage_request(
         raise HTTPException(404, "申请不存在")
     if req.status != "pending":
         raise HTTPException(400, f"申请已处理: {req.status}")
-    customer = _get_customer(db, req.customer_id)
+    # 客户可能已被硬删/软删；这种情况下仍允许主管"通过"申请以清理积压，
+    # 只是不再修改客户阶段（无对象可改）。
+    customer = (
+        db.query(Customer).filter(Customer.id == req.customer_id).first()
+    )
 
     now = datetime.utcnow()
-    if req.to_stage == "lost":
-        # lost 是瞬态：审批通过立即回到 lead（商机池），附带回流标记
-        customer.lifecycle_stage = "lead"
-        customer.recycled_from_stage = req.from_stage
-        customer.recycle_reason = req.reason or "流失回收"
-        customer.recycled_at = now
-    else:
-        customer.lifecycle_stage = req.to_stage
-        if req.to_stage == "lead":
+    if customer is not None and not getattr(customer, "is_deleted", False):
+        if req.to_stage == "lost":
+            # lost 是瞬态：审批通过立即回到 lead（商机池），附带回流标记
+            customer.lifecycle_stage = "lead"
             customer.recycled_from_stage = req.from_stage
-            customer.recycle_reason = req.reason
+            customer.recycle_reason = req.reason or "流失回收"
             customer.recycled_at = now
+        else:
+            customer.lifecycle_stage = req.to_stage
+            if req.to_stage == "lead":
+                customer.recycled_from_stage = req.from_stage
+                customer.recycle_reason = req.reason
+                customer.recycled_at = now
+        db.add(customer)
 
     req.status = "approved"
     req.decided_by = _requester_label(user)
     req.decided_at = now
-    db.add(customer)
     db.add(req)
     db.commit()
     db.refresh(req)
-    return req
+    return _to_out(req, db)
 
 
 @request_router.post("/{request_id}/reject", response_model=StageRequestOut,
@@ -271,4 +303,4 @@ def reject_stage_request(
     db.add(req)
     db.commit()
     db.refresh(req)
-    return req
+    return _to_out(req, db)

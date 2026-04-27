@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Modal, Steps, Form, Input, Select, Upload, Button, Table, InputNumber, Space, Typography,
+  Radio,
   message as antdMessage,
 } from 'antd';
 import { UploadOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
@@ -73,6 +74,17 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const [resources, setResources] = useState<Resource[]>([]);
   const [resLoading, setResLoading] = useState(false);
 
+  // 已有客户模式：可选已经存在的客户（包括正式客户）作为订单归属。
+  // existingMode='existing' 时 Step 1 折叠为"挑客户"一行；提交时跳过创建客户。
+  type ExistingCustomer = { id: number; customer_name: string; customer_code: string; lifecycle_stage?: string };
+  const [existingMode, setExistingMode] = useState<'new' | 'existing'>('new');
+  const [existingCustomers, setExistingCustomers] = useState<ExistingCustomer[]>([]);
+  const [pickedCustomerId, setPickedCustomerId] = useState<number | undefined>();
+  const pickedCustomer = useMemo(
+    () => existingCustomers.find((c) => c.id === pickedCustomerId),
+    [existingCustomers, pickedCustomerId],
+  );
+
   useEffect(() => {
     if (!open) return;
     setResLoading(true);
@@ -81,6 +93,11 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       .then(({ data }) => setResources(data.items || []))
       .catch(() => antdMessage.error('货源列表加载失败'))
       .finally(() => setResLoading(false));
+    // 同步加载已有客户列表（搜索用）
+    api
+      .get('/api/customers', { params: { page: 1, page_size: 200 } })
+      .then(({ data }) => setExistingCustomers(data?.items || []))
+      .catch(() => { /* 静默：客户列表加载失败不阻断 wizard */ });
   }, [open]);
 
   const resourceOptions = useMemo(
@@ -101,6 +118,8 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
     setLines([
       { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
     ]);
+    setExistingMode('new');
+    setPickedCustomerId(undefined);
     step1Form.resetFields();
     step2Form.resetFields();
   };
@@ -152,6 +171,16 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   );
 
   const handleNext = async () => {
+    if (existingMode === 'existing') {
+      if (!pickedCustomerId) {
+        antdMessage.error('请先选择客户');
+        return;
+      }
+      // 已有客户：跳过 Step 1 表单校验，step1Values 留 null（提交时按 pickedCustomerId 走）
+      setStep1Values(null);
+      setCurrent(1);
+      return;
+    }
     try {
       const v = await step1Form.validateFields();
       setStep1Values(v);
@@ -191,8 +220,11 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       }
       setSubmitting(true);
 
-      // 1) 若是新客户则先创建客户
-      let customerId: number | undefined = initialCustomer?.id;
+      // 1) 决定订单归属客户：
+      //    a) 通过 customer 详情打开 wizard → initialCustomer.id
+      //    b) Step1 选了已有客户 → pickedCustomerId
+      //    c) Step1 填新客户 → 创建后取 id
+      let customerId: number | undefined = initialCustomer?.id || pickedCustomerId;
       if (!customerId && step1Values) {
         const customer_code = 'CUST-' + Math.random().toString(36).slice(2, 10).toUpperCase();
         const { data: created } = await api.post('/api/customers', {
@@ -404,12 +436,60 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
 
       {/* Step 1: 客户信息 */}
       <div style={{ display: current === 0 ? 'block' : 'none' }}>
+        <Radio.Group
+          value={existingMode}
+          onChange={(e) => {
+            setExistingMode(e.target.value);
+            setPickedCustomerId(undefined);
+          }}
+          style={{ marginBottom: 16 }}
+        >
+          <Radio.Button value="new">新建客户</Radio.Button>
+          <Radio.Button value="existing">选已有客户</Radio.Button>
+        </Radio.Group>
+
+        {existingMode === 'existing' && (
+          <Form layout="vertical">
+            <Form.Item label="客户" required>
+              <Select
+                showSearch
+                allowClear
+                placeholder="按名称 / 编号搜索已有客户（含正式客户）"
+                value={pickedCustomerId}
+                onChange={(v) => setPickedCustomerId(v)}
+                options={existingCustomers.map((c) => ({
+                  value: c.id,
+                  label: `${c.customer_name}${c.customer_code ? ` · ${c.customer_code}` : ''}${
+                    c.lifecycle_stage === 'active' ? ' · 🎯正式' :
+                    c.lifecycle_stage === 'contacting' ? ' · 📞跟进' : ' · 🧊商机'
+                  }`,
+                }))}
+                filterOption={(input, opt) =>
+                  String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            {pickedCustomer && (
+              <div style={{
+                padding: 10, background: '#f0f9ff', borderRadius: 6,
+                fontSize: 12, color: '#0369a1',
+              }}>
+                ℹ️ 已选客户 <b>{pickedCustomer.customer_name}</b>（阶段：
+                {pickedCustomer.lifecycle_stage || 'lead'}），下一步将直接为该客户创建订单，
+                不会修改其客户类型 / 阶段等信息。
+              </div>
+            )}
+          </Form>
+        )}
+
         <Form<Step1Values>
           form={step1Form}
           layout="vertical"
           initialValues={{ customer_type: 'direct', customer_status: 'potential' }}
+          style={{ display: existingMode === 'new' ? 'block' : 'none' }}
         >
-          <Form.Item name="customer_name" label="客户名称" rules={[{ required: true }]}>
+          <Form.Item name="customer_name" label="客户名称" rules={[{ required: existingMode === 'new' }]}>
             <Input />
           </Form.Item>
           <Form.Item
