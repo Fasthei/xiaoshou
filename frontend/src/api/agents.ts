@@ -43,7 +43,8 @@ export interface InsightFact {
 }
 
 function authHeader(): Record<string, string> {
-  const t = localStorage.getItem('token') || sessionStorage.getItem('token');
+  // Match axios.ts / AuthContext: token is stored under 'xs_token'.
+  const t = localStorage.getItem('xs_token');
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 

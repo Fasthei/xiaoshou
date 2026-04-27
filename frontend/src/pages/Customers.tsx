@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import { Upload } from 'antd';
 import { api } from '../api/axios';
+import { apiBase } from '../config/casdoor';
 import type { Customer, Pagination } from '../types';
 import CustomerDetailDrawer from '../components/CustomerDetailDrawer';
 import CustomerOrderWizardModal from '../components/CustomerOrderWizardModal';
@@ -254,9 +255,9 @@ export default function Customers() {
             </Button>
             <Button icon={<ReloadOutlined />} onClick={() => load()}>刷新</Button>
             <Button icon={<DownloadOutlined />} onClick={async () => {
-              const resp = await fetch('/api/customers/bulk/export.csv', {
+              const resp = await fetch(`${apiBase}/api/customers/bulk/export.csv`, {
                 headers: {
-                  Authorization: `Bearer ${localStorage.getItem('token') || sessionStorage.getItem('token') || ''}`,
+                  Authorization: `Bearer ${localStorage.getItem('xs_token') || ''}`,
                 },
               });
               if (!resp.ok) { antdMessage.error('导出失败'); return; }
