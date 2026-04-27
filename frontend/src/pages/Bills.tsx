@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { api, getCurrentRoles } from '../api/axios';
+import { apiBase } from '../config/casdoor';
 import DiscountCalculatorDrawer from '../components/DiscountCalculatorDrawer';
 import BillAdjustmentDrawer from '../components/BillAdjustmentDrawer';
 
@@ -116,8 +117,8 @@ export default function Bills() {
   const doExport = async (m: string) => {
     setExporting(true);
     try {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-      const resp = await fetch(`/api/bills/export?month=${encodeURIComponent(m)}&format=csv`, {
+      const token = localStorage.getItem('xs_token') || '';
+      const resp = await fetch(`${apiBase}/api/bills/export?month=${encodeURIComponent(m)}&format=csv`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (!resp.ok) {
