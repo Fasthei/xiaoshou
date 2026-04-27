@@ -95,7 +95,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       .finally(() => setResLoading(false));
     // 同步加载已有客户列表（搜索用）
     api
-      .get('/api/customers', { params: { page: 1, page_size: 200 } })
+      .get('/api/customers', { params: { page: 1, page_size: 100 } })
       .then(({ data }) => setExistingCustomers(data?.items || []))
       .catch(() => { /* 静默：客户列表加载失败不阻断 wizard */ });
   }, [open]);
