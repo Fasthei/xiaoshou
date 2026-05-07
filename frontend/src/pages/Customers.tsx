@@ -51,6 +51,7 @@ export default function Customers() {
   const [detail, setDetail] = useState<Customer | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [group, setGroup] = useState<GroupKey>('active');
+  const [salesFilter, setSalesFilter] = useState<string[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -74,13 +75,22 @@ export default function Customers() {
     /* eslint-disable-next-line */
   }, []);
 
-  // Filtered data by selected group
+  // Distinct sales names for filter dropdown
+  const salesOptions = useMemo(() => {
+    const set = new Set<string>();
+    allData.forEach((c) => { if (c.sales_user_name) set.add(c.sales_user_name); });
+    return Array.from(set).sort().map((name) => ({ label: name, value: name }));
+  }, [allData]);
+
+  // Filtered data by selected group + sales filter
   const filteredData = useMemo(() => {
     return allData.filter((c) => {
       const g = STAGE_GROUP[c.lifecycle_stage || 'lead'] || 'lead';
-      return g === group;
+      if (g !== group) return false;
+      if (salesFilter.length > 0 && !salesFilter.includes(c.sales_user_name || '')) return false;
+      return true;
     });
-  }, [allData, group]);
+  }, [allData, group, salesFilter]);
 
   const onSubmit = async () => {
     const v = await form.validateFields();
@@ -246,6 +256,18 @@ export default function Customers() {
               onChange={(e) => setKeyword(e.target.value)}
               onPressEnter={() => load()}
               style={{ width: 220 }}
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="按销售筛选（多选）"
+              value={salesFilter}
+              onChange={(v) => setSalesFilter(v as string[])}
+              options={salesOptions}
+              maxTagCount="responsive"
+              style={{ minWidth: 220 }}
+              showSearch
+              optionFilterProp="label"
             />
             <Button
               type={onlyUnassigned ? 'primary' : 'default'}
