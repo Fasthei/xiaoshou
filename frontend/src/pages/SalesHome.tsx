@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Col, Row, Skeleton, Tag, Space, Typography, Button, Empty,
-  Table, Progress, Statistic, Alert,
+  Table, Progress, Statistic, Alert, Tabs, Timeline,
 } from 'antd';
 import {
   CheckSquareOutlined, AimOutlined, ClockCircleOutlined, FireOutlined,
-  RightOutlined, UserOutlined,
+  RightOutlined, UserOutlined, ScheduleOutlined, CheckCircleOutlined,
+  PlayCircleOutlined, CloseCircleOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/axios';
+import SalesPlanDrawer from '../components/SalesPlanDrawer';
 
 const { Title, Text } = Typography;
 
@@ -53,6 +55,28 @@ interface MyKpiResp {
   month_signed_amount: number;
   unbound: boolean;
 }
+
+type PlanType = 'daily' | 'weekly' | 'monthly';
+type PlanStatus = 'pending' | 'in_progress' | 'done' | 'cancelled';
+
+interface SalesPlan {
+  id: number;
+  user_id: number;
+  plan_date: string;
+  plan_type: PlanType;
+  title: string | null;
+  content: string | null;
+  status: PlanStatus;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+const PLAN_STATUS_META: Record<PlanStatus, { color: string; label: string; icon: JSX.Element }> = {
+  pending:     { color: 'default',    label: '待办',    icon: <ClockCircleOutlined /> },
+  in_progress: { color: 'processing', label: '进行中',  icon: <PlayCircleOutlined /> },
+  done:        { color: 'success',    label: '已完成',  icon: <CheckCircleOutlined /> },
+  cancelled:   { color: 'error',      label: '已取消',  icon: <CloseCircleOutlined /> },
+};
 
 interface MyTargetProgressResp {
   sales_user_id: number;
@@ -102,6 +126,38 @@ export default function SalesHome() {
   const [todos, setTodos] = useState<TodosResp | null>(null);
   const [kpi, setKpi] = useState<MyKpiResp | null>(null);
   const [targetProgress, setTargetProgress] = useState<MyTargetProgressResp | null>(null);
+  const [planTab, setPlanTab] = useState<PlanType>('daily');
+  const [plans, setPlans] = useState<SalesPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [planDrawerOpen, setPlanDrawerOpen] = useState(false);
+
+  const myUserId = kpi?.sales_user_id ?? null;
+  const myUserName = kpi?.sales_user_name || '';
+
+  const loadPlans = async () => {
+    if (myUserId == null) { setPlans([]); return; }
+    setPlansLoading(true);
+    try {
+      const { data } = await api.get<SalesPlan[]>('/api/sales/plans', {
+        params: { user_id: myUserId, plan_type: planTab },
+      });
+      setPlans(Array.isArray(data) ? data : []);
+    } catch {
+      setPlans([]);
+    } finally {
+      setPlansLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPlans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myUserId, planTab]);
+
+  const sortedPlans = useMemo(
+    () => [...plans].sort((a, b) => (a.plan_date < b.plan_date ? 1 : -1)),
+    [plans]
+  );
 
   const load = async () => {
     setLoading(true);
@@ -275,7 +331,85 @@ export default function SalesHome() {
         )}
       </Card>
 
-      {/* 2. 年度目标进度 */}
+      {/* 2. 我的工作计划 */}
+      <Card
+        title={
+          <Space>
+            <ScheduleOutlined style={{ color: '#0078D4' }} />
+            <span>我的工作计划</span>
+            <Tag color="blue">{sortedPlans.length}</Tag>
+          </Space>
+        }
+        bordered={false}
+        style={{ borderRadius: 12, marginBottom: 16 }}
+        extra={
+          <Button
+            size="small"
+            icon={<SettingOutlined />}
+            disabled={myUserId == null}
+            onClick={() => setPlanDrawerOpen(true)}
+          >
+            管理
+          </Button>
+        }
+      >
+        <Tabs
+          activeKey={planTab}
+          onChange={(k) => setPlanTab(k as PlanType)}
+          items={[
+            { key: 'daily',   label: '日计划' },
+            { key: 'weekly',  label: '周计划' },
+            { key: 'monthly', label: '月计划' },
+          ]}
+        />
+        {myUserId == null ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="账号未绑定销售档案，无法查看工作计划"
+          />
+        ) : plansLoading ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : sortedPlans.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <Space direction="vertical" size={4}>
+                <Text>暂无{planTab === 'daily' ? '日' : planTab === 'weekly' ? '周' : '月'}计划</Text>
+                <Button size="small" type="primary" onClick={() => setPlanDrawerOpen(true)}>
+                  新建计划
+                </Button>
+              </Space>
+            }
+          />
+        ) : (
+          <Timeline
+            style={{ marginTop: 8 }}
+            items={sortedPlans.map((p) => {
+              const meta = PLAN_STATUS_META[p.status];
+              return {
+                color: meta.color === 'default' ? 'gray' : meta.color,
+                dot: meta.icon,
+                children: (
+                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                    <Space wrap>
+                      <Text strong>{p.plan_date}</Text>
+                      <Tag color={meta.color}>{meta.label}</Tag>
+                      {p.title && <Text>{p.title}</Text>}
+                    </Space>
+                    {p.content && (
+                      <Text type="secondary" style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                        {p.content}
+                      </Text>
+                    )}
+                  </Space>
+                ),
+              };
+            })}
+          />
+        )}
+      </Card>
+
+      {/* 3. 年度目标进度 */}
       <Card
         title={
           <Space>
@@ -401,7 +535,7 @@ export default function SalesHome() {
         )}
       </Card>
 
-      {/* 3. 我的 KPI / 目标达成 */}
+      {/* 4. 我的 KPI / 目标达成 */}
       <Card
         title={
           <Space>
@@ -477,6 +611,12 @@ export default function SalesHome() {
           </Row>
         )}
       </Card>
+
+      <SalesPlanDrawer
+        open={planDrawerOpen}
+        onClose={() => { setPlanDrawerOpen(false); loadPlans(); }}
+        user={myUserId != null ? { id: myUserId, name: myUserName || '我' } : null}
+      />
     </div>
   );
 }
