@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Space, Typography, Select, Button, Table, Tag, message,
-  Modal, Form, Input, Tabs, Badge,
+  Modal, Form, Input, Tabs, Badge, Descriptions,
 } from 'antd';
-import { ReloadOutlined, MessageOutlined, SwapOutlined, InboxOutlined } from '@ant-design/icons';
+import { ReloadOutlined, MessageOutlined, SwapOutlined, InboxOutlined, EyeOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { api, getCurrentRoles } from '../api/axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -97,6 +97,10 @@ export default function FollowUps() {
   const [commentReplyTo, setCommentReplyTo] = useState<FollowUpItem | null>(null); // for reply
   const [commentForm] = Form.useForm<{ content: string; to_sales_user_id?: number }>();
   const [commentLoading, setCommentLoading] = useState(false);
+
+  // --- Detail modal ---
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailItem, setDetailItem] = useState<FollowUpItem | null>(null);
 
   // --- Reassign modal ---
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -242,12 +246,20 @@ export default function FollowUps() {
       .map(u => ({ value: u.id, label: u.name })),
   ];
 
+  const openDetail = (item: FollowUpItem) => {
+    setDetailItem(item);
+    setDetailOpen(true);
+  };
+
   const actionColumn = {
     title: '操作',
     key: 'action',
-    width: 145,
+    width: 190,
     render: (_: unknown, r: FollowUpItem) => (
       <Space size={4}>
+        <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(r)}>
+          查看全文
+        </Button>
         <Button size="small" icon={<MessageOutlined />} onClick={() => openComment(r)}>
           留言
         </Button>
@@ -342,11 +354,16 @@ export default function FollowUps() {
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 145,
       render: (_: unknown, r: FollowUpItem) => (
-        <Button size="small" icon={<MessageOutlined />} onClick={() => openComment(r, r)}>
-          回复
-        </Button>
+        <Space size={4}>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(r)}>
+            查看全文
+          </Button>
+          <Button size="small" icon={<MessageOutlined />} onClick={() => openComment(r, r)}>
+            回复
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -444,6 +461,56 @@ export default function FollowUps() {
           ]}
         />
       </Card>
+
+      {/* 查看全文 Modal */}
+      <Modal
+        title="跟进记录详情"
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={<Button onClick={() => setDetailOpen(false)}>关闭</Button>}
+        width={640}
+        destroyOnClose
+      >
+        {detailItem && (
+          <Descriptions column={1} bordered size="small" style={{ marginTop: 8 }}>
+            <Descriptions.Item label="客户">
+              <Link to={`/customers?keyword=${encodeURIComponent(detailItem.customer_code)}`} onClick={() => setDetailOpen(false)}>
+                {detailItem.customer_name}（{detailItem.customer_code}）
+              </Link>
+            </Descriptions.Item>
+            <Descriptions.Item label="类型">
+              <Tag color={TYPE_COLOR[detailItem.follow_type] ?? 'default'}>{detailItem.follow_type}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="标题">{detailItem.title || '-'}</Descriptions.Item>
+            <Descriptions.Item label="内容">
+              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {detailItem.content || '-'}
+              </div>
+            </Descriptions.Item>
+            {detailItem.outcome && (
+              <Descriptions.Item label="结果">
+                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {detailItem.outcome}
+                </div>
+              </Descriptions.Item>
+            )}
+            {detailItem.next_action_date && (
+              <Descriptions.Item label="下一步时间">
+                {new Date(detailItem.next_action_date).toLocaleDateString('zh-CN')}
+              </Descriptions.Item>
+            )}
+            {detailItem.from_sales_name && (
+              <Descriptions.Item label="发件人">{detailItem.from_sales_name}</Descriptions.Item>
+            )}
+            {detailItem.to_sales_name && (
+              <Descriptions.Item label="收件人">{detailItem.to_sales_name}</Descriptions.Item>
+            )}
+            <Descriptions.Item label="时间">
+              {detailItem.created_at ? new Date(detailItem.created_at).toLocaleString('zh-CN') : '-'}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
 
       {/* 留言 / 回复 Modal */}
       <Modal
