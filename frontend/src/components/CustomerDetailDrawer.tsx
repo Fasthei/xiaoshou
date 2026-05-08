@@ -273,7 +273,7 @@ export default function CustomerDetailDrawer({
     try {
       const payload: any = {
         customer_id: customer.id,
-        contract_code: 'CON-' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+        contract_code: 'XM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 4).toUpperCase(),
         title: v.title || null,
         amount: v.amount ?? null,
         status: v.status || 'active',
@@ -974,6 +974,8 @@ export default function CustomerDetailDrawer({
                             pagination={false}
                             scroll={{ x: 720 }}
                             columns={[
+                              { title: '合同编号', dataIndex: 'contract_code', width: 160, fixed: 'left' as const,
+                                render: (v: string) => <code style={{ color: '#0078D4' }}>{v}</code> },
                               { title: '标题', dataIndex: 'title', ellipsis: true },
                               { title: '金额', dataIndex: 'amount', width: 100,
                                 render: (v: any) => v ? `¥ ${v}` : '—' },

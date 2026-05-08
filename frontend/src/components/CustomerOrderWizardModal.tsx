@@ -253,7 +253,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
 
       // 3) 创建合同记录，然后 multipart 直传到后端
       try {
-        const contract_code = 'CON-' + Math.random().toString(36).slice(2, 10).toUpperCase();
+        const contract_code = 'XM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 4).toUpperCase();
         const { data: contract } = await api.post('/api/contracts', {
           customer_id: customerId,
           contract_code,
