@@ -974,8 +974,6 @@ export default function CustomerDetailDrawer({
                             pagination={false}
                             scroll={{ x: 720 }}
                             columns={[
-                              { title: '合同号', dataIndex: 'contract_code', width: 140, fixed: 'left' as const,
-                                render: (v: string) => <code style={{ color: '#0078D4' }}>{v}</code> },
                               { title: '标题', dataIndex: 'title', ellipsis: true },
                               { title: '金额', dataIndex: 'amount', width: 100,
                                 render: (v: any) => v ? `¥ ${v}` : '—' },
