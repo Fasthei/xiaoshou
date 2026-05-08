@@ -239,6 +239,7 @@ function TriggeredEventsTab({ customers }: { customers: CustomerLite[] }) {
   const [rows, setRows] = useState<AlertEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [alertTypeFilter, setAlertTypeFilter] = useState<string | undefined>(undefined);
+  const [evaluating, setEvaluating] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -252,6 +253,21 @@ function TriggeredEventsTab({ customers }: { customers: CustomerLite[] }) {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [alertTypeFilter]);
+
+  const runEvaluator = async () => {
+    setEvaluating(true);
+    try {
+      const { data } = await api.post('/api/alert-rules/run-evaluator');
+      antdMessage.success(
+        `本次新增触发 ${data.triggered} 条 (用量激增 ${data.usage_surge} · 合同到期 ${data.contract_expiring})`,
+      );
+      load();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '评估执行失败');
+    } finally {
+      setEvaluating(false);
+    }
+  };
 
   const customerName = (id?: number | null) =>
     id == null ? '-' : (customers.find((c) => c.id === id)?.customer_name || `#${id}`);
@@ -270,6 +286,9 @@ function TriggeredEventsTab({ customers }: { customers: CustomerLite[] }) {
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+          <Button type="primary" loading={evaluating} onClick={runEvaluator}>
+            立即评估
+          </Button>
         </Space>
       </Space>
 

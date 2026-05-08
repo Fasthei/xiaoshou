@@ -950,11 +950,19 @@ export default function CustomerDetailDrawer({
                           <Alert
                             type="info"
                             showIcon
-                            message="合同在新建订单流程中创建，此处只查看与下载"
+                            message="合同时间可选填，未填则不会触发到期提醒"
                           />
                           <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
                             <Button size="small" icon={<SyncOutlined />} onClick={loadContracts} loading={contractsLoading}>
                               刷新
+                            </Button>
+                            <Button
+                              size="small"
+                              type="primary"
+                              icon={<PlusOutlined />}
+                              onClick={openContractModal}
+                            >
+                              新建合同 / 上传
                             </Button>
                           </Space>
                           <Table
@@ -989,19 +997,47 @@ export default function CustomerDetailDrawer({
                                 ) : <Text type="secondary" style={{ fontSize: 12 }}>未上传</Text>,
                               },
                               {
-                                title: '操作', width: 120, fixed: 'right' as const,
+                                title: '操作', width: 200, fixed: 'right' as const,
                                 render: (_: any, r: any) =>
                                   r.file_url ? (
-                                    <Button
-                                      size="small"
-                                      type="link"
-                                      icon={<DownloadOutlined />}
-                                      onClick={() => downloadContractFile(r.id)}
-                                    >
-                                      下载
-                                    </Button>
+                                    <Space size={0}>
+                                      <Button
+                                        size="small"
+                                        type="link"
+                                        icon={<DownloadOutlined />}
+                                        onClick={() => downloadContractFile(r.id)}
+                                      >
+                                        下载
+                                      </Button>
+                                      <Popconfirm
+                                        title="删除合同附件?"
+                                        onConfirm={() => removeContractFile(r.id)}
+                                        okText="删除"
+                                        cancelText="取消"
+                                      >
+                                        <Button size="small" type="link" danger icon={<DeleteOutlined />}>
+                                          删除附件
+                                        </Button>
+                                      </Popconfirm>
+                                    </Space>
                                   ) : (
-                                    <Text type="secondary" style={{ fontSize: 12 }}>无附件</Text>
+                                    <Upload
+                                      showUploadList={false}
+                                      beforeUpload={(file) => {
+                                        uploadContractFile(r.id, file as File);
+                                        return false;
+                                      }}
+                                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                    >
+                                      <Button
+                                        size="small"
+                                        type="link"
+                                        icon={<UploadOutlined />}
+                                        loading={uploadingId === r.id}
+                                      >
+                                        上传附件
+                                      </Button>
+                                    </Upload>
                                   ),
                               },
                             ]}

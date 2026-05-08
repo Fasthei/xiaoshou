@@ -172,18 +172,28 @@ def list_triggered(
     ]
 
 
-@router.post("/run-evaluator", summary="手动触发 usage_surge 评估 (admin/QA 使用)")
+@router.post("/run-evaluator", summary="手动触发预警评估 (usage_surge + contract_expiring)")
 def run_evaluator(
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ) -> Any:
-    """立即执行一次 usage_surge 规则评估, 返回本次新增触发数量.
+    """立即执行一次预警规则评估, 返回各类型本次新增触发数量.
 
-    用于 QA 阶段手动验证预警逻辑, 不影响定时任务节奏.
+    用于 QA / 销售主管 手动验证预警逻辑, 不影响定时任务节奏.
     """
     from app.services.usage_surge_trigger import evaluate_usage_surge_rules
+    from app.services.contract_expiry_trigger import evaluate_contract_expiring_rules
     try:
-        triggered = evaluate_usage_surge_rules(db)
+        usage_triggered = evaluate_usage_surge_rules(db)
     except Exception as exc:
-        raise HTTPException(500, f"评估执行失败: {exc}") from exc
-    return {"ok": True, "triggered": triggered}
+        raise HTTPException(500, f"usage_surge 评估失败: {exc}") from exc
+    try:
+        contract_triggered = evaluate_contract_expiring_rules(db)
+    except Exception as exc:
+        raise HTTPException(500, f"contract_expiring 评估失败: {exc}") from exc
+    return {
+        "ok": True,
+        "triggered": usage_triggered + contract_triggered,
+        "usage_surge": usage_triggered,
+        "contract_expiring": contract_triggered,
+    }
