@@ -273,7 +273,7 @@ export default function CustomerDetailDrawer({
     try {
       const payload: any = {
         customer_id: customer.id,
-        contract_code: v.contract_code,
+        contract_code: 'CON-' + Math.random().toString(36).slice(2, 10).toUpperCase(),
         title: v.title || null,
         amount: v.amount ?? null,
         status: v.status || 'active',
@@ -1320,9 +1320,6 @@ export default function CustomerDetailDrawer({
         cancelText="取消"
       >
         <Form form={contractForm} layout="vertical" initialValues={{ status: 'active' }}>
-          <Form.Item name="contract_code" label="合同编号" rules={[{ required: true, message: '请输入合同编号' }]}>
-            <Input placeholder="例: CN-2026-001" />
-          </Form.Item>
           <Form.Item name="title" label="标题">
             <Input placeholder="合同标题" />
           </Form.Item>
