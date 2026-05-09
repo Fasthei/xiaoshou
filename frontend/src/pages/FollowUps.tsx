@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Space, Typography, Select, Button, Table, Tag, message,
-  Modal, Form, Input, Tabs, Badge, Descriptions,
+  Modal, Form, Input, Tabs, Badge, Spin, Empty,
 } from 'antd';
-import { ReloadOutlined, MessageOutlined, SwapOutlined, InboxOutlined, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, MessageOutlined, SwapOutlined, InboxOutlined, EyeOutlined, UserOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { api, getCurrentRoles } from '../api/axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -98,9 +98,11 @@ export default function FollowUps() {
   const [commentForm] = Form.useForm<{ content: string; to_sales_user_id?: number }>();
   const [commentLoading, setCommentLoading] = useState(false);
 
-  // --- Detail modal ---
+  // --- Detail (thread) modal ---
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<FollowUpItem | null>(null);
+  const [threadItems, setThreadItems] = useState<FollowUpItem[]>([]);
+  const [threadLoading, setThreadLoading] = useState(false);
 
   // --- Reassign modal ---
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -246,9 +248,25 @@ export default function FollowUps() {
       .map(u => ({ value: u.id, label: u.name })),
   ];
 
-  const openDetail = (item: FollowUpItem) => {
+  const openDetail = async (item: FollowUpItem) => {
     setDetailItem(item);
     setDetailOpen(true);
+    setThreadItems([item]);
+    setThreadLoading(true);
+    try {
+      const res = await api.get(`/api/follow-ups/${item.id}/thread`);
+      setThreadItems(res.data.items ?? [item]);
+    } catch {
+      message.error('加载对话线程失败');
+    } finally {
+      setThreadLoading(false);
+    }
+  };
+
+  const closeDetail = () => {
+    setDetailOpen(false);
+    setThreadItems([]);
+    setDetailItem(null);
   };
 
   const actionColumn = {
@@ -308,6 +326,16 @@ export default function FollowUps() {
         const indent = !!r.parent_follow_up_id;
         return indent ? <span style={{ paddingLeft: 16, borderLeft: '3px solid #0078D420' }}>{text}</span> : text;
       },
+    },
+    {
+      title: '销售',
+      key: 'sales',
+      width: 110,
+      render: (_: unknown, r: FollowUpItem) => (
+        r.from_sales_name
+          ? <Tag color="geekblue">{r.from_sales_name}</Tag>
+          : <Text type="secondary">-</Text>
+      ),
     },
     {
       title: '下一步时间',
@@ -462,54 +490,115 @@ export default function FollowUps() {
         />
       </Card>
 
-      {/* 查看全文 Modal */}
+      {/* 查看全文 / 对话线程 Modal */}
       <Modal
-        title="跟进记录详情"
+        title={
+          detailItem
+            ? `对话线程 — ${detailItem.customer_name}${threadItems.length > 1 ? ` · ${threadItems.length} 条` : ''}`
+            : '对话线程'
+        }
         open={detailOpen}
-        onCancel={() => setDetailOpen(false)}
-        footer={<Button onClick={() => setDetailOpen(false)}>关闭</Button>}
-        width={640}
+        onCancel={closeDetail}
+        footer={
+          <Space>
+            {detailItem && (
+              <Button
+                type="primary"
+                icon={<MessageOutlined />}
+                onClick={() => {
+                  const root = threadItems[0] ?? detailItem;
+                  closeDetail();
+                  openComment(root, root);
+                }}
+              >
+                回复
+              </Button>
+            )}
+            <Button onClick={closeDetail}>关闭</Button>
+          </Space>
+        }
+        width={680}
         destroyOnClose
       >
         {detailItem && (
-          <Descriptions column={1} bordered size="small" style={{ marginTop: 8 }}>
-            <Descriptions.Item label="客户">
-              <Link to={`/customers?keyword=${encodeURIComponent(detailItem.customer_code)}`} onClick={() => setDetailOpen(false)}>
-                {detailItem.customer_name}（{detailItem.customer_code}）
-              </Link>
-            </Descriptions.Item>
-            <Descriptions.Item label="类型">
-              <Tag color={TYPE_COLOR[detailItem.follow_type] ?? 'default'}>{detailItem.follow_type}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="标题">{detailItem.title || '-'}</Descriptions.Item>
-            <Descriptions.Item label="内容">
-              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                {detailItem.content || '-'}
-              </div>
-            </Descriptions.Item>
-            {detailItem.outcome && (
-              <Descriptions.Item label="结果">
-                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {detailItem.outcome}
-                </div>
-              </Descriptions.Item>
-            )}
-            {detailItem.next_action_date && (
-              <Descriptions.Item label="下一步时间">
-                {new Date(detailItem.next_action_date).toLocaleDateString('zh-CN')}
-              </Descriptions.Item>
-            )}
-            {detailItem.from_sales_name && (
-              <Descriptions.Item label="发件人">{detailItem.from_sales_name}</Descriptions.Item>
-            )}
-            {detailItem.to_sales_name && (
-              <Descriptions.Item label="收件人">{detailItem.to_sales_name}</Descriptions.Item>
-            )}
-            <Descriptions.Item label="时间">
-              {detailItem.created_at ? new Date(detailItem.created_at).toLocaleString('zh-CN') : '-'}
-            </Descriptions.Item>
-          </Descriptions>
+          <div style={{ marginTop: 4 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>客户：</Text>
+            <Link
+              to={`/customers?keyword=${encodeURIComponent(detailItem.customer_code)}`}
+              onClick={closeDetail}
+            >
+              {detailItem.customer_name}（{detailItem.customer_code}）
+            </Link>
+          </div>
         )}
+        <Spin spinning={threadLoading}>
+          {threadItems.length === 0 && !threadLoading ? (
+            <Empty description="暂无内容" style={{ padding: '24px 0' }} />
+          ) : (
+            <div
+              style={{
+                marginTop: 16,
+                maxHeight: 520,
+                overflowY: 'auto',
+                paddingRight: 4,
+              }}
+            >
+              {threadItems.map((it, idx) => {
+                const isReply = !!it.parent_follow_up_id;
+                const isHighlight = detailItem?.id === it.id && threadItems.length > 1;
+                return (
+                  <div
+                    key={it.id}
+                    style={{
+                      position: 'relative',
+                      marginLeft: isReply ? 28 : 0,
+                      marginBottom: idx === threadItems.length - 1 ? 0 : 12,
+                      padding: 12,
+                      borderRadius: 8,
+                      background: isReply ? '#f5f8fc' : '#fafafa',
+                      border: isHighlight ? '1px solid #1677ff' : '1px solid #f0f0f0',
+                      borderLeft: isReply ? '3px solid #1677ff60' : '3px solid #d9d9d9',
+                    }}
+                  >
+                    <Space size={8} style={{ marginBottom: 6 }} wrap>
+                      <UserOutlined style={{ color: '#666' }} />
+                      <Text strong>{it.from_sales_name ?? it.operator_casdoor_id ?? '—'}</Text>
+                      {it.to_sales_name && (
+                        <>
+                          <Text type="secondary">→</Text>
+                          <Text strong>{it.to_sales_name}</Text>
+                        </>
+                      )}
+                      <Tag color={TYPE_COLOR[it.follow_type] ?? 'default'}>{it.follow_type}</Tag>
+                      {isReply && <Tag color="blue">回复</Tag>}
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {it.created_at ? new Date(it.created_at).toLocaleString('zh-CN') : '-'}
+                      </Text>
+                    </Space>
+                    {it.title && (
+                      <div style={{ fontWeight: 500, marginBottom: 4 }}>{it.title}</div>
+                    )}
+                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                      {it.content || <Text type="secondary">（无内容）</Text>}
+                    </div>
+                    {it.outcome && (
+                      <div style={{ marginTop: 6 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>结果：</Text>
+                        <Text>{it.outcome}</Text>
+                      </div>
+                    )}
+                    {it.next_action_date && (
+                      <div style={{ marginTop: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>下一步时间：</Text>
+                        <Text>{new Date(it.next_action_date).toLocaleDateString('zh-CN')}</Text>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Spin>
       </Modal>
 
       {/* 留言 / 回复 Modal */}
