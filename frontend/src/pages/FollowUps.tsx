@@ -310,8 +310,10 @@ export default function FollowUps() {
     {
       title: '客户',
       key: 'customer',
+      width: 140,
+      ellipsis: true,
       render: (_: unknown, r: FollowUpItem) => (
-        <Link to={`/customers?keyword=${encodeURIComponent(r.customer_code)}`}>
+        <Link to={`/customers?keyword=${encodeURIComponent(r.customer_code)}`} title={r.customer_name}>
           {r.customer_name}
         </Link>
       ),
@@ -319,13 +321,15 @@ export default function FollowUps() {
     {
       title: '类型',
       dataIndex: 'follow_type',
-      width: 90,
+      width: 80,
       render: (t: string) => <Tag color={TYPE_COLOR[t] ?? 'default'}>{t}</Tag>,
     },
     {
       title: '标题',
       dataIndex: 'title',
+      width: 160,
       ellipsis: true,
+      render: (t: string) => <span title={t}>{t}</span>,
     },
     {
       title: '内容',
@@ -450,6 +454,7 @@ export default function FollowUps() {
           onChange: (p, ps) => { setPage(p); setPageSize(ps); },
         }}
         size="middle"
+        scroll={{ x: 'max-content' }}
       />
     </>
   );
