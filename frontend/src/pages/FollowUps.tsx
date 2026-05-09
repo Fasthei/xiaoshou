@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Space, Typography, Select, Button, Table, Tag, message,
-  Modal, Form, Input, Tabs, Badge, Spin, Empty,
+  Modal, Form, Input, Tabs, Badge, Spin, Empty, Tooltip,
 } from 'antd';
 import { ReloadOutlined, MessageOutlined, SwapOutlined, InboxOutlined, EyeOutlined, UserOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
@@ -279,22 +279,35 @@ export default function FollowUps() {
     threadScrollRef.current.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
   }, [detailOpen, threadLoading, threadItems, detailItem?.id]);
 
+  const fmtShortTime = (t: string | null) => {
+    if (!t) return '-';
+    const d = new Date(t);
+    const now = new Date();
+    const sameYear = d.getFullYear() === now.getFullYear();
+    const date = sameYear
+      ? `${d.getMonth() + 1}/${d.getDate()}`
+      : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${date} ${hh}:${mm}`;
+  };
+
   const actionColumn = {
     title: '操作',
     key: 'action',
-    width: 190,
+    width: canReassign ? 110 : 80,
     render: (_: unknown, r: FollowUpItem) => (
-      <Space size={4}>
-        <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(r)}>
-          查看全文
-        </Button>
-        <Button size="small" icon={<MessageOutlined />} onClick={() => openComment(r)}>
-          留言
-        </Button>
+      <Space size={2}>
+        <Tooltip title="查看全文">
+          <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openDetail(r)} />
+        </Tooltip>
+        <Tooltip title="留言">
+          <Button size="small" type="text" icon={<MessageOutlined />} onClick={() => openComment(r)} />
+        </Tooltip>
         {canReassign && (
-          <Button size="small" icon={<SwapOutlined />} onClick={() => openReassign(r)}>
-            转分配
-          </Button>
+          <Tooltip title="转分配">
+            <Button size="small" type="text" icon={<SwapOutlined />} onClick={() => openReassign(r)} />
+          </Tooltip>
         )}
       </Space>
     ),
@@ -304,13 +317,15 @@ export default function FollowUps() {
     {
       title: '时间',
       dataIndex: 'created_at',
-      width: 155,
-      render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-',
+      width: 100,
+      render: (t: string) => (
+        <Text type="secondary" style={{ fontSize: 12 }}>{fmtShortTime(t)}</Text>
+      ),
     },
     {
       title: '客户',
       key: 'customer',
-      width: 140,
+      width: 130,
       ellipsis: true,
       render: (_: unknown, r: FollowUpItem) => (
         <Link to={`/customers?keyword=${encodeURIComponent(r.customer_code)}`} title={r.customer_name}>
@@ -319,43 +334,42 @@ export default function FollowUps() {
       ),
     },
     {
-      title: '类型',
-      dataIndex: 'follow_type',
-      width: 80,
-      render: (t: string) => <Tag color={TYPE_COLOR[t] ?? 'default'}>{t}</Tag>,
-    },
-    {
-      title: '标题',
-      dataIndex: 'title',
-      width: 160,
-      ellipsis: true,
-      render: (t: string) => <span title={t}>{t}</span>,
-    },
-    {
-      title: '内容',
-      dataIndex: 'content',
-      ellipsis: true,
-      render: (v: string | null, r: FollowUpItem) => {
-        const text = v ?? '-';
-        const indent = !!r.parent_follow_up_id;
-        return indent ? <span style={{ paddingLeft: 16, borderLeft: '3px solid #0078D420' }}>{text}</span> : text;
-      },
-    },
-    {
       title: '销售',
       key: 'sales',
-      width: 110,
+      width: 90,
+      ellipsis: true,
       render: (_: unknown, r: FollowUpItem) => (
         r.from_sales_name
-          ? <Tag color="geekblue">{r.from_sales_name}</Tag>
+          ? <Tag color="geekblue" style={{ marginRight: 0 }}>{r.from_sales_name}</Tag>
           : <Text type="secondary">-</Text>
       ),
     },
     {
-      title: '下一步时间',
-      dataIndex: 'next_action_date',
-      width: 120,
-      render: (v: string | null) => v ? new Date(v).toLocaleDateString('zh-CN') : '-',
+      title: '内容',
+      key: 'content',
+      ellipsis: true,
+      render: (_: unknown, r: FollowUpItem) => {
+        const tip = `${r.title ? r.title + '\n' : ''}${r.content ?? ''}`;
+        return (
+          <Tooltip title={<span style={{ whiteSpace: 'pre-wrap' }}>{tip}</span>} placement="topLeft">
+            <span style={{
+              display: 'inline-block',
+              maxWidth: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              paddingLeft: r.parent_follow_up_id ? 12 : 0,
+              borderLeft: r.parent_follow_up_id ? '3px solid #0078D440' : 'none',
+            }}>
+              <Tag color={TYPE_COLOR[r.follow_type] ?? 'default'} style={{ marginRight: 6 }}>
+                {r.follow_type}
+              </Tag>
+              {r.title && <Text strong style={{ marginRight: 6 }}>{r.title}</Text>}
+              <Text type="secondary">{r.content ?? '-'}</Text>
+            </span>
+          </Tooltip>
+        );
+      },
     },
     actionColumn,
   ];
@@ -454,7 +468,7 @@ export default function FollowUps() {
           onChange: (p, ps) => { setPage(p); setPageSize(ps); },
         }}
         size="middle"
-        scroll={{ x: 'max-content' }}
+        tableLayout="fixed"
       />
     </>
   );
