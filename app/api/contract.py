@@ -59,6 +59,16 @@ class ContractCreate(ContractBase):
     pass
 
 
+class ContractUpdate(BaseModel):
+    """合同元数据局部更新 — contract_code 不可改 (业务唯一标识)。"""
+    title: Optional[str] = None
+    amount: Optional[Decimal] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class ContractResponse(ContractBase):
     id: int
     created_at: datetime
@@ -171,6 +181,28 @@ def create_contract(payload: ContractCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_row)
     return db_row
+
+
+@router.patch(
+    "/{contract_id}",
+    response_model=ContractResponse,
+    summary="更新合同元数据 (标题/金额/起止/状态/备注)",
+)
+def update_contract(
+    contract_id: int,
+    payload: ContractUpdate,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    contract = db.query(Contract).filter(Contract.id == contract_id).first()
+    if not contract:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    data = payload.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(contract, k, v)
+    db.commit()
+    db.refresh(contract)
+    return contract
 
 
 # ---------- File upload / download / delete ----------

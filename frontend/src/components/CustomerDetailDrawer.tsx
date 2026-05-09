@@ -110,11 +110,13 @@ export default function CustomerDetailDrawer({
   // --- Milestone 2: 4 new tabs state ---
   const [contracts, setContracts] = useState<any[]>([]);
   const [contractsLoading, setContractsLoading] = useState(false);
-  // Contract create modal + file upload state
+  // Contract create / edit modal + file upload state
   const [contractModalOpen, setContractModalOpen] = useState(false);
   const [contractForm] = Form.useForm();
   const [contractSaving, setContractSaving] = useState(false);
   const [uploadingId, setUploadingId] = useState<number | null>(null);
+  // 编辑模式下记录被编辑的合同 id; 为 null 时是新建
+  const [editingContractId, setEditingContractId] = useState<number | null>(null);
   const [historyBills, setHistoryBills] = useState<any[]>([]);
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -262,7 +264,22 @@ export default function CustomerDetailDrawer({
   };
 
   const openContractModal = () => {
+    setEditingContractId(null);
     contractForm.resetFields();
+    setContractModalOpen(true);
+  };
+
+  const openEditContractModal = (row: any) => {
+    setEditingContractId(row.id);
+    contractForm.resetFields();
+    contractForm.setFieldsValue({
+      title: row.title ?? undefined,
+      amount: row.amount ?? undefined,
+      status: row.status || 'active',
+      notes: row.notes ?? undefined,
+      start_date: row.start_date ? dayjs(row.start_date) : null,
+      end_date: row.end_date ? dayjs(row.end_date) : null,
+    });
     setContractModalOpen(true);
   };
 
@@ -271,6 +288,25 @@ export default function CustomerDetailDrawer({
     const v = await contractForm.validateFields();
     setContractSaving(true);
     try {
+      // 编辑模式: PATCH 更新元数据 (附件用 行内 添加附件 / 列表删除, 不在该 modal 处理)
+      if (editingContractId) {
+        const patch: any = {
+          title: v.title || null,
+          amount: v.amount ?? null,
+          status: v.status || 'active',
+          notes: v.notes || null,
+          start_date: v.start_date ? dayjs(v.start_date).format('YYYY-MM-DD') : null,
+          end_date: v.end_date ? dayjs(v.end_date).format('YYYY-MM-DD') : null,
+        };
+        await api.patch(`/api/contracts/${editingContractId}`, patch);
+        antdMessage.success('合同信息已更新');
+        setContractModalOpen(false);
+        setEditingContractId(null);
+        loadContracts();
+        return;
+      }
+
+      // 新建模式
       const payload: any = {
         customer_id: customer.id,
         contract_code: 'XM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 4).toUpperCase(),
@@ -298,7 +334,7 @@ export default function CustomerDetailDrawer({
       setContractModalOpen(false);
       loadContracts();
     } catch (e: any) {
-      antdMessage.error(e?.response?.data?.detail || '创建合同失败');
+      antdMessage.error(e?.response?.data?.detail || (editingContractId ? '更新合同失败' : '创建合同失败'));
     } finally {
       setContractSaving(false);
     }
@@ -1023,28 +1059,36 @@ export default function CustomerDetailDrawer({
                                 },
                               },
                               {
-                                title: '操作', width: 140, fixed: 'right' as const,
+                                title: '操作', width: 200, fixed: 'right' as const,
                                 render: (_: any, r: any) => (
-                                  <Upload
-                                    showUploadList={false}
-                                    multiple
-                                    beforeUpload={(file, fileList) => {
-                                      // antd 多选时 beforeUpload 会按选中文件挨个调用一次。
-                                      // 取最后一个 file 时一并把整批传过去, 走批量接口。
-                                      if (file === fileList[fileList.length - 1]) {
-                                        uploadContractFiles(r.id, fileList as unknown as File[]);
-                                      }
-                                      return false;
-                                    }}
-                                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                                  >
+                                  <Space size={0}>
                                     <Button
-                                      size="small" type="link" icon={<UploadOutlined />}
-                                      loading={uploadingId === r.id}
+                                      size="small" type="link"
+                                      onClick={() => openEditContractModal(r)}
                                     >
-                                      添加附件
+                                      编辑
                                     </Button>
-                                  </Upload>
+                                    <Upload
+                                      showUploadList={false}
+                                      multiple
+                                      beforeUpload={(file, fileList) => {
+                                        // antd 多选时 beforeUpload 会按选中文件挨个调用一次。
+                                        // 取最后一个 file 时一并把整批传过去, 走批量接口。
+                                        if (file === fileList[fileList.length - 1]) {
+                                          uploadContractFiles(r.id, fileList as unknown as File[]);
+                                        }
+                                        return false;
+                                      }}
+                                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                    >
+                                      <Button
+                                        size="small" type="link" icon={<UploadOutlined />}
+                                        loading={uploadingId === r.id}
+                                      >
+                                        添加附件
+                                      </Button>
+                                    </Upload>
+                                  </Space>
                                 ),
                               },
                             ]}
@@ -1317,13 +1361,13 @@ export default function CustomerDetailDrawer({
         />
       </Modal>
       <Modal
-        title="新建合同"
+        title={editingContractId ? '编辑合同' : '新建合同'}
         open={contractModalOpen}
         onOk={submitContract}
-        onCancel={() => setContractModalOpen(false)}
+        onCancel={() => { setContractModalOpen(false); setEditingContractId(null); }}
         confirmLoading={contractSaving}
         destroyOnClose
-        okText="创建"
+        okText={editingContractId ? '保存' : '创建'}
         cancelText="取消"
       >
         <Form form={contractForm} layout="vertical" initialValues={{ status: 'active' }}>
@@ -1353,21 +1397,30 @@ export default function CustomerDetailDrawer({
           <Form.Item name="notes" label="备注">
             <Input.TextArea rows={2} placeholder="合同备注" />
           </Form.Item>
-          <Form.Item
-            name="file"
-            label="合同附件"
-            valuePropName="fileList"
-            getValueFromEvent={(e: any) => Array.isArray(e) ? e : e && e.fileList}
-            extra="可选，支持 PDF / Word / JPG / PNG，单文件 ≤ 100MB；可一次选多份，新文件追加而不会替换已有文件"
-          >
-            <Upload
-              beforeUpload={() => false}
-              multiple
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+          {!editingContractId && (
+            <Form.Item
+              name="file"
+              label="合同附件"
+              valuePropName="fileList"
+              getValueFromEvent={(e: any) => Array.isArray(e) ? e : e && e.fileList}
+              extra="可选，支持 PDF / Word / JPG / PNG，单文件 ≤ 100MB；可一次选多份，新文件追加而不会替换已有文件"
             >
-              <Button icon={<UploadOutlined />}>选择文件（可多选 / 可选）</Button>
-            </Upload>
-          </Form.Item>
+              <Upload
+                beforeUpload={() => false}
+                multiple
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              >
+                <Button icon={<UploadOutlined />}>选择文件（可多选 / 可选）</Button>
+              </Upload>
+            </Form.Item>
+          )}
+          {editingContractId && (
+            <Alert
+              type="info"
+              showIcon
+              message="附件请在合同行内的「添加附件」按钮上传 / 列表里逐项删除"
+            />
+          )}
         </Form>
       </Modal>
       <Modal
