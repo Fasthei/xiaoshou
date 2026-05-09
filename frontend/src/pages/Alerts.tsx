@@ -901,8 +901,12 @@ export default function Alerts() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get<Array<CustomerLite & Record<string, unknown>>>('/api/customers');
-        setCustomers(data.map((c) => ({ id: c.id, customer_name: c.customer_name })));
+        // /api/customers 是分页接口, 返回 {total, items}; page_size 后端 cap=100
+        const { data } = await api.get<{ items: Array<CustomerLite & Record<string, unknown>> }>(
+          '/api/customers', { params: { page: 1, page_size: 100 } },
+        );
+        const items = Array.isArray(data?.items) ? data.items : [];
+        setCustomers(items.map((c) => ({ id: c.id, customer_name: c.customer_name })));
       } catch { /* handled globally */ }
     })();
   }, []);
