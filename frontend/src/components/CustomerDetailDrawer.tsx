@@ -117,6 +117,8 @@ export default function CustomerDetailDrawer({
   const [uploadingId, setUploadingId] = useState<number | null>(null);
   // 编辑模式下记录被编辑的合同 id; 为 null 时是新建
   const [editingContractId, setEditingContractId] = useState<number | null>(null);
+  // 查看合同详情 (只读)
+  const [contractDetail, setContractDetail] = useState<any | null>(null);
   const [historyBills, setHistoryBills] = useState<any[]>([]);
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -385,6 +387,16 @@ export default function CustomerDetailDrawer({
       }
     } catch (e: any) {
       antdMessage.error(e?.response?.data?.detail || '获取下载链接失败');
+    }
+  };
+
+  const removeContract = async (contractId: number) => {
+    try {
+      await api.delete(`/api/contracts/${contractId}`);
+      antdMessage.success('合同已删除');
+      loadContracts();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '删除合同失败');
     }
   };
 
@@ -1016,7 +1028,11 @@ export default function CustomerDetailDrawer({
                             scroll={{ x: 720 }}
                             columns={[
                               { title: '合同编号', dataIndex: 'contract_code', width: 160, fixed: 'left' as const,
-                                render: (v: string) => <code style={{ color: '#0078D4' }}>{v}</code> },
+                                render: (v: string, r: any) => (
+                                  <a onClick={() => setContractDetail(r)} style={{ padding: 0 }}>
+                                    <code style={{ color: '#0078D4' }}>{v}</code>
+                                  </a>
+                                ) },
                               { title: '标题', dataIndex: 'title', ellipsis: true },
                               { title: '金额', dataIndex: 'amount', width: 100,
                                 render: (v: any) => v ? `¥ ${v}` : '—' },
@@ -1059,9 +1075,9 @@ export default function CustomerDetailDrawer({
                                 },
                               },
                               {
-                                title: '操作', width: 200, fixed: 'right' as const,
+                                title: '操作', width: 260, fixed: 'right' as const,
                                 render: (_: any, r: any) => (
-                                  <Space size={0}>
+                                  <Space size={0} wrap>
                                     <Button
                                       size="small" type="link"
                                       onClick={() => openEditContractModal(r)}
@@ -1088,6 +1104,18 @@ export default function CustomerDetailDrawer({
                                         添加附件
                                       </Button>
                                     </Upload>
+                                    <Popconfirm
+                                      title="删除该合同?"
+                                      description="同时清除该合同的全部附件文件，且不可恢复"
+                                      okText="删除"
+                                      okButtonProps={{ danger: true }}
+                                      cancelText="取消"
+                                      onConfirm={() => removeContract(r.id)}
+                                    >
+                                      <Button size="small" type="link" danger icon={<DeleteOutlined />}>
+                                        删除
+                                      </Button>
+                                    </Popconfirm>
                                   </Space>
                                 ),
                               },
@@ -1422,6 +1450,68 @@ export default function CustomerDetailDrawer({
             />
           )}
         </Form>
+      </Modal>
+      <Modal
+        title={contractDetail ? `合同详情 — ${contractDetail.contract_code}` : '合同详情'}
+        open={!!contractDetail}
+        onCancel={() => setContractDetail(null)}
+        footer={
+          <Button onClick={() => setContractDetail(null)}>关闭</Button>
+        }
+        width={680}
+        destroyOnClose
+      >
+        {contractDetail && (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Descriptions column={2} size="small" bordered>
+              <Descriptions.Item label="合同编号" span={2}>
+                <code style={{ color: '#0078D4' }}>{contractDetail.contract_code}</code>
+              </Descriptions.Item>
+              <Descriptions.Item label="标题" span={2}>{contractDetail.title || '—'}</Descriptions.Item>
+              <Descriptions.Item label="金额">{contractDetail.amount ? `¥ ${contractDetail.amount}` : '—'}</Descriptions.Item>
+              <Descriptions.Item label="状态">
+                <Tag color={contractDetail.status === 'active' ? 'green' : 'default'}>{contractDetail.status || 'active'}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="开始日期">{contractDetail.start_date || '—'}</Descriptions.Item>
+              <Descriptions.Item label="结束日期">{contractDetail.end_date || '—'}</Descriptions.Item>
+              <Descriptions.Item label="创建时间" span={2}>
+                {contractDetail.created_at ? dayjs(contractDetail.created_at).format('YYYY-MM-DD HH:mm') : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="备注" span={2}>{contractDetail.notes || '—'}</Descriptions.Item>
+            </Descriptions>
+
+            <div>
+              <Text strong>附件（{(contractDetail.attachments || []).length}）</Text>
+              {(contractDetail.attachments || []).length === 0 ? (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>暂无附件</Text>
+                </div>
+              ) : (
+                <List
+                  size="small"
+                  style={{ marginTop: 8 }}
+                  dataSource={contractDetail.attachments}
+                  renderItem={(a: any) => (
+                    <List.Item
+                      actions={[
+                        <Button
+                          key="d" size="small" type="link" icon={<DownloadOutlined />}
+                          onClick={() => downloadAttachment(contractDetail.id, a.id)}
+                        >下载</Button>,
+                      ]}
+                    >
+                      <Space>
+                        <PaperClipOutlined style={{ color: '#0078D4' }} />
+                        <Text>{a.file_name || '附件'}</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{humanSize(a.file_size)}</Text>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              )}
+            </div>
+          </Space>
+        )}
       </Modal>
       <Modal
         title={currentSalesUser ? '再分配销售' : '分配销售'}

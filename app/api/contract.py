@@ -183,6 +183,29 @@ def create_contract(payload: ContractCreate, db: Session = Depends(get_db)):
     return db_row
 
 
+@router.delete(
+    "/{contract_id}",
+    status_code=204,
+    summary="删除合同 (清除全部附件 Blob + 级联删除 attachment 行)",
+)
+def delete_contract(
+    contract_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    contract = db.query(Contract).filter(Contract.id == contract_id).first()
+    if not contract:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    # 清 Blob (best-effort), DB 关系 cascade='all, delete-orphan' 自动删 attachment 行
+    if azure_blob.is_configured():
+        for att in list(contract.attachments or []):
+            if att.file_url:
+                azure_blob.delete_blob(att.file_url)
+    db.delete(contract)
+    db.commit()
+    return None
+
+
 @router.patch(
     "/{contract_id}",
     response_model=ContractResponse,
