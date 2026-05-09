@@ -24,6 +24,7 @@ from app.auth import CurrentUser, require_auth
 from app.database import get_db
 from app.models.allocation import Allocation
 from app.models.contract import Contract
+from app.models.contract_attachment import ContractAttachment
 from app.models.customer import Customer
 from app.models.resource import Resource
 
@@ -164,32 +165,9 @@ async def create_order(
             allocation_ids.append(alloc.id)
 
         # ------- 4. 合同 -------
+        # contract_file 可选; 一旦传了就把它落到 contract_attachment 表 (一对多)
         contract_id: Optional[int] = None
         if contract_code or contract_title or contract_file:
-            file_url = None
-            file_name = None
-            file_size = None
-            mime_type = None
-            if contract_file:
-                file_name = contract_file.filename
-                mime_type = contract_file.content_type
-                content = await contract_file.read()
-                file_size = len(content)
-                # Azure Blob 上传 (best-effort, 如果未配则只落 metadata)
-                try:
-                    from app.integrations.azure_blob import upload_bytes
-                    _, file_url = upload_bytes(
-                        content,
-                        filename=file_name or "contract.bin",
-                        content_type=mime_type or "application/octet-stream",
-                        prefix=f"customer-{customer.id}",
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(
-                        "Azure Blob 上传失败, 只落 metadata (customer=%s, file=%s): %s",
-                        customer.id, file_name, e,
-                    )
-
             amount_dec = None
             if contract_amount:
                 try:
@@ -203,14 +181,40 @@ async def create_order(
                 title=contract_title,
                 amount=amount_dec,
                 status="active",
-                file_url=file_url,
-                file_name=file_name,
-                file_size=file_size,
-                mime_type=mime_type,
             )
             db.add(ct)
             db.flush()
             contract_id = ct.id
+
+            if contract_file:
+                file_name = contract_file.filename
+                mime_type = contract_file.content_type
+                content = await contract_file.read()
+                file_size = len(content)
+                file_url: Optional[str] = None
+                try:
+                    from app.integrations.azure_blob import upload_bytes
+                    _, file_url = upload_bytes(
+                        content,
+                        filename=file_name or "contract.bin",
+                        content_type=mime_type or "application/octet-stream",
+                        prefix=f"contract/{ct.id}",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "Azure Blob 上传失败, 只落 metadata (customer=%s, file=%s): %s",
+                        customer.id, file_name, e,
+                    )
+
+                if file_url:
+                    db.add(ContractAttachment(
+                        contract_id=ct.id,
+                        file_url=file_url,
+                        file_name=file_name,
+                        file_size=file_size,
+                        mime_type=mime_type,
+                    ))
+                    db.flush()
 
         db.commit()
         return {

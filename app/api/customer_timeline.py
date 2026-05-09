@@ -135,8 +135,11 @@ def customer_timeline(
             bits.append(f"金额 ¥{ct.amount}")
         if ct.status:
             bits.append(f"状态 {ct.status}")
-        if ct.file_name:
-            bits.append(f"附件 {ct.file_name}")
+        att_count = len(ct.attachments or [])
+        if att_count == 1:
+            bits.append(f"附件 {ct.attachments[0].file_name or ''}".rstrip())
+        elif att_count > 1:
+            bits.append(f"附件 {att_count} 份")
         events.append(TimelineEvent(
             at=(ct.created_at or datetime.utcnow()).isoformat(),
             kind="contract",

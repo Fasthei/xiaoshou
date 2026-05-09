@@ -1,11 +1,11 @@
-"""Tests for POST /api/contracts/{contract_id}/upload endpoint.
+"""Tests for POST /api/contracts/{contract_id}/upload (single-file append).
 
 Coverage:
 - 503 when Azure Blob Storage is not configured
 - 400 when an unsupported file type is uploaded (e.g. .exe)
 - 400 when an empty file is uploaded
-- 413 when a file exceeding 10 MB is uploaded
-- 200 success path with monkeypatched blob helpers, verifying file_url is persisted
+- 413 when a file exceeds the configured size cap (cap monkeypatched smaller for speed)
+- 200 success path: a new ContractAttachment row is created (existing rows preserved)
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models.contract import Contract
+from app.models.contract_attachment import ContractAttachment
 from app.models.customer import Customer
 from main import app
 
@@ -116,7 +117,6 @@ def test_upload_contract_file_blob_not_configured(client, seeded_contract, monke
 def test_upload_contract_invalid_file_type(client, seeded_contract, monkeypatch):
     """Returns 400 when the uploaded file has an unsupported extension/MIME type."""
     import app.integrations.azure_blob as blob_mod
-    # Even if blob were configured, validation should happen first
     monkeypatch.setattr(blob_mod, "is_configured", lambda: True)
 
     resp = _upload(
@@ -150,60 +150,76 @@ def test_upload_contract_empty_file(client, seeded_contract, monkeypatch):
 
 
 def test_upload_contract_too_large(client, seeded_contract, monkeypatch):
-    """Returns 413 when the uploaded file exceeds the 10 MB hard cap."""
-    import app.integrations.azure_blob as blob_mod
-    monkeypatch.setattr(blob_mod, "is_configured", lambda: True)
+    """Returns 413 when the uploaded file exceeds the configured size cap.
 
-    ten_mb_plus_one = b"x" * (10 * 1024 * 1024 + 1)
+    We monkeypatch the cap down to 1KB so we don't have to allocate 100MB+1
+    bytes in the test process — the behaviour we care about is that the cap
+    is enforced and the 413 message echoes the limit.
+    """
+    import app.integrations.azure_blob as blob_mod
+    import app.api.contract as contract_mod
+    monkeypatch.setattr(blob_mod, "is_configured", lambda: True)
+    monkeypatch.setattr(contract_mod, "MAX_UPLOAD_SIZE", 1024)  # 1 KB cap
+
+    payload = b"x" * (1024 + 1)
     resp = _upload(
         client,
         seeded_contract.id,
         filename="huge.pdf",
-        content=ten_mb_plus_one,
+        content=payload,
         content_type="application/pdf",
     )
 
     assert resp.status_code == 413, resp.text
-    assert "10MB" in resp.json()["detail"]
+    # The error message echoes the cap as MB; with 1KB cap → "0MB"
+    assert "MB 上限" in resp.json()["detail"]
 
 
-def test_upload_contract_success_updates_file_url(client, seeded_contract, db_session, monkeypatch):
-    """On success the contract row has file_url, file_name, file_size, mime_type set."""
+def test_upload_contract_appends_attachment(client, seeded_contract, db_session, monkeypatch):
+    """On success a new ContractAttachment row is appended (not a replace)."""
     import app.integrations.azure_blob as blob_mod
-    import app.api.contract as contract_mod
 
-    fake_url = "https://account.blob.core.windows.net/xiaoshou-contracts/contract/1/abc-contract.pdf"
+    fake_url_a = "https://account.blob.core.windows.net/xiaoshou-contracts/contract/1/abc-a.pdf"
+    fake_url_b = "https://account.blob.core.windows.net/xiaoshou-contracts/contract/1/abc-b.pdf"
 
     monkeypatch.setattr(blob_mod, "is_configured", lambda: True)
+    fake_urls = iter([("a-blob", fake_url_a), ("b-blob", fake_url_b)])
     monkeypatch.setattr(
         blob_mod,
         "upload_bytes",
-        lambda data, filename, content_type, prefix="": ("fake-blob-name", fake_url),
+        lambda data, filename, content_type, prefix="": next(fake_urls),
     )
-    # No old file to delete
     monkeypatch.setattr(blob_mod, "delete_blob", lambda url: None)
 
-    pdf_content = b"%PDF-1.4 a minimal but non-empty pdf"
     resp = _upload(
         client,
         seeded_contract.id,
-        filename="contract.pdf",
-        content=pdf_content,
+        filename="a.pdf",
+        content=b"%PDF-1.4 first",
         content_type="application/pdf",
     )
-
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["file_url"] == fake_url
-    assert body["file_name"] == "contract.pdf"
-    assert body["file_size"] == len(pdf_content)
-    assert body["mime_type"] == "application/pdf"
+    assert body["file_url"] == fake_url_a
+    assert body["file_name"] == "a.pdf"
 
-    # Verify the DB row was actually persisted
+    # Second upload appends; first should still exist.
+    resp = _upload(
+        client,
+        seeded_contract.id,
+        filename="b.pdf",
+        content=b"%PDF-1.4 second",
+        content_type="application/pdf",
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["file_url"] == fake_url_b
+
     db_session.expire_all()
-    refreshed = db_session.query(Contract).filter(Contract.id == seeded_contract.id).first()
-    assert refreshed.file_url == fake_url
-    assert refreshed.file_name == "contract.pdf"
+    rows = db_session.query(ContractAttachment).filter(
+        ContractAttachment.contract_id == seeded_contract.id,
+    ).all()
+    urls = sorted(r.file_url for r in rows)
+    assert urls == sorted([fake_url_a, fake_url_b]), "second upload must append, not replace"
 
 
 def test_upload_contract_not_found(client, monkeypatch):

@@ -38,7 +38,7 @@ interface Step1Values {
 
 interface Step2Values {
   order_note?: string;
-  contract_file?: UploadFile | null;
+  contract_files?: UploadFile[];
 }
 
 interface OrderLine {
@@ -65,7 +65,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const [step1Form] = Form.useForm<Step1Values>();
   const [step2Form] = Form.useForm<Step2Values>();
   const [step1Values, setStep1Values] = useState<Step1Values | null>(null);
-  const [contractFile, setContractFile] = useState<UploadFile | null>(null);
+  const [contractFiles, setContractFiles] = useState<UploadFile[]>([]);
   const [lines, setLines] = useState<OrderLine[]>([
     // 后付费：原价 / 折后单价 可空，销售只需定折扣率；账单中心按 cc_usage × 折扣率 算折后
     { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
@@ -113,7 +113,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const reset = () => {
     setCurrent(initialCustomer ? 1 : 0);
     setStep1Values(null);
-    setContractFile(null);
+    setContractFiles([]);
     setLines([
       { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
     ]);
@@ -213,8 +213,17 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         antdMessage.error(lineErr);
         return;
       }
-      if (!contractFile) {
-        antdMessage.error('新建订单必须上传合同文件');
+      if (contractFiles.length === 0) {
+        antdMessage.error('新建订单必须上传至少一份合同文件');
+        return;
+      }
+      const MAX = 100 * 1024 * 1024;
+      const oversize = contractFiles.find((f) => {
+        const raw = f.originFileObj as File | undefined;
+        return raw && raw.size > MAX;
+      });
+      if (oversize) {
+        antdMessage.error(`文件 ${oversize.name} 超过 100MB`);
         return;
       }
       setSubmitting(true);
@@ -251,25 +260,29 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         })),
       });
 
-      // 3) 创建合同记录，然后 multipart 直传到后端
+      // 3) 创建合同记录, 然后批量上传所有附件 (一份合同 N 个 attachment)
       try {
         const contract_code = 'XM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 4).toUpperCase();
+        const firstName = contractFiles[0]?.name || '合同';
+        const titleSuffix = contractFiles.length > 1 ? ` 等 ${contractFiles.length} 份` : '';
         const { data: contract } = await api.post('/api/contracts', {
           customer_id: customerId,
           contract_code,
-          title: contractFile!.name,
+          title: firstName + titleSuffix,
           notes: orderVals.order_note ?? null,
         });
 
-        const rawFile = contractFile!.originFileObj as File;
         const formData = new FormData();
-        formData.append('file', rawFile, rawFile.name);
+        for (const f of contractFiles) {
+          const raw = f.originFileObj as File;
+          formData.append('files', raw, raw.name);
+        }
 
-        await api.post(`/api/contracts/${contract.id}/upload`, formData, {
+        await api.post(`/api/contracts/${contract.id}/uploads`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
-        antdMessage.success('订单已创建 + 合同已上传，等待审批');
+        antdMessage.success(`订单已创建 + ${contractFiles.length} 份合同已上传，等待审批`);
       } catch (contractErr: any) {
         antdMessage.warning(
           '订单已建，但合同上传失败：' +
@@ -543,28 +556,31 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
           <Form.Item
             label="合同文件"
             required
-            tooltip="新建订单必须上传合同（PDF / Word / 图片）"
-            extra="支持 .pdf / .doc / .docx / .jpg / .png；合同将落到 Azure Blob，同时挂到该客户的合同列表下"
+            tooltip="新建订单必须至少上传一份合同（PDF / Word / 图片），可一次上传多份"
+            extra="支持 .pdf / .doc / .docx / .jpg / .jpeg / .png；单文件 ≤ 100MB；可多选，新文件追加而不会替换已有文件"
           >
             <Upload
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              maxCount={1}
+              multiple
               beforeUpload={(file) => {
-                setContractFile({
-                  uid: String(Date.now()),
-                  name: file.name,
-                  status: 'done',
-                  originFileObj: file as any,
-                });
+                setContractFiles((prev) => [
+                  ...prev,
+                  {
+                    uid: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    name: file.name,
+                    status: 'done',
+                    originFileObj: file as any,
+                  },
+                ]);
                 return false;
               }}
-              onRemove={() => {
-                setContractFile(null);
+              onRemove={(file) => {
+                setContractFiles((prev) => prev.filter((f) => f.uid !== file.uid));
                 return true;
               }}
-              fileList={contractFile ? [contractFile] : []}
+              fileList={contractFiles}
             >
-              <Button icon={<UploadOutlined />}>选择合同文件</Button>
+              <Button icon={<UploadOutlined />}>选择合同文件（可多选）</Button>
             </Upload>
           </Form.Item>
 

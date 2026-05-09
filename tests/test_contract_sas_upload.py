@@ -5,7 +5,7 @@ Coverage:
 - GET /api/contracts/{id}/upload-url → 503 when Azure not configured
 - GET /api/contracts/{id}/upload-url → 400 for unsupported file type
 - GET /api/contracts/{id}/upload-url → 404 for missing contract
-- POST /api/contracts/{id}/upload-confirm → contract.file_url updated
+- POST /api/contracts/{id}/upload-confirm → a ContractAttachment row is appended
 - POST /api/contracts/{id}/upload-confirm → 503 when Azure not configured
 - POST /api/contracts/{id}/upload-confirm → 422 when blob does not exist yet
 - POST /api/contracts/{id}/upload-confirm → 404 for missing contract
@@ -23,6 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.models.contract import Contract
+from app.models.contract_attachment import ContractAttachment
 from app.models.customer import Customer
 from main import app
 
@@ -163,7 +164,7 @@ def test_get_upload_url_contract_not_found(client, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_upload_confirm_success(client, seeded_contract, db_session, monkeypatch):
-    """Contract.file_url is updated after a successful confirm."""
+    """A ContractAttachment row is created after a successful confirm."""
     import app.integrations.azure_blob as blob_mod
 
     fake_blob_name = f"contract/{seeded_contract.id}/abc-contract.pdf"
@@ -190,12 +191,15 @@ def test_upload_confirm_success(client, seeded_contract, db_session, monkeypatch
     assert body["file_size"] == 12345
     assert body["mime_type"] == "application/pdf"
 
-    # Verify DB was actually updated
+    # Verify a ContractAttachment row was created (append-only semantics).
     db_session.expire_all()
-    refreshed = db_session.query(Contract).filter(Contract.id == seeded_contract.id).first()
-    assert refreshed.file_url == fake_file_url
-    assert refreshed.file_name == "contract.pdf"
-    assert refreshed.file_size == 12345
+    rows = db_session.query(ContractAttachment).filter(
+        ContractAttachment.contract_id == seeded_contract.id,
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].file_url == fake_file_url
+    assert rows[0].file_name == "contract.pdf"
+    assert rows[0].file_size == 12345
 
 
 def test_upload_confirm_not_configured(client, seeded_contract, monkeypatch):

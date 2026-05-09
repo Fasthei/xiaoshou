@@ -9,6 +9,7 @@ from app.models.sales_plan import SalesPlan
 from app.models.allocation_history import AllocationHistory
 from app.models.follow_up import CustomerFollowUp
 from app.models.contract import Contract
+from app.models.contract_attachment import ContractAttachment
 from app.models.ticket import Ticket
 from app.models.alert_rule import AlertRule
 from app.models.alert_event import AlertEvent
@@ -25,7 +26,7 @@ __all__ = [
     "CustomerInsightRun", "CustomerInsightFact",
     "SalesUser", "LeadAssignmentRule", "LeadAssignmentLog", "SalesPlan",
     "AllocationHistory", "CustomerFollowUp",
-    "Contract", "Ticket",
+    "Contract", "ContractAttachment", "Ticket",
     "AlertRule", "AlertEvent", "Payment",
     "CCUsage", "CCAlert", "CCBill",
     "CustomerResource",

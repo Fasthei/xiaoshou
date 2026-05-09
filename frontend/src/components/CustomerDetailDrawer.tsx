@@ -282,15 +282,16 @@ export default function CustomerDetailDrawer({
         end_date: v.end_date ? dayjs(v.end_date).format('YYYY-MM-DD') : null,
       };
       const { data: created } = await api.post('/api/contracts', payload);
-      // One-step: if user picked a file, upload immediately after create
+      // One-step: if user picked files, upload them all as attachments
       const fileList: UploadFile[] = Array.isArray(v.file) ? v.file : [];
-      const fileObj: File | undefined = fileList[0]?.originFileObj as File | undefined;
-      if (fileObj && created?.id) {
-        const ok = await uploadContractFile(created.id, fileObj);
+      const files: File[] = fileList
+        .map((f) => f.originFileObj as File | undefined)
+        .filter((f): f is File => !!f);
+      if (files.length > 0 && created?.id) {
+        const ok = await uploadContractFiles(created.id, files);
         if (!ok) {
           antdMessage.warning('合同已创建，但附件上传失败，请在列表中点「上传」重试');
         }
-        // success toast emitted by uploadContractFile itself — avoid double toast
       } else {
         antdMessage.success('合同已创建');
       }
@@ -303,27 +304,29 @@ export default function CustomerDetailDrawer({
     }
   };
 
-  const uploadContractFile = async (contractId: number, file: File): Promise<boolean> => {
+  const uploadContractFiles = async (contractId: number, files: File[]): Promise<boolean> => {
     // antd Upload size/type hints — server is source of truth
-    const MAX = 10 * 1024 * 1024;
+    const MAX = 100 * 1024 * 1024;
     const OK_EXT = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'];
-    const ext = (file.name.split('.').pop() || '').toLowerCase();
-    if (!OK_EXT.includes(ext)) {
-      antdMessage.error('仅支持 PDF/Word/JPG/PNG');
-      return false;
-    }
-    if (file.size > MAX) {
-      antdMessage.error('文件大小不能超过 10MB');
-      return false;
+    for (const file of files) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      if (!OK_EXT.includes(ext)) {
+        antdMessage.error(`${file.name}: 仅支持 PDF/Word/JPG/PNG`);
+        return false;
+      }
+      if (file.size > MAX) {
+        antdMessage.error(`${file.name}: 文件大小不能超过 100MB`);
+        return false;
+      }
     }
     setUploadingId(contractId);
     try {
       const fd = new FormData();
-      fd.append('file', file);
-      await api.post(`/api/contracts/${contractId}/upload`, fd, {
+      for (const f of files) fd.append('files', f);
+      await api.post(`/api/contracts/${contractId}/uploads`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      antdMessage.success('上传成功');
+      antdMessage.success(`${files.length} 份附件上传成功`);
       loadContracts();
       return true;
     } catch (e: any) {
@@ -334,9 +337,11 @@ export default function CustomerDetailDrawer({
     }
   };
 
-  const downloadContractFile = async (contractId: number) => {
+  const downloadAttachment = async (contractId: number, attachmentId: number) => {
     try {
-      const { data } = await api.get(`/api/contracts/${contractId}/download`);
+      const { data } = await api.get(
+        `/api/contracts/${contractId}/attachments/${attachmentId}/download`,
+      );
       if (data?.url) {
         window.open(data.url, '_blank', 'noopener');
       } else {
@@ -347,13 +352,13 @@ export default function CustomerDetailDrawer({
     }
   };
 
-  const removeContractFile = async (contractId: number) => {
+  const removeAttachment = async (contractId: number, attachmentId: number) => {
     try {
-      await api.delete(`/api/contracts/${contractId}/file`);
-      antdMessage.success('文件已删除');
+      await api.delete(`/api/contracts/${contractId}/attachments/${attachmentId}`);
+      antdMessage.success('附件已删除');
       loadContracts();
     } catch (e: any) {
-      antdMessage.error(e?.response?.data?.detail || '删除文件失败');
+      antdMessage.error(e?.response?.data?.detail || '删除附件失败');
     }
   };
 
@@ -985,60 +990,62 @@ export default function CustomerDetailDrawer({
                               { title: '状态', dataIndex: 'status', width: 80,
                                 render: (s: string) => <Tag color={s === 'active' ? 'green' : 'default'}>{s || 'active'}</Tag> },
                               {
-                                title: '文件', width: 180,
-                                render: (_: any, r: any) => r.file_url ? (
-                                  <Space size={4}>
-                                    <PaperClipOutlined style={{ color: '#0078D4' }} />
-                                    <Text style={{ fontSize: 12, maxWidth: 100 }} ellipsis={{ tooltip: r.file_name }}>
-                                      {r.file_name || '附件'}
-                                    </Text>
-                                    <Text type="secondary" style={{ fontSize: 11 }}>{humanSize(r.file_size)}</Text>
-                                  </Space>
-                                ) : <Text type="secondary" style={{ fontSize: 12 }}>未上传</Text>,
+                                title: '附件', width: 280,
+                                render: (_: any, r: any) => {
+                                  const atts: any[] = Array.isArray(r.attachments) ? r.attachments : [];
+                                  if (atts.length === 0) {
+                                    return <Text type="secondary" style={{ fontSize: 12 }}>未上传</Text>;
+                                  }
+                                  return (
+                                    <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                                      {atts.map((a) => (
+                                        <Space key={a.id} size={4} style={{ width: '100%' }}>
+                                          <PaperClipOutlined style={{ color: '#0078D4' }} />
+                                          <Text style={{ fontSize: 12, maxWidth: 140 }} ellipsis={{ tooltip: a.file_name }}>
+                                            {a.file_name || '附件'}
+                                          </Text>
+                                          <Text type="secondary" style={{ fontSize: 11 }}>{humanSize(a.file_size)}</Text>
+                                          <Button
+                                            size="small" type="link" icon={<DownloadOutlined />}
+                                            onClick={() => downloadAttachment(r.id, a.id)}
+                                          />
+                                          <Popconfirm
+                                            title="删除该附件?"
+                                            onConfirm={() => removeAttachment(r.id, a.id)}
+                                            okText="删除" cancelText="取消"
+                                          >
+                                            <Button size="small" type="link" danger icon={<DeleteOutlined />} />
+                                          </Popconfirm>
+                                        </Space>
+                                      ))}
+                                    </Space>
+                                  );
+                                },
                               },
                               {
-                                title: '操作', width: 200, fixed: 'right' as const,
-                                render: (_: any, r: any) =>
-                                  r.file_url ? (
-                                    <Space size={0}>
-                                      <Button
-                                        size="small"
-                                        type="link"
-                                        icon={<DownloadOutlined />}
-                                        onClick={() => downloadContractFile(r.id)}
-                                      >
-                                        下载
-                                      </Button>
-                                      <Popconfirm
-                                        title="删除合同附件?"
-                                        onConfirm={() => removeContractFile(r.id)}
-                                        okText="删除"
-                                        cancelText="取消"
-                                      >
-                                        <Button size="small" type="link" danger icon={<DeleteOutlined />}>
-                                          删除附件
-                                        </Button>
-                                      </Popconfirm>
-                                    </Space>
-                                  ) : (
-                                    <Upload
-                                      showUploadList={false}
-                                      beforeUpload={(file) => {
-                                        uploadContractFile(r.id, file as File);
-                                        return false;
-                                      }}
-                                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                title: '操作', width: 140, fixed: 'right' as const,
+                                render: (_: any, r: any) => (
+                                  <Upload
+                                    showUploadList={false}
+                                    multiple
+                                    beforeUpload={(file, fileList) => {
+                                      // antd 多选时 beforeUpload 会按选中文件挨个调用一次。
+                                      // 取最后一个 file 时一并把整批传过去, 走批量接口。
+                                      if (file === fileList[fileList.length - 1]) {
+                                        uploadContractFiles(r.id, fileList as unknown as File[]);
+                                      }
+                                      return false;
+                                    }}
+                                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                  >
+                                    <Button
+                                      size="small" type="link" icon={<UploadOutlined />}
+                                      loading={uploadingId === r.id}
                                     >
-                                      <Button
-                                        size="small"
-                                        type="link"
-                                        icon={<UploadOutlined />}
-                                        loading={uploadingId === r.id}
-                                      >
-                                        上传附件
-                                      </Button>
-                                    </Upload>
-                                  ),
+                                      添加附件
+                                    </Button>
+                                  </Upload>
+                                ),
                               },
                             ]}
                           />
@@ -1351,14 +1358,14 @@ export default function CustomerDetailDrawer({
             label="合同附件"
             valuePropName="fileList"
             getValueFromEvent={(e: any) => Array.isArray(e) ? e : e && e.fileList}
-            extra="可选，支持 PDF / Word / JPG / PNG，单文件 ≤ 10MB"
+            extra="可选，支持 PDF / Word / JPG / PNG，单文件 ≤ 100MB；可一次选多份，新文件追加而不会替换已有文件"
           >
             <Upload
               beforeUpload={() => false}
-              maxCount={1}
+              multiple
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
             >
-              <Button icon={<UploadOutlined />}>选择文件（可选）</Button>
+              <Button icon={<UploadOutlined />}>选择文件（可多选 / 可选）</Button>
             </Upload>
           </Form.Item>
         </Form>
