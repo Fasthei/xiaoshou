@@ -89,49 +89,26 @@ def list_all_follow_ups(
     return {"total": total, "items": items}
 
 
-@global_router.get("/follow-ups/{fu_id}/thread", summary="对话线程: 根留言 + 全部回复")
+@global_router.get("/follow-ups/{fu_id}/thread", summary="对话流: 该客户的全部跟进按时间正序")
 def get_follow_up_thread(
     fu_id: int,
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(require_auth),
 ):
-    """走 parent_follow_up_id 链定位根留言，再 BFS 收集所有后代回复，按时间正序返回。"""
-    start = db.query(CustomerFollowUp).filter(CustomerFollowUp.id == fu_id).first()
-    if not start:
+    """以选中跟进所属客户为锚，返回该客户全部跟进记录（含独立跟进 + 回复线程），按 created_at 正序。"""
+    anchor = db.query(CustomerFollowUp).filter(CustomerFollowUp.id == fu_id).first()
+    if not anchor:
         raise HTTPException(404, "跟进记录不存在")
 
-    root = start
-    seen_ids: set[int] = {root.id}
-    while root.parent_follow_up_id:
-        parent = db.query(CustomerFollowUp).filter(
-            CustomerFollowUp.id == root.parent_follow_up_id,
-        ).first()
-        if not parent or parent.id in seen_ids:
-            break
-        seen_ids.add(parent.id)
-        root = parent
+    customer = db.query(Customer).filter(Customer.id == anchor.customer_id).first()
 
-    collected: list[CustomerFollowUp] = [root]
-    frontier = [root.id]
-    visited = {root.id}
-    while frontier:
-        children = (
-            db.query(CustomerFollowUp)
-            .filter(CustomerFollowUp.parent_follow_up_id.in_(frontier))
-            .all()
-        )
-        next_frontier: list[int] = []
-        for c in children:
-            if c.id in visited:
-                continue
-            visited.add(c.id)
-            collected.append(c)
-            next_frontier.append(c.id)
-        frontier = next_frontier
+    rows = (
+        db.query(CustomerFollowUp)
+        .filter(CustomerFollowUp.customer_id == anchor.customer_id)
+        .order_by(CustomerFollowUp.created_at.asc(), CustomerFollowUp.id.asc())
+        .all()
+    )
 
-    collected.sort(key=lambda f: f.created_at or datetime.min)
-
-    customer = db.query(Customer).filter(Customer.id == root.customer_id).first()
     name_map = _sales_name_map(db)
     casdoor_map = {
         su.casdoor_user_id: su.name
@@ -155,9 +132,9 @@ def get_follow_up_thread(
             "from_sales_name": casdoor_map.get(f.operator_casdoor_id),
             "to_sales_name": name_map.get(f.to_sales_user_id),
         }
-        for f in collected
+        for f in rows
     ]
-    return {"root_id": root.id, "total": len(items), "items": items}
+    return {"customer_id": anchor.customer_id, "anchor_id": anchor.id, "total": len(items), "items": items}
 
 
 @global_router.get("/follow-ups/inbox", summary="收件箱: 定向发给我的留言")

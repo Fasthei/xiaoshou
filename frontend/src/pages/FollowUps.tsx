@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Space, Typography, Select, Button, Table, Tag, message,
   Modal, Form, Input, Tabs, Badge, Spin, Empty,
@@ -103,6 +103,8 @@ export default function FollowUps() {
   const [detailItem, setDetailItem] = useState<FollowUpItem | null>(null);
   const [threadItems, setThreadItems] = useState<FollowUpItem[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const threadScrollRef = useRef<HTMLDivElement | null>(null);
 
   // --- Reassign modal ---
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -257,7 +259,7 @@ export default function FollowUps() {
       const res = await api.get(`/api/follow-ups/${item.id}/thread`);
       setThreadItems(res.data.items ?? [item]);
     } catch {
-      message.error('加载对话线程失败');
+      message.error('加载对话流失败');
     } finally {
       setThreadLoading(false);
     }
@@ -268,6 +270,14 @@ export default function FollowUps() {
     setThreadItems([]);
     setDetailItem(null);
   };
+
+  // 滚动到锚点条目
+  useEffect(() => {
+    if (!detailOpen || threadLoading) return;
+    if (!anchorRef.current || !threadScrollRef.current) return;
+    const top = anchorRef.current.offsetTop - threadScrollRef.current.offsetTop - 8;
+    threadScrollRef.current.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  }, [detailOpen, threadLoading, threadItems, detailItem?.id]);
 
   const actionColumn = {
     title: '操作',
@@ -490,12 +500,12 @@ export default function FollowUps() {
         />
       </Card>
 
-      {/* 查看全文 / 对话线程 Modal */}
+      {/* 查看全文 / 客户对话流 Modal */}
       <Modal
         title={
           detailItem
-            ? `对话线程 — ${detailItem.customer_name}${threadItems.length > 1 ? ` · ${threadItems.length} 条` : ''}`
-            : '对话线程'
+            ? `客户跟进对话 — ${detailItem.customer_name}${threadItems.length > 0 ? `（${threadItems.length} 条）` : ''}`
+            : '客户跟进对话'
         }
         open={detailOpen}
         onCancel={closeDetail}
@@ -506,9 +516,9 @@ export default function FollowUps() {
                 type="primary"
                 icon={<MessageOutlined />}
                 onClick={() => {
-                  const root = threadItems[0] ?? detailItem;
+                  const target = detailItem;
                   closeDetail();
-                  openComment(root, root);
+                  openComment(target, target);
                 }}
               >
                 回复
@@ -517,7 +527,7 @@ export default function FollowUps() {
             <Button onClick={closeDetail}>关闭</Button>
           </Space>
         }
-        width={680}
+        width={720}
         destroyOnClose
       >
         {detailItem && (
@@ -533,69 +543,95 @@ export default function FollowUps() {
         )}
         <Spin spinning={threadLoading}>
           {threadItems.length === 0 && !threadLoading ? (
-            <Empty description="暂无内容" style={{ padding: '24px 0' }} />
+            <Empty description="暂无跟进对话" style={{ padding: '24px 0' }} />
           ) : (
             <div
+              ref={threadScrollRef}
               style={{
                 marginTop: 16,
-                maxHeight: 520,
+                maxHeight: 560,
                 overflowY: 'auto',
                 paddingRight: 4,
+                position: 'relative',
               }}
             >
-              {threadItems.map((it, idx) => {
-                const isReply = !!it.parent_follow_up_id;
-                const isHighlight = detailItem?.id === it.id && threadItems.length > 1;
-                return (
-                  <div
-                    key={it.id}
-                    style={{
-                      position: 'relative',
-                      marginLeft: isReply ? 28 : 0,
-                      marginBottom: idx === threadItems.length - 1 ? 0 : 12,
-                      padding: 12,
-                      borderRadius: 8,
-                      background: isReply ? '#f5f8fc' : '#fafafa',
-                      border: isHighlight ? '1px solid #1677ff' : '1px solid #f0f0f0',
-                      borderLeft: isReply ? '3px solid #1677ff60' : '3px solid #d9d9d9',
-                    }}
-                  >
-                    <Space size={8} style={{ marginBottom: 6 }} wrap>
-                      <UserOutlined style={{ color: '#666' }} />
-                      <Text strong>{it.from_sales_name ?? it.operator_casdoor_id ?? '—'}</Text>
-                      {it.to_sales_name && (
-                        <>
-                          <Text type="secondary">→</Text>
-                          <Text strong>{it.to_sales_name}</Text>
-                        </>
+              {(() => {
+                let lastDate = '';
+                return threadItems.map((it) => {
+                  const isReply = !!it.parent_follow_up_id;
+                  const isAnchor = detailItem?.id === it.id;
+                  const dateStr = it.created_at ? new Date(it.created_at).toLocaleDateString('zh-CN') : '';
+                  const showDateDivider = dateStr && dateStr !== lastDate;
+                  lastDate = dateStr;
+                  return (
+                    <div key={it.id}>
+                      {showDateDivider && (
+                        <div style={{
+                          textAlign: 'center',
+                          margin: '8px 0 12px',
+                          fontSize: 12,
+                          color: '#8c8c8c',
+                        }}>
+                          <span style={{
+                            background: '#f0f0f0',
+                            padding: '2px 10px',
+                            borderRadius: 10,
+                          }}>{dateStr}</span>
+                        </div>
                       )}
-                      <Tag color={TYPE_COLOR[it.follow_type] ?? 'default'}>{it.follow_type}</Tag>
-                      {isReply && <Tag color="blue">回复</Tag>}
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {it.created_at ? new Date(it.created_at).toLocaleString('zh-CN') : '-'}
-                      </Text>
-                    </Space>
-                    {it.title && (
-                      <div style={{ fontWeight: 500, marginBottom: 4 }}>{it.title}</div>
-                    )}
-                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                      {it.content || <Text type="secondary">（无内容）</Text>}
+                      <div
+                        ref={isAnchor ? anchorRef : undefined}
+                        style={{
+                          position: 'relative',
+                          marginLeft: isReply ? 28 : 0,
+                          marginBottom: 10,
+                          padding: 12,
+                          borderRadius: 8,
+                          background: isReply ? '#f5f8fc' : '#fafafa',
+                          border: isAnchor ? '1px solid #1677ff' : '1px solid #f0f0f0',
+                          borderLeft: isReply ? '3px solid #1677ff60' : '3px solid #d9d9d9',
+                          boxShadow: isAnchor ? '0 0 0 2px #1677ff20' : 'none',
+                        }}
+                      >
+                        <Space size={8} style={{ marginBottom: 6 }} wrap>
+                          <UserOutlined style={{ color: '#666' }} />
+                          <Text strong>{it.from_sales_name ?? it.operator_casdoor_id ?? '—'}</Text>
+                          {it.to_sales_name && (
+                            <>
+                              <Text type="secondary">→</Text>
+                              <Text strong>{it.to_sales_name}</Text>
+                            </>
+                          )}
+                          <Tag color={TYPE_COLOR[it.follow_type] ?? 'default'}>{it.follow_type}</Tag>
+                          {isReply && <Tag color="blue">回复</Tag>}
+                          {isAnchor && threadItems.length > 1 && <Tag color="gold">当前</Tag>}
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {it.created_at ? new Date(it.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                          </Text>
+                        </Space>
+                        {it.title && (
+                          <div style={{ fontWeight: 500, marginBottom: 4 }}>{it.title}</div>
+                        )}
+                        <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                          {it.content || <Text type="secondary">（无内容）</Text>}
+                        </div>
+                        {it.outcome && (
+                          <div style={{ marginTop: 6 }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>结果：</Text>
+                            <Text>{it.outcome}</Text>
+                          </div>
+                        )}
+                        {it.next_action_date && (
+                          <div style={{ marginTop: 4 }}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>下一步时间：</Text>
+                            <Text>{new Date(it.next_action_date).toLocaleDateString('zh-CN')}</Text>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    {it.outcome && (
-                      <div style={{ marginTop: 6 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>结果：</Text>
-                        <Text>{it.outcome}</Text>
-                      </div>
-                    )}
-                    {it.next_action_date && (
-                      <div style={{ marginTop: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>下一步时间：</Text>
-                        <Text>{new Date(it.next_action_date).toLocaleDateString('zh-CN')}</Text>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           )}
         </Spin>
