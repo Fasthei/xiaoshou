@@ -643,3 +643,128 @@ def do_sync_usage_all(
         "per_customer": per_customer,
         "error": error_msg,
     }
+
+
+# ---------- 货源同步 (cloudcost service_account → resource) ----------
+
+def do_sync_resources(
+    db: Session, client: CloudCostClient, triggered_by: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """从云管 service_account 列表镜像到本地 resource 表.
+
+    业务规则与 /api/sync/resources/from-cloudcost 一致:
+    - canonical resource_code = f"cc-{a.id}"
+    - 已软删的同 code → 跳过 (墓碑不复活)
+    - 云管侧消失的本地 cloudcost 资源 → 软删 (is_deleted=true, deleted_at,
+      resource_status='DECOMMISSIONED'), customer_resource 关联保留以便审计
+    """
+    log = _new_sync_log(db, "resources", triggered_by)
+    created = updated = skipped = errors = 0
+    pulled = 0
+    soft_deleted = 0
+    tombstoned = 0
+    error_msg: Optional[str] = None
+
+    try:
+        accounts = client.list_service_accounts(page=1, page_size=500)
+        pulled = len(accounts)
+        remote_codes = {f"cc-{a.id}" for a in accounts}
+
+        for a in accounts:
+            try:
+                code = f"cc-{a.id}"
+                tomb = db.query(Resource).filter(
+                    Resource.resource_code == code,
+                    Resource.is_deleted == True,  # noqa: E712
+                ).first()
+                if tomb is not None:
+                    tombstoned += 1
+                    skipped += 1
+                    continue
+
+                existing = db.query(Resource).filter(
+                    Resource.resource_code == code,
+                    Resource.is_deleted == False,  # noqa: E712
+                ).first()
+                payload = dict(
+                    resource_code=code,
+                    resource_type="cloud",
+                    cloud_provider=(a.provider or "").upper() or None,
+                    account_name=a.name,
+                    definition_name=a.supplier_name,
+                    identifier_field=a.external_project_id,
+                    resource_status=(
+                        "AVAILABLE"
+                        if (a.status or "active") == "active"
+                        else (a.status or "UNKNOWN").upper()
+                    ),
+                    source_system="cloudcost",
+                    source_id=str(a.id),
+                    last_sync_time=datetime.utcnow(),
+                )
+                if existing:
+                    changed = False
+                    for k, v in payload.items():
+                        if getattr(existing, k, None) != v:
+                            setattr(existing, k, v)
+                            changed = True
+                    if changed:
+                        updated += 1
+                        if not dry_run:
+                            db.add(existing)
+                    else:
+                        skipped += 1
+                else:
+                    created += 1
+                    if not dry_run:
+                        db.add(Resource(**payload))
+            except Exception as e:
+                logger.exception("sync resource %s failed: %s", a.id, e)
+                errors += 1
+
+        # 云管侧消失的本地资源 → 软删
+        absent_locals = db.query(Resource).filter(
+            Resource.source_system == "cloudcost",
+            Resource.is_deleted == False,  # noqa: E712
+        ).all()
+        for r in absent_locals:
+            if r.resource_code in remote_codes:
+                continue
+            soft_deleted += 1
+            if not dry_run:
+                r.is_deleted = True
+                r.deleted_at = datetime.utcnow()
+                r.resource_status = "DECOMMISSIONED"
+                db.add(r)
+
+        if not dry_run:
+            db.commit()
+
+    except Exception as exc:
+        error_msg = str(exc)
+        logger.exception("do_sync_resources failed: %s", exc)
+        errors += 1
+
+    status = "success" if errors == 0 else "failed"
+    notes: List[str] = []
+    if soft_deleted:
+        notes.append(f"[soft_deleted] {soft_deleted}")
+    if tombstoned:
+        notes.append(f"[tombstoned] {tombstoned}")
+    err_note = error_msg or ("\n".join(notes) if notes else None)
+    _finish_log(db, log, status, pulled, created, updated, skipped, errors, err_note)
+
+    return {
+        "ok": errors == 0,
+        "dry_run": dry_run,
+        "pulled": pulled,
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+        "soft_deleted": soft_deleted,
+        "tombstoned": tombstoned,
+        "sync_log_id": log.id,
+        "error": error_msg,
+    }

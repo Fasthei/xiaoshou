@@ -104,6 +104,7 @@ export default function Resources() {
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [provider, setProvider] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [availOnly, setAvailOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -119,6 +120,7 @@ export default function Resources() {
           page, page_size: pageSize,
           keyword: keyword || undefined,
           cloud_provider: provider,
+          resource_status: statusFilter,
           available_only: availOnly || undefined,
         },
       });
@@ -142,7 +144,7 @@ export default function Resources() {
     if (view === '列表') load();
     else loadSummary();
     /* eslint-disable-next-line */
-  }, [view, page, pageSize, availOnly]);
+  }, [view, page, pageSize, availOnly, statusFilter, provider]);
 
   const stats = useMemo(() => {
     if (!summary) return { total: 0, available: 0, standby: 0, abnormal: 0 };
@@ -200,8 +202,22 @@ export default function Resources() {
             <Select
               placeholder="云厂商" allowClear style={{ width: 120 }}
               value={provider}
-              onChange={(v) => { setProvider(v); setPage(1); load(); }}
+              onChange={(v) => { setProvider(v); setPage(1); }}
               options={['AZURE', 'AWS', 'GCP', 'ALIYUN'].map((v) => ({ value: v, label: v }))}
+            />
+            <Select
+              placeholder="状态" allowClear style={{ width: 150 }}
+              value={statusFilter}
+              onChange={(v) => { setStatusFilter(v); setPage(1); }}
+              options={[
+                { value: 'AVAILABLE', label: 'AVAILABLE 可用' },
+                { value: 'STANDBY', label: 'STANDBY 停用' },
+                { value: 'ALLOCATED', label: 'ALLOCATED 已分配' },
+                { value: 'EXPIRED', label: 'EXPIRED 过期' },
+                { value: 'FROZEN', label: 'FROZEN 冻结' },
+                { value: 'EXHAUSTED', label: 'EXHAUSTED 用尽' },
+                { value: 'DECOMMISSIONED', label: 'DECOMMISSIONED 下线' },
+              ]}
             />
             <Select
               style={{ width: 140 }}
