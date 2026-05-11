@@ -342,19 +342,23 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [customerFilter, setCustomerFilter] = useState<number | undefined>(undefined);
+  const [monthFilter, setMonthFilter] = useState<Dayjs | null>(null);
   const [form] = Form.useForm();
 
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<Payment[]>('/api/payments', {
-        params: statusFilter ? { status: statusFilter } : {},
-      });
+      const params: Record<string, string | number> = {};
+      if (statusFilter) params.status = statusFilter;
+      if (customerFilter) params.customer_id = customerFilter;
+      if (monthFilter) params.expected_month = monthFilter.format('YYYY-MM');
+      const { data } = await api.get<Payment[]>('/api/payments', { params });
       setRows(data);
     } catch { /* handled globally */ }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter, customerFilter, monthFilter]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -416,9 +420,22 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
 
   return (
     <>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
         <Title level={5} style={{ margin: 0 }}>收款与超期管理</Title>
-        <Space>
+        <Space wrap>
+          <Select
+            showSearch allowClear
+            placeholder="客户筛选" style={{ width: 200 }}
+            value={customerFilter} onChange={setCustomerFilter}
+            optionFilterProp="label"
+            options={customers.map((c) => ({ label: c.customer_name, value: c.id }))}
+          />
+          <DatePicker
+            picker="month" placeholder="预期月份"
+            value={monthFilter} onChange={setMonthFilter}
+            format="YYYY-MM" allowClear
+            style={{ width: 140 }}
+          />
           <Select
             placeholder="状态过滤" allowClear style={{ width: 140 }}
             value={statusFilter} onChange={setStatusFilter}

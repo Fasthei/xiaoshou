@@ -61,6 +61,10 @@ router = APIRouter(prefix="/api/payments", tags=["收款"])
 def list_payments(
     customer_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
+    expected_month: Optional[str] = Query(
+        None, description="按预期收款日期所在月过滤, 格式 YYYY-MM",
+        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+    ),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ):
@@ -71,6 +75,12 @@ def list_payments(
         if status not in _STATUSES:
             raise HTTPException(400, f"status 必须是 {sorted(_STATUSES)}")
         q = q.filter(Payment.status == status)
+    if expected_month:
+        # YYYY-MM → [first-of-month, first-of-next-month)
+        y, m = int(expected_month[:4]), int(expected_month[5:7])
+        start = date(y, m, 1)
+        end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+        q = q.filter(Payment.expected_date >= start, Payment.expected_date < end)
     return q.order_by(Payment.expected_date.desc(), Payment.id.desc()).all()
 
 
