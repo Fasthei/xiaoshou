@@ -22,6 +22,7 @@ class PaymentBase(BaseModel):
     customer_id: int
     contract_id: Optional[int] = None
     amount: Decimal
+    currency: Optional[str] = Field("CNY", description="ISO 4217: CNY/USD/HKD/EUR/JPY/GBP/...")
     expected_date: date
     received_date: Optional[date] = None
     status: Optional[str] = "pending"
@@ -33,8 +34,10 @@ class PaymentCreate(PaymentBase):
 
 
 class PaymentPatch(BaseModel):
+    customer_id: Optional[int] = None
     contract_id: Optional[int] = None
     amount: Optional[Decimal] = None
+    currency: Optional[str] = None
     expected_date: Optional[date] = None
     received_date: Optional[date] = None
     status: Optional[str] = None
