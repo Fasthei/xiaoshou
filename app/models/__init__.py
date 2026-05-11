@@ -20,6 +20,7 @@ from app.models.cc_bill import CCBill
 from app.models.customer_resource import CustomerResource
 from app.models.customer_stage_request import CustomerStageRequest
 from app.models.bill_adjustment import BillAdjustment
+from app.models.customer_manual_bill import CustomerManualBill
 
 __all__ = [
     "Customer", "CustomerContact", "Resource", "Allocation", "UsageRecord", "SyncLog",
@@ -32,4 +33,5 @@ __all__ = [
     "CustomerResource",
     "CustomerStageRequest",
     "BillAdjustment",
+    "CustomerManualBill",
 ]

@@ -119,6 +119,17 @@ export default function CustomerDetailDrawer({
   const [editingContractId, setEditingContractId] = useState<number | null>(null);
   // 查看合同详情 (只读)
   const [contractDetail, setContractDetail] = useState<any | null>(null);
+  // 关联货源 Tab — 当月消耗 (resource_id → {original, final})
+  const [resourceUsage, setResourceUsage] = useState<Record<number, { original: number; final: number }>>({});
+  const [resourceUsageMonth, setResourceUsageMonth] = useState<Dayjs>(dayjs());
+  const [resourceUsageLoading, setResourceUsageLoading] = useState(false);
+  // 手工录入过往账单
+  const [manualBills, setManualBills] = useState<any[]>([]);
+  const [manualBillsLoading, setManualBillsLoading] = useState(false);
+  const [manualBillModalOpen, setManualBillModalOpen] = useState(false);
+  const [editingManualBillId, setEditingManualBillId] = useState<number | null>(null);
+  const [manualBillSaving, setManualBillSaving] = useState(false);
+  const [manualBillForm] = Form.useForm();
   const [historyBills, setHistoryBills] = useState<any[]>([]);
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -436,6 +447,107 @@ export default function CustomerDetailDrawer({
     }
   };
 
+  const loadManualBills = async () => {
+    if (!customer) return;
+    setManualBillsLoading(true);
+    try {
+      const { data } = await api.get(`/api/customers/${customer.id}/manual-bills`);
+      setManualBills(Array.isArray(data) ? data : []);
+    } catch {
+      setManualBills([]);
+    } finally {
+      setManualBillsLoading(false);
+    }
+  };
+
+  const openCreateManualBill = () => {
+    setEditingManualBillId(null);
+    manualBillForm.resetFields();
+    setManualBillModalOpen(true);
+  };
+
+  const openEditManualBill = (row: any) => {
+    setEditingManualBillId(row.id);
+    manualBillForm.resetFields();
+    manualBillForm.setFieldsValue({
+      title: row.title ?? undefined,
+      amount: row.amount ?? undefined,
+      bill_date: row.bill_date ? dayjs(row.bill_date) : null,
+      notes: row.notes ?? undefined,
+    });
+    setManualBillModalOpen(true);
+  };
+
+  const submitManualBill = async () => {
+    if (!customer) return;
+    try {
+      const v = await manualBillForm.validateFields();
+      setManualBillSaving(true);
+      const payload: any = {
+        title: v.title || null,
+        amount: v.amount ?? null,
+        bill_date: v.bill_date ? dayjs(v.bill_date).format('YYYY-MM-DD') : null,
+        notes: v.notes || null,
+      };
+      let billId: number;
+      if (editingManualBillId) {
+        await api.patch(`/api/manual-bills/${editingManualBillId}`, payload);
+        billId = editingManualBillId;
+      } else {
+        const { data } = await api.post(`/api/customers/${customer.id}/manual-bills`, payload);
+        billId = data.id;
+      }
+      // 附件可选, 单文件
+      const fileList: UploadFile[] = Array.isArray(v.file) ? v.file : [];
+      const fileObj: File | undefined = fileList[0]?.originFileObj as File | undefined;
+      if (fileObj) {
+        const MAX = 100 * 1024 * 1024;
+        if (fileObj.size > MAX) {
+          antdMessage.warning('附件超过 100MB, 未上传, 账单元数据已保存');
+        } else {
+          const fd = new FormData();
+          fd.append('file', fileObj);
+          try {
+            await api.post(`/api/manual-bills/${billId}/upload`, fd, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            });
+          } catch (uErr: any) {
+            antdMessage.warning('账单已保存, 但附件上传失败: ' + (uErr?.response?.data?.detail || uErr?.message || '未知错误'));
+          }
+        }
+      }
+      antdMessage.success(editingManualBillId ? '已更新' : '已新建');
+      setManualBillModalOpen(false);
+      setEditingManualBillId(null);
+      loadManualBills();
+    } catch (err) {
+      if ((err as { errorFields?: unknown }).errorFields) return;
+      antdMessage.error((err as any)?.response?.data?.detail || '提交失败');
+    } finally {
+      setManualBillSaving(false);
+    }
+  };
+
+  const removeManualBill = async (id: number) => {
+    try {
+      await api.delete(`/api/manual-bills/${id}`);
+      antdMessage.success('已删除');
+      loadManualBills();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '删除失败');
+    }
+  };
+
+  const downloadManualBillFile = async (id: number) => {
+    try {
+      const { data } = await api.get(`/api/manual-bills/${id}/download`);
+      if (data?.url) window.open(data.url, '_blank', 'noopener');
+      else antdMessage.error('下载链接不可用');
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '获取下载链接失败');
+    }
+  };
+
   const syncHistoryBills = async () => {
     const month = historyMonth ? historyMonth.format('YYYY-MM') : currentMonth();
     setHistorySyncing(true);
@@ -464,6 +576,30 @@ export default function CustomerDetailDrawer({
       setResources([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadResourceUsage = async (month?: Dayjs) => {
+    if (!customer) return;
+    const m = (month || resourceUsageMonth).format('YYYY-MM');
+    setResourceUsageLoading(true);
+    try {
+      // /by-customer 一次拉所有客户当月汇总, 里面每个客户对象有 resources[]
+      const { data } = await api.get('/api/bills/by-customer', { params: { month: m } });
+      const list: any[] = Array.isArray(data) ? data : [];
+      const me = list.find((row) => row.customer_id === customer.id);
+      const map: Record<number, { original: number; final: number }> = {};
+      for (const r of (me?.resources || [])) {
+        map[r.resource_id] = {
+          original: Number(r.original_cost) || 0,
+          final: Number(r.final_cost) || 0,
+        };
+      }
+      setResourceUsage(map);
+    } catch {
+      setResourceUsage({});
+    } finally {
+      setResourceUsageLoading(false);
     }
   };
 
@@ -549,11 +685,13 @@ export default function CustomerDetailDrawer({
   useEffect(() => {
     if (open && customer) {
       loadResources();
+      loadResourceUsage();
       api.get(`/api/customers/${customer.id}/health`).then(({ data }) => setHealth(data)).catch(() => setHealth(null));
       loadTimeline();
       loadAssign();
       loadContracts();
       loadHistoryBills();
+      loadManualBills();
       loadTickets();
     }
     // eslint-disable-next-line
@@ -1194,6 +1332,14 @@ export default function CustomerDetailDrawer({
                               >
                                 刷新
                               </Button>
+                              <Button
+                                size="small"
+                                type="dashed"
+                                icon={<PlusOutlined />}
+                                onClick={openCreateManualBill}
+                              >
+                                新建过往账单
+                              </Button>
                             </Space>
                             {historyLastSync ? (
                               <div style={{ marginTop: 6 }}>
@@ -1209,6 +1355,64 @@ export default function CustomerDetailDrawer({
                               </div>
                             )}
                           </Card>
+                          {/* 手工录入账单区 (与云管同步 cc_bill 分开展示) */}
+                          {manualBills.length > 0 || manualBillsLoading ? (
+                            <Card
+                              size="small"
+                              title={<Space><ProfileOutlined /> 手工录入 <Tag color="purple">{manualBills.length}</Tag></Space>}
+                            >
+                              <List
+                                size="small"
+                                loading={manualBillsLoading}
+                                dataSource={manualBills}
+                                renderItem={(b: any) => (
+                                  <List.Item
+                                    actions={[
+                                      b.file_url ? (
+                                        <Button
+                                          key="d" size="small" type="link" icon={<DownloadOutlined />}
+                                          onClick={() => downloadManualBillFile(b.id)}
+                                        >下载</Button>
+                                      ) : null,
+                                      <Button
+                                        key="e" size="small" type="link"
+                                        onClick={() => openEditManualBill(b)}
+                                      >编辑</Button>,
+                                      <Popconfirm
+                                        key="r" title="删除该手工账单?"
+                                        description={b.file_url ? '同时清除附件文件，且不可恢复' : '此操作不可恢复'}
+                                        okText="删除" okButtonProps={{ danger: true }} cancelText="取消"
+                                        onConfirm={() => removeManualBill(b.id)}
+                                      >
+                                        <Button size="small" type="link" danger icon={<DeleteOutlined />}>删除</Button>
+                                      </Popconfirm>,
+                                    ].filter(Boolean)}
+                                  >
+                                    <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                                      <Space wrap size={6}>
+                                        <Tag color="purple">手工</Tag>
+                                        <Text strong>{b.title || '(未填标题)'}</Text>
+                                        {b.amount != null && <Text>¥ {b.amount}</Text>}
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                          {b.bill_date || '—'}
+                                        </Text>
+                                        {b.file_url && (
+                                          <Text type="secondary" style={{ fontSize: 12 }}>
+                                            <PaperClipOutlined /> {b.file_name || '附件'}
+                                          </Text>
+                                        )}
+                                      </Space>
+                                      {b.notes && (
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                          {b.notes}
+                                        </Text>
+                                      )}
+                                    </Space>
+                                  </List.Item>
+                                )}
+                              />
+                            </Card>
+                          ) : null}
                           {historyErr ? <Alert message={historyErr} type="warning" showIcon /> : null}
                           {historyLoading ? (
                             <Skeleton active />
@@ -1281,8 +1485,26 @@ export default function CustomerDetailDrawer({
                     </Space>
                   }
                   extra={
-                    <Space>
-                      <Button icon={<SyncOutlined />} size="small" onClick={loadResources} loading={loading}>
+                    <Space wrap>
+                      <Text type="secondary" style={{ fontSize: 12 }}>消耗月份</Text>
+                      <DatePicker
+                        picker="month"
+                        value={resourceUsageMonth}
+                        onChange={(v) => {
+                          const m = v || dayjs();
+                          setResourceUsageMonth(m);
+                          loadResourceUsage(m);
+                        }}
+                        allowClear={false}
+                        format="YYYY-MM"
+                        style={{ width: 130 }}
+                      />
+                      <Button
+                        icon={<SyncOutlined spin={resourceUsageLoading} />}
+                        size="small"
+                        onClick={() => { loadResources(); loadResourceUsage(); }}
+                        loading={loading || resourceUsageLoading}
+                      >
                         刷新
                       </Button>
                       <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openAddResources}>
@@ -1327,6 +1549,27 @@ export default function CustomerDetailDrawer({
                                   终端: {r.end_user_label}
                                 </Text>
                               ) : null}
+                              {(() => {
+                                const u = resourceUsage[r.resource_id];
+                                if (!u) return (
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {resourceUsageMonth.format('YYYY-MM')} 消耗: —
+                                  </Text>
+                                );
+                                return (
+                                  <Space size={4} wrap>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      {resourceUsageMonth.format('YYYY-MM')} 消耗:
+                                    </Text>
+                                    <Text strong style={{ fontSize: 12 }}>¥ {u.final.toFixed(2)}</Text>
+                                    {Math.abs(u.original - u.final) >= 0.01 && (
+                                      <Text delete type="secondary" style={{ fontSize: 11 }}>
+                                        ¥ {u.original.toFixed(2)}
+                                      </Text>
+                                    )}
+                                  </Space>
+                                );
+                              })()}
                             </Space>
                           </Card>
                         </Col>
@@ -1449,6 +1692,48 @@ export default function CustomerDetailDrawer({
               message="附件请在合同行内的「添加附件」按钮上传 / 列表里逐项删除"
             />
           )}
+        </Form>
+      </Modal>
+      <Modal
+        title={editingManualBillId ? '编辑过往账单' : '新建过往账单'}
+        open={manualBillModalOpen}
+        onOk={submitManualBill}
+        onCancel={() => { setManualBillModalOpen(false); setEditingManualBillId(null); }}
+        confirmLoading={manualBillSaving}
+        destroyOnClose
+        okText={editingManualBillId ? '保存' : '创建'}
+        cancelText="取消"
+      >
+        <Form form={manualBillForm} layout="vertical">
+          <Form.Item name="title" label="标题">
+            <Input placeholder="账单标题, 可空" />
+          </Form.Item>
+          <Space style={{ display: 'flex', width: '100%' }} align="start">
+            <Form.Item name="amount" label="金额 ¥" style={{ flex: 1 }}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="可空" />
+            </Form.Item>
+            <Form.Item name="bill_date" label="账单时间" style={{ flex: 1 }}>
+              <DatePicker style={{ width: '100%' }} placeholder="可空" />
+            </Form.Item>
+          </Space>
+          <Form.Item name="notes" label="备注">
+            <Input.TextArea rows={2} placeholder="可空" />
+          </Form.Item>
+          <Form.Item
+            name="file"
+            label="附件"
+            valuePropName="fileList"
+            getValueFromEvent={(e: any) => Array.isArray(e) ? e : e && e.fileList}
+            extra="可选, 单文件 ≤ 100MB, 支持 PDF / Word / JPG / PNG; 编辑时上传新文件会替换旧附件"
+          >
+            <Upload
+              beforeUpload={() => false}
+              maxCount={1}
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+            >
+              <Button icon={<UploadOutlined />}>选择文件 (可选)</Button>
+            </Upload>
+          </Form.Item>
         </Form>
       </Modal>
       <Modal
