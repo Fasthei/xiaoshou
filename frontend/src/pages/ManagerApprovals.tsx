@@ -1,15 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Card, Empty, Form, Input, Modal, Space, Table, Tabs, Tag, Typography, message as antdMessage,
+  Button, Card, Descriptions, Empty, Form, Input, Modal, Space, Table, Tabs, Tag, Typography, message as antdMessage,
 } from 'antd';
 import {
   CheckOutlined, CloseOutlined, ReloadOutlined, AuditOutlined, NodeIndexOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Allocation } from '../types';
 import { STAGE_META } from '../constants/stage';
 
 const { Title, Text } = Typography;
+
+interface CustomerLite { id: number; customer_name: string; customer_code?: string }
+interface ResourceLite {
+  id: number;
+  resource_code?: string | null;
+  cloud_provider?: string | null;
+  account_name?: string | null;
+}
 
 interface StageRequest {
   id: number;
@@ -48,6 +57,50 @@ export default function ManagerApprovals() {
   const [orderRejectTarget, setOrderRejectTarget] = useState<Allocation | null>(null);
   const [orderRejectForm] = Form.useForm<{ approval_note: string }>();
   const [orderRejectLoading, setOrderRejectLoading] = useState(false);
+
+  // Order detail view
+  const [orderDetail, setOrderDetail] = useState<Allocation | null>(null);
+
+  // Customer + resource lookup (id → name) for showing readable info
+  const [customers, setCustomers] = useState<CustomerLite[]>([]);
+  const [resources, setResources] = useState<ResourceLite[]>([]);
+  const customerMap = useMemo(() => {
+    const m = new Map<number, CustomerLite>();
+    for (const c of customers) m.set(c.id, c);
+    return m;
+  }, [customers]);
+  const resourceMap = useMemo(() => {
+    const m = new Map<number, ResourceLite>();
+    for (const r of resources) m.set(r.id, r);
+    return m;
+  }, [resources]);
+
+  const customerLabel = (id: number) => {
+    const c = customerMap.get(id);
+    return c ? `${c.customer_name}${c.customer_code ? ` · ${c.customer_code}` : ''}` : `#${id}`;
+  };
+  const resourceLabel = (id: number) => {
+    const r = resourceMap.get(id);
+    if (!r) return `#${id}`;
+    const bits = [r.resource_code || `#${id}`, r.account_name || '-'];
+    if (r.cloud_provider) bits.push(r.cloud_provider);
+    return bits.join(' · ');
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/api/customers', { params: { page: 1, page_size: 100 } });
+        const items: CustomerLite[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        setCustomers(items.map((c) => ({ id: c.id, customer_name: c.customer_name, customer_code: c.customer_code })));
+      } catch { /* ignore */ }
+      try {
+        const { data } = await api.get('/api/resources', { params: { page: 1, page_size: 100 } });
+        const items: ResourceLite[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        setResources(items);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const loadOrders = async () => {
     setLoading(true);
@@ -166,22 +219,32 @@ export default function ManagerApprovals() {
 
   const orderColumns = [
     { title: '订单号', dataIndex: 'allocation_code', width: 180,
-      render: (v: string) => <code style={{ color: '#0078D4' }}>{v}</code> },
-    { title: '客户 ID', dataIndex: 'customer_id', width: 100 },
-    { title: '货源 ID', dataIndex: 'resource_id', width: 100 },
-    { title: '数量', dataIndex: 'allocated_quantity', width: 100 },
-    { title: '单价', dataIndex: 'unit_price', width: 120,
+      render: (v: string, r: Allocation) => (
+        <a onClick={() => setOrderDetail(r)} style={{ padding: 0 }}>
+          <code style={{ color: '#0078D4' }}>{v}</code>
+        </a>
+      ) },
+    { title: '客户', dataIndex: 'customer_id', width: 200, ellipsis: true,
+      render: (v: number) => customerLabel(v) },
+    { title: '货源', dataIndex: 'resource_id', width: 220, ellipsis: true,
+      render: (v: number) => resourceLabel(v) },
+    { title: '数量', dataIndex: 'allocated_quantity', width: 80 },
+    { title: '单价', dataIndex: 'unit_price', width: 110,
       render: (v: any) => v == null ? '—' : `¥${v}` },
-    { title: '总金额', dataIndex: 'total_price', width: 140,
+    { title: '总金额', dataIndex: 'total_price', width: 130,
       render: (v: any) => v == null ? '—' : `¥${v}` },
-    { title: '状态', dataIndex: 'allocation_status', width: 110,
+    { title: '状态', dataIndex: 'allocation_status', width: 90,
       render: (s: string) => <Tag color="orange">{s || 'pending'}</Tag> },
-    { title: '创建时间', dataIndex: 'created_at', width: 170,
+    { title: '创建时间', dataIndex: 'created_at', width: 160,
       render: (v: string | undefined) => v ? v.replace('T', ' ').slice(0, 19) : '—' },
     {
-      title: '操作', width: 200, fixed: 'right' as const,
+      title: '操作', width: 230, fixed: 'right' as const,
       render: (_: unknown, r: Allocation) => (
-        <Space size={4}>
+        <Space size={0} wrap>
+          <Button
+            size="small" type="link" icon={<EyeOutlined />}
+            onClick={() => setOrderDetail(r)}
+          >详情</Button>
           <Button
             size="small" type="primary" icon={<CheckOutlined />}
             onClick={() => approveOrder(r)}
@@ -330,6 +393,68 @@ export default function ManagerApprovals() {
             <Input.TextArea rows={3} placeholder="说明驳回原因…" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Order Detail Modal */}
+      <Modal
+        title={orderDetail ? `订单详情 — ${orderDetail.allocation_code}` : '订单详情'}
+        open={!!orderDetail}
+        onCancel={() => setOrderDetail(null)}
+        width={780}
+        destroyOnClose
+        footer={
+          orderDetail ? (
+            <Space>
+              <Button onClick={() => setOrderDetail(null)}>关闭</Button>
+              <Button
+                danger icon={<CloseOutlined />}
+                onClick={() => { const t = orderDetail; setOrderDetail(null); openOrderReject(t); }}
+              >驳回</Button>
+              <Button
+                type="primary" icon={<CheckOutlined />}
+                onClick={() => { const t = orderDetail; setOrderDetail(null); approveOrder(t); }}
+              >通过</Button>
+            </Space>
+          ) : null
+        }
+      >
+        {orderDetail && (() => {
+          const d = orderDetail as any;
+          const approval = (d.approval_status || 'pending') as 'pending' | 'approved' | 'rejected';
+          const approvalMeta = {
+            pending: { color: 'orange', label: '待审批' },
+            approved: { color: 'green', label: '已通过' },
+            rejected: { color: 'red', label: '已驳回' },
+          }[approval] || { color: 'default', label: approval };
+          return (
+            <Descriptions column={2} size="small" bordered>
+              <Descriptions.Item label="订单号" span={2}>
+                <code style={{ color: '#0078D4' }}>{d.allocation_code}</code>
+              </Descriptions.Item>
+              <Descriptions.Item label="客户" span={2}>{customerLabel(d.customer_id)}</Descriptions.Item>
+              <Descriptions.Item label="货源" span={2}>{resourceLabel(d.resource_id)}</Descriptions.Item>
+              <Descriptions.Item label="数量">{d.allocated_quantity ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="状态">
+                <Tag color="orange">{d.allocation_status || 'pending'}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="折前单价">{d.unit_cost == null ? '—' : `¥ ${d.unit_cost}`}</Descriptions.Item>
+              <Descriptions.Item label="折扣率">{d.discount_rate == null ? '—' : `${d.discount_rate} %`}</Descriptions.Item>
+              <Descriptions.Item label="折后单价">{d.unit_price == null ? '—' : `¥ ${d.unit_price}`}</Descriptions.Item>
+              <Descriptions.Item label="总成本">{d.total_cost == null ? '—' : `¥ ${d.total_cost}`}</Descriptions.Item>
+              <Descriptions.Item label="总售价">{d.total_price == null ? '—' : `¥ ${d.total_price}`}</Descriptions.Item>
+              <Descriptions.Item label="毛利">{d.profit_amount == null ? '—' : `¥ ${d.profit_amount}`}</Descriptions.Item>
+              <Descriptions.Item label="毛利率" span={2}>{d.profit_rate == null ? '—' : `${d.profit_rate} %`}</Descriptions.Item>
+              <Descriptions.Item label="终端用户标签" span={2}>{d.end_user_label || '—'}</Descriptions.Item>
+              <Descriptions.Item label="备注" span={2}>{d.remark || '—'}</Descriptions.Item>
+              <Descriptions.Item label="审批状态">
+                <Tag color={approvalMeta.color}>{approvalMeta.label}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="审批备注">{d.approval_note || '—'}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">{d.created_at ? d.created_at.replace('T', ' ').slice(0, 19) : '—'}</Descriptions.Item>
+              <Descriptions.Item label="分配时间">{d.allocated_at ? d.allocated_at.replace('T', ' ').slice(0, 19) : '—'}</Descriptions.Item>
+            </Descriptions>
+          );
+        })()}
       </Modal>
 
       {/* Stage Request Reject Modal */}
