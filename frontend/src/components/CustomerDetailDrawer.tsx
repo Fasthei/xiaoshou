@@ -1190,7 +1190,7 @@ export default function CustomerDetailDrawer({
                                 ) },
                               { title: '标题', dataIndex: 'title', ellipsis: true },
                               { title: '金额', dataIndex: 'amount', width: 100,
-                                render: (v: any) => v ? `¥ ${v}` : '—' },
+                                render: (v: any) => v ? `$ ${v}` : '—' },
                               { title: '起止', width: 180,
                                 render: (_: any, r: any) =>
                                   `${r.start_date || '—'} ~ ${r.end_date || '—'}` },
@@ -1409,7 +1409,7 @@ export default function CustomerDetailDrawer({
                                       <Space wrap size={6}>
                                         <Tag color="purple">手工</Tag>
                                         <Text strong>{b.title || '(未填标题)'}</Text>
-                                        {b.amount != null && <Text>¥ {b.amount}</Text>}
+                                        {b.amount != null && <Text>$ {b.amount}</Text>}
                                         <Text type="secondary" style={{ fontSize: 12 }}>
                                           {b.bill_date || '—'}
                                         </Text>
@@ -1464,7 +1464,7 @@ export default function CustomerDetailDrawer({
                                             <Text type="secondary" style={{ fontSize: 12 }}>
                                               {b.bill_date || b.date || b.period || month}
                                             </Text>
-                                            <Text>¥ {b.amount ?? b.total_amount ?? '—'}</Text>
+                                            <Text>$ {b.amount ?? b.total_amount ?? '—'}</Text>
                                             {b.status ? (
                                               <Tag color={
                                                 b.status === 'paid' ? 'green'
@@ -1578,10 +1578,10 @@ export default function CustomerDetailDrawer({
                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                       {resourceUsageMonth.format('YYYY-MM')} 消耗:
                                     </Text>
-                                    <Text strong style={{ fontSize: 12 }}>¥ {u.final.toFixed(2)}</Text>
+                                    <Text strong style={{ fontSize: 12 }}>$ {u.final.toFixed(2)}</Text>
                                     {Math.abs(u.original - u.final) >= 0.01 && (
                                       <Text delete type="secondary" style={{ fontSize: 11 }}>
-                                        ¥ {u.original.toFixed(2)}
+                                        $ {u.original.toFixed(2)}
                                       </Text>
                                     )}
                                   </Space>
@@ -1664,7 +1664,7 @@ export default function CustomerDetailDrawer({
           </Form.Item>
           <Space style={{ display: 'flex', width: '100%' }} align="start">
             <Form.Item name="amount" label="金额" style={{ flex: 1 }}>
-              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="¥" />
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="$" prefix="$" />
             </Form.Item>
             <Form.Item name="status" label="状态" style={{ flex: 1 }}>
               <Select options={[
@@ -1726,8 +1726,8 @@ export default function CustomerDetailDrawer({
             <Input placeholder="账单标题, 可空" />
           </Form.Item>
           <Space style={{ display: 'flex', width: '100%' }} align="start">
-            <Form.Item name="amount" label="金额 ¥" style={{ flex: 1 }}>
-              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="可空" />
+            <Form.Item name="amount" label="金额 $" style={{ flex: 1 }}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="可空" prefix="$" />
             </Form.Item>
             <Form.Item name="bill_date" label="账单时间" style={{ flex: 1 }}>
               <DatePicker style={{ width: '100%' }} placeholder="可空" />
@@ -1770,7 +1770,7 @@ export default function CustomerDetailDrawer({
                 <code style={{ color: '#0078D4' }}>{contractDetail.contract_code}</code>
               </Descriptions.Item>
               <Descriptions.Item label="标题" span={2}>{contractDetail.title || '—'}</Descriptions.Item>
-              <Descriptions.Item label="金额">{contractDetail.amount ? `¥ ${contractDetail.amount}` : '—'}</Descriptions.Item>
+              <Descriptions.Item label="金额">{contractDetail.amount ? `$ ${contractDetail.amount}` : '—'}</Descriptions.Item>
               <Descriptions.Item label="状态">
                 <Tag color={contractDetail.status === 'active' ? 'green' : 'default'}>{contractDetail.status || 'active'}</Tag>
               </Descriptions.Item>

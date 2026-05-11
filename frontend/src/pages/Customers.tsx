@@ -52,7 +52,7 @@ export default function Customers() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [group, setGroup] = useState<GroupKey>('active');
   const [salesFilter, setSalesFilter] = useState<string[]>([]);
-  // 当月消耗: customer_id → 折后 ¥
+  // 当月消耗: customer_id → 折后 $ (云管来源, USD 计价)
   const [monthlyConsumption, setMonthlyConsumption] = useState<Record<number, number>>({});
 
   const load = async () => {
@@ -196,7 +196,7 @@ export default function Customers() {
       render: (_: unknown, r: Customer) => {
         const v = monthlyConsumption[r.id];
         if (v == null) return <span style={{ color: '#9CA3AF' }}>—</span>;
-        return <span>¥ {v.toFixed(2)}</span>;
+        return <span>$ {v.toFixed(2)}</span>;
       },
     },
     {
