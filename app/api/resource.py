@@ -200,7 +200,12 @@ def list_resources(
         )
 
     total = query.count()
-    items = query.offset((page - 1) * page_size).limit(page_size).all()
+    items = (
+        query.order_by(Resource.id.desc())  # 新同步进来的排前面, 翻页稳定
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
 
     return {"total": total, "items": items}
 

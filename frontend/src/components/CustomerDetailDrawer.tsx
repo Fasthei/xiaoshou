@@ -606,8 +606,25 @@ export default function CustomerDetailDrawer({
   const loadAvailableResources = async () => {
     setAvailableLoading(true);
     try {
-      const { data } = await api.get('/api/resources', { params: { page_size: 100 } });
-      setAvailableResources((data?.items || []) as AvailableResource[]);
+      // /api/resources page_size cap=100, 这里循环翻页拉完所有货源, 否则
+      // 同步新进来的货源 (排在后面页) 在添加 Modal 里看不到。
+      const pageSize = 100;
+      const acc: AvailableResource[] = [];
+      let page = 1;
+      // 上限保护: 拉到 5000 条 (50 页) 已经超出预期, 避免无限循环
+      const MAX_PAGES = 50;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data } = await api.get('/api/resources', {
+          params: { page, page_size: pageSize },
+        });
+        const items: AvailableResource[] = data?.items || [];
+        acc.push(...items);
+        const total = Number(data?.total ?? acc.length);
+        if (items.length < pageSize || acc.length >= total || page >= MAX_PAGES) break;
+        page += 1;
+      }
+      setAvailableResources(acc);
     } catch {
       setAvailableResources([]);
     } finally {
