@@ -27,6 +27,7 @@ from app.models.contract import Contract
 from app.models.contract_attachment import ContractAttachment
 from app.models.customer import Customer
 from app.models.resource import Resource
+from app.models.sales import SalesUser
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,13 @@ async def create_order(
     user: CurrentUser = Depends(require_auth),
 ):
     """原子性创建: Customer (可选) + N 个 Allocation + 1 个 Contract."""
+
+    # 反查申请人本地销售 id (没建档则 None, 不阻断订单创建)
+    sales_user_id: Optional[int] = None
+    if user and getattr(user, "sub", None):
+        su = db.query(SalesUser).filter(SalesUser.casdoor_user_id == user.sub).first()
+        if su:
+            sales_user_id = su.id
 
     # ------- 1. 解析 body -------
     if not customer_id and not customer_json:
@@ -153,7 +161,7 @@ async def create_order(
                 profit_amount=profit_amount,
                 profit_rate=profit_rate,
                 allocation_status="PENDING",
-                allocated_by=getattr(user, "id", None),
+                allocated_by=sales_user_id,
                 allocated_at=datetime.utcnow(),
                 remark=line.get("remark"),
                 end_user_label=line.get("end_user_label"),

@@ -9,6 +9,7 @@ import {
 import { api } from '../api/axios';
 import type { Allocation } from '../types';
 import { STAGE_META } from '../constants/stage';
+import { fmtTime } from '../utils/time';
 
 const { Title, Text } = Typography;
 
@@ -18,6 +19,11 @@ interface ResourceLite {
   resource_code?: string | null;
   cloud_provider?: string | null;
   account_name?: string | null;
+}
+interface SalesUserLite {
+  id: number;
+  name: string;
+  email?: string | null;
 }
 
 interface StageRequest {
@@ -61,9 +67,10 @@ export default function ManagerApprovals() {
   // Order detail view
   const [orderDetail, setOrderDetail] = useState<Allocation | null>(null);
 
-  // Customer + resource lookup (id → name) for showing readable info
+  // Customer + resource + sales lookup (id → name) for showing readable info
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [resources, setResources] = useState<ResourceLite[]>([]);
+  const [salesUsers, setSalesUsers] = useState<SalesUserLite[]>([]);
   const customerMap = useMemo(() => {
     const m = new Map<number, CustomerLite>();
     for (const c of customers) m.set(c.id, c);
@@ -74,6 +81,11 @@ export default function ManagerApprovals() {
     for (const r of resources) m.set(r.id, r);
     return m;
   }, [resources]);
+  const salesMap = useMemo(() => {
+    const m = new Map<number, SalesUserLite>();
+    for (const s of salesUsers) m.set(s.id, s);
+    return m;
+  }, [salesUsers]);
 
   const customerLabel = (id: number) => {
     const c = customerMap.get(id);
@@ -85,6 +97,11 @@ export default function ManagerApprovals() {
     const bits = [r.resource_code || `#${id}`, r.account_name || '-'];
     if (r.cloud_provider) bits.push(r.cloud_provider);
     return bits.join(' · ');
+  };
+  const salesLabel = (id: number | null | undefined) => {
+    if (id == null) return '—';
+    const s = salesMap.get(id);
+    return s ? `${s.name}${s.email ? ` · ${s.email}` : ''}` : `#${id}`;
   };
 
   useEffect(() => {
@@ -98,6 +115,10 @@ export default function ManagerApprovals() {
         const { data } = await api.get('/api/resources', { params: { page: 1, page_size: 100 } });
         const items: ResourceLite[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         setResources(items);
+      } catch { /* ignore */ }
+      try {
+        const { data } = await api.get<SalesUserLite[]>('/api/sales/users', { params: { active_only: false } });
+        setSalesUsers(Array.isArray(data) ? data : []);
       } catch { /* ignore */ }
     })();
   }, []);
@@ -235,8 +256,10 @@ export default function ManagerApprovals() {
       render: (v: any) => v == null ? '—' : `¥${v}` },
     { title: '状态', dataIndex: 'allocation_status', width: 90,
       render: (s: string) => <Tag color="orange">{s || 'pending'}</Tag> },
+    { title: '申请销售', dataIndex: 'allocated_by', width: 160, ellipsis: true,
+      render: (v: number | null | undefined) => salesLabel(v) },
     { title: '创建时间', dataIndex: 'created_at', width: 160,
-      render: (v: string | undefined) => v ? v.replace('T', ' ').slice(0, 19) : '—' },
+      render: (v: string | undefined) => fmtTime(v) },
     {
       title: '操作', width: 230, fixed: 'right' as const,
       render: (_: unknown, r: Allocation) => (
@@ -278,7 +301,7 @@ export default function ManagerApprovals() {
     { title: '申请人', dataIndex: 'requester_name', width: 100 },
     { title: '原因', dataIndex: 'reason', ellipsis: true },
     { title: '申请时间', dataIndex: 'created_at', width: 170,
-      render: (v: string | undefined) => v ? v.replace('T', ' ').slice(0, 19) : '—' },
+      render: (v: string | undefined) => fmtTime(v) },
     {
       title: '操作', width: 160, fixed: 'right' as const,
       render: (_: unknown, r: StageRequest) => (
@@ -431,6 +454,7 @@ export default function ManagerApprovals() {
               <Descriptions.Item label="订单号" span={2}>
                 <code style={{ color: '#0078D4' }}>{d.allocation_code}</code>
               </Descriptions.Item>
+              <Descriptions.Item label="申请销售" span={2}>{salesLabel(d.allocated_by)}</Descriptions.Item>
               <Descriptions.Item label="客户" span={2}>{customerLabel(d.customer_id)}</Descriptions.Item>
               <Descriptions.Item label="货源" span={2}>{resourceLabel(d.resource_id)}</Descriptions.Item>
               <Descriptions.Item label="数量">{d.allocated_quantity ?? '—'}</Descriptions.Item>
@@ -450,8 +474,8 @@ export default function ManagerApprovals() {
                 <Tag color={approvalMeta.color}>{approvalMeta.label}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="审批备注">{d.approval_note || '—'}</Descriptions.Item>
-              <Descriptions.Item label="创建时间">{d.created_at ? d.created_at.replace('T', ' ').slice(0, 19) : '—'}</Descriptions.Item>
-              <Descriptions.Item label="分配时间">{d.allocated_at ? d.allocated_at.replace('T', ' ').slice(0, 19) : '—'}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">{fmtTime(d.created_at)}</Descriptions.Item>
+              <Descriptions.Item label="分配时间">{fmtTime(d.allocated_at)}</Descriptions.Item>
             </Descriptions>
           );
         })()}

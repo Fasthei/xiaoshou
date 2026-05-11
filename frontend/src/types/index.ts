@@ -64,7 +64,14 @@ export interface Allocation {
   total_price?: string | number | null;
   profit_amount?: string | number | null;
   profit_rate?: string | number | null;
+  discount_rate?: string | number | null;
+  end_user_label?: string | null;
+  remark?: string | null;
   allocation_status: string;
+  approval_status?: 'pending' | 'approved' | 'rejected' | null;
+  approval_note?: string | null;
+  allocated_by?: number | null;
+  allocated_at?: string | null;
   created_at?: string;
 }
 
