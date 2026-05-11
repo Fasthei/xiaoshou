@@ -57,7 +57,7 @@ function defaultRange(): [Dayjs, Dayjs] {
 
 function fmtMoney(v: number | null | undefined): string {
   if (v == null) return '—';
-  return `¥${Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 0 })}`;
+  return `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 0 })}`;
 }
 
 function fmtPct(v: number | null | undefined): string {
@@ -182,7 +182,7 @@ function SalesTrendTab() {
               <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.2)" />
                 <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `¥${(v / 1000).toFixed(0)}k`} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                 <RTooltip formatter={(v: number) => fmtMoney(v)} />
                 <Legend />
                 <Line type="monotone" dataKey="revenue" name="营收" stroke={COLORS[0]} strokeWidth={2} dot={false} />
@@ -263,7 +263,7 @@ function ProfitAnalysisTab() {
               <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.2)" />
                 <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `¥${(v / 1000).toFixed(0)}k`} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                 <RTooltip formatter={(v: number) => fmtMoney(v)} />
                 <Legend />
                 <Bar dataKey="revenue" name="营收" fill={COLORS[0]} radius={[4, 4, 0, 0]} />
@@ -456,7 +456,7 @@ function YoyTab() {
               <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.2)" />
                 <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `¥${(v / 1000).toFixed(0)}k`} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                 <RTooltip formatter={(v: number) => fmtMoney(v)} />
                 <Legend />
                 <Bar dataKey="current_year" name="本年" fill={COLORS[0]} radius={[4, 4, 0, 0]} />

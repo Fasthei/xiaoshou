@@ -93,20 +93,20 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
       .map((x, i) => {
         const name = x.line.name || `货源 ${i + 1}`;
         return (
-          `${name}: 原价 ¥${Number(x.line.cost || 0).toFixed(2)} · `
+          `${name}: 原价 $${Number(x.line.cost || 0).toFixed(2)} · `
           + `折扣率 ${Number(x.line.discount || 0).toFixed(2)}% · `
           + `加价率 ${Number(x.line.markup || 0).toFixed(2)}% → `
-          + `折后价 ¥${x.discounted.toFixed(2)} / 售价 ¥${x.selling.toFixed(2)} / `
-          + `毛利 ¥${x.profit.toFixed(2)} (${(x.profitRate * 100).toFixed(2)}%)`
+          + `折后价 $${x.discounted.toFixed(2)} / 售价 $${x.selling.toFixed(2)} / `
+          + `毛利 $${x.profit.toFixed(2)} (${(x.profitRate * 100).toFixed(2)}%)`
         );
       })
       .join('\n');
     const sumStr = [
       `—— 合计（${lines.length} 个货源）——`,
-      `原价合计: ¥${totals.totalCost.toFixed(2)}`,
-      `折后价合计: ¥${totals.totalDiscounted.toFixed(2)}`,
-      `售价合计: ¥${totals.totalSelling.toFixed(2)}`,
-      `毛利合计: ¥${totals.totalProfit.toFixed(2)}`,
+      `原价合计: $${totals.totalCost.toFixed(2)}`,
+      `折后价合计: $${totals.totalDiscounted.toFixed(2)}`,
+      `售价合计: $${totals.totalSelling.toFixed(2)}`,
+      `毛利合计: $${totals.totalProfit.toFixed(2)}`,
       `整体毛利率: ${(totals.totalProfitRate * 100).toFixed(2)}%`,
     ].join('\n');
     const text = `${lineStr}\n\n${sumStr}`;
@@ -169,7 +169,7 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             ),
           },
           {
-            title: '原价 (¥)',
+            title: '原价 ($)',
             width: 120,
             render: (_: any, row) => (
               <InputNumber
@@ -215,14 +215,14 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             title: '折后价',
             width: 110,
             render: (_: any, row) => (
-              <Text style={{ color: '#2B88D8' }}>¥{row.discounted.toFixed(2)}</Text>
+              <Text style={{ color: '#2B88D8' }}>${row.discounted.toFixed(2)}</Text>
             ),
           },
           {
             title: '售价',
             width: 110,
             render: (_: any, row) => (
-              <Text style={{ color: '#0078D4' }}>¥{row.selling.toFixed(2)}</Text>
+              <Text style={{ color: '#0078D4' }}>${row.selling.toFixed(2)}</Text>
             ),
           },
           {
@@ -230,7 +230,7 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             width: 110,
             render: (_: any, row) => (
               <Text strong style={{ color: row.profit >= 0 ? '#107C10' : '#A4262C' }}>
-                ¥{row.profit.toFixed(2)}
+                ${row.profit.toFixed(2)}
               </Text>
             ),
           },
@@ -274,20 +274,20 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             title="原价合计"
             value={totals.totalCost}
             precision={2}
-            prefix="¥"
+            prefix="$"
           />
           <Statistic
             title="折后价合计"
             value={totals.totalDiscounted}
             precision={2}
-            prefix="¥"
+            prefix="$"
             valueStyle={{ color: '#2B88D8' }}
           />
           <Statistic
             title="合计加价售价"
             value={totals.totalSelling}
             precision={2}
-            prefix="¥"
+            prefix="$"
             valueStyle={{ color: '#0078D4' }}
           />
         </Space>
@@ -296,7 +296,7 @@ export default function DiscountCalculatorDrawer({ open, onClose }: Props) {
             title="合计毛利"
             value={totals.totalProfit}
             precision={2}
-            prefix="¥"
+            prefix="$"
             valueStyle={{ color: totals.totalProfit >= 0 ? '#107C10' : '#A4262C' }}
           />
           <Statistic

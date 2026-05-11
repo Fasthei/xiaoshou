@@ -824,7 +824,7 @@ function UsageBreakdownTab() {
           <b>货源</b>：{d.resource || '-'}
         </div>
         <div style={{ marginTop: 6, fontSize: 13 }}>
-          <b>¥ {d.cost.toFixed(2)}</b>
+          <b>$ {d.cost.toFixed(2)}</b>
           {d.usage > 0 && (
             <span style={{ color: '#6B7280', marginLeft: 8 }}>
               用量 {d.usage.toFixed(4)} {d.unit}
@@ -843,7 +843,7 @@ function UsageBreakdownTab() {
           <Card bordered size="small">
             <Statistic
               title={<Text type="secondary">当月总费用</Text>}
-              value={resp?.total_cost ?? 0} precision={2} prefix="¥"
+              value={resp?.total_cost ?? 0} precision={2} prefix="$"
               valueStyle={{ fontWeight: 600 }}
             />
           </Card>
@@ -883,8 +883,8 @@ function UsageBreakdownTab() {
               return top.map(([name, v]) => {
                 const pct = total > 0 ? (v / total) * 100 : 0;
                 return (
-                  <AntTooltip key={name} title={`¥${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
-                    <Tag>{trimProduct(name)}: ¥{v.toFixed(2)}（{pct.toFixed(1)}%）</Tag>
+                  <AntTooltip key={name} title={`$${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
+                    <Tag>{trimProduct(name)}: ${v.toFixed(2)}（{pct.toFixed(1)}%）</Tag>
                   </AntTooltip>
                 );
               });
@@ -978,7 +978,7 @@ function UsageBreakdownTab() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis
                   type="number"
-                  tickFormatter={(v) => `¥${Number(v).toFixed(0)}`}
+                  tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
                 />
                 <YAxis
                   type="category"

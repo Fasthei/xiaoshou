@@ -96,8 +96,8 @@ interface MyTargetProgressResp {
 }
 
 function fmtMoney(n: number | null | undefined): string {
-  if (n == null) return '¥0';
-  return '¥' + Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+  if (n == null) return '$0';
+  return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
 function fmtRelDays(iso: string | null): string {

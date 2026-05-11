@@ -349,9 +349,9 @@ export default function ManagerPanorama() {
               <Col xs={24} md={8}>
                 <Text type="secondary">销售额 (YTD / 目标)</Text>
                 <Title level={4} style={{ margin: '4px 0' }}>
-                  ¥{teamProfit.team_annual_sales_achieved.toLocaleString()}
+                  ${teamProfit.team_annual_sales_achieved.toLocaleString()}
                   <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-                    {' '}/ ¥{teamProfit.team_annual_sales_target.toLocaleString()}
+                    {' '}/ ${teamProfit.team_annual_sales_target.toLocaleString()}
                   </Text>
                 </Title>
                 <Progress percent={Math.min(100, salesPct)} status="active" />
@@ -360,9 +360,9 @@ export default function ManagerPanorama() {
               <Col xs={24} md={8}>
                 <Text type="secondary">利润 (YTD / 目标)</Text>
                 <Title level={4} style={{ margin: '4px 0' }}>
-                  ¥{teamProfit.team_annual_profit_achieved.toLocaleString()}
+                  ${teamProfit.team_annual_profit_achieved.toLocaleString()}
                   <Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-                    {' '}/ ¥{teamProfit.team_annual_profit_target.toLocaleString()}
+                    {' '}/ ${teamProfit.team_annual_profit_target.toLocaleString()}
                   </Text>
                 </Title>
                 <Progress percent={Math.min(100, profitPct)} status="active" strokeColor="#C19C00" />

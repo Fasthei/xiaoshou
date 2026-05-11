@@ -110,13 +110,13 @@ export default function AllocationCreateModal({
 
         <Row gutter={12}>
           <Col span={6}>
-            <Statistic title="总成本" value={totalCost} precision={2} prefix="¥" />
+            <Statistic title="总成本" value={totalCost} precision={2} prefix="$" />
           </Col>
           <Col span={6}>
-            <Statistic title="总售价" value={totalPrice} precision={2} prefix="¥" />
+            <Statistic title="总售价" value={totalPrice} precision={2} prefix="$" />
           </Col>
           <Col span={6}>
-            <Statistic title="毛利" value={profit} precision={2} prefix="¥"
+            <Statistic title="毛利" value={profit} precision={2} prefix="$"
               valueStyle={{ color: profit >= 0 ? '#107C10' : '#A4262C' }} />
           </Col>
           <Col span={6}>

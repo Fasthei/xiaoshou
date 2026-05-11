@@ -332,7 +332,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       ),
     },
     {
-      title: '原价 ¥',
+      title: '原价 $',
       width: 110,
       render: (_: unknown, r: OrderLine, i: number) => (
         <InputNumber
@@ -359,7 +359,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       ),
     },
     {
-      title: '折后单价 ¥',
+      title: '折后单价 $',
       width: 120,
       render: (_: unknown, r: OrderLine, i: number) => (
         <InputNumber
@@ -543,7 +543,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
                   <Button icon={<PlusOutlined />} onClick={addLine}>
                     添加明细行
                   </Button>
-                  <Text strong>合计 ¥ {totalAmount.toFixed(2)}</Text>
+                  <Text strong>合计 $ {totalAmount.toFixed(2)}</Text>
                 </Space>
               )}
             />
