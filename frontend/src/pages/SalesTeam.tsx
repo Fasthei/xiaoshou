@@ -369,11 +369,11 @@ const openEditUser = (u: SalesUser) => {
                     <Space size="large" wrap>
                       <div>
                         <Text type="secondary" style={{ fontSize: 12 }}>年度销售额目标</Text>
-                        <div><Text strong style={{ fontSize: 18 }}>${teamAgg.team_annual_sales_target.toLocaleString()}</Text></div>
+                        <div><Text strong style={{ fontSize: 18 }}>¥{teamAgg.team_annual_sales_target.toLocaleString()}</Text></div>
                       </div>
                       <div>
                         <Text type="secondary" style={{ fontSize: 12 }}>年度利润目标</Text>
-                        <div><Text strong style={{ fontSize: 18 }}>${teamAgg.team_annual_profit_target.toLocaleString()}</Text></div>
+                        <div><Text strong style={{ fontSize: 18 }}>¥{teamAgg.team_annual_profit_target.toLocaleString()}</Text></div>
                       </div>
                       <div>
                         <Text type="secondary" style={{ fontSize: 12 }}>目标利润率</Text>
@@ -403,8 +403,8 @@ const openEditUser = (u: SalesUser) => {
                       const sAmt = r.annual_sales_target ? Number(r.annual_sales_target) : 0;
                       const y = r.target_year || '-';
                       return <Space direction="vertical" size={0}>
-                        {sAmt > 0 && <Text style={{ fontSize: 12 }}>销售额 ${sAmt.toLocaleString()}</Text>}
-                        {pAmt > 0 && <Text strong>利润 ${pAmt.toLocaleString()}</Text>}
+                        {sAmt > 0 && <Text style={{ fontSize: 12 }}>销售额 ¥{sAmt.toLocaleString()}</Text>}
+                        {pAmt > 0 && <Text strong>利润 ¥{pAmt.toLocaleString()}</Text>}
                         <Text type="secondary" style={{ fontSize: 12 }}>{y} 年</Text>
                       </Space>;
                     }},
@@ -413,7 +413,7 @@ const openEditUser = (u: SalesUser) => {
                       if (!p || p.target_year == null) return <Text type="secondary">-</Text>;
                       const ytd = Number(p.ytd_profit || 0);
                       return <Space direction="vertical" size={0}>
-                        <Text strong>${ytd.toLocaleString()}</Text>
+                        <Text strong>¥{ytd.toLocaleString()}</Text>
                         <Text type="secondary" style={{ fontSize: 12 }}>{p.allocations_count} 单</Text>
                       </Space>;
                     }},
@@ -718,24 +718,24 @@ const openEditUser = (u: SalesUser) => {
             />
           </Form.Item>
           <Form.Item
-            name="annual_sales_target" label="年度销售额目标 ($)"
-            tooltip="单位: 美元 USD。YTD 自动聚合该销售名下客户本年度 allocation.total_price"
+            name="annual_sales_target" label="年度销售额目标 (¥)"
+            tooltip="单位: 元。YTD 自动聚合该销售名下客户本年度 allocation.total_price"
           >
             <InputNumber
               min={0} step={10000} style={{ width: 240 }}
-              formatter={(v) => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              formatter={(v) => `¥ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
               parser={(v) => (v ? Number(v.replace(/[^\d.]/g, '')) : 0) as any}
               placeholder="例如 5000000"
             />
           </Form.Item>
           <Form.Item
-            name="annual_profit_target" label="年度利润目标金额 ($)"
+            name="annual_profit_target" label="年度利润目标金额 (¥)"
             rules={[{ required: true, message: '请输入目标金额' }]}
-            tooltip="单位: 美元 USD。YTD 自动聚合该销售名下客户本年度 allocation.profit_amount"
+            tooltip="单位: 元。YTD 自动聚合该销售名下客户本年度 allocation.profit_amount"
           >
             <InputNumber
               min={0} step={10000} style={{ width: 240 }}
-              formatter={(v) => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              formatter={(v) => `¥ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
               parser={(v) => (v ? Number(v.replace(/[^\d.]/g, '')) : 0) as any}
               placeholder="例如 1000000"
             />
