@@ -1741,12 +1741,12 @@ export default function CustomerDetailDrawer({
             label="附件"
             valuePropName="fileList"
             getValueFromEvent={(e: any) => Array.isArray(e) ? e : e && e.fileList}
-            extra="可选, 单文件 ≤ 100MB, 支持 PDF / Word / JPG / PNG; 编辑时上传新文件会替换旧附件"
+            extra="可选, 单文件 ≤ 100MB, 支持 PDF / Word / Excel (xls/xlsx) / CSV / JPG / PNG; 编辑时上传新文件会替换旧附件"
           >
             <Upload
               beforeUpload={() => false}
               maxCount={1}
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png"
             >
               <Button icon={<UploadOutlined />}>选择文件 (可选)</Button>
             </Upload>
