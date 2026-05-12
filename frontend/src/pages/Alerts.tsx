@@ -7,7 +7,7 @@ import {
 } from 'antd';
 import {
   ReloadOutlined, AlertOutlined, PlusOutlined, CheckOutlined, BellOutlined,
-  BarChartOutlined, EditOutlined,
+  BarChartOutlined, EditOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import {
@@ -414,6 +414,16 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
     }
   };
 
+  const removePayment = async (row: Payment) => {
+    try {
+      await api.delete(`/api/payments/${row.id}`);
+      antdMessage.success('已删除');
+      load();
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '删除失败');
+    }
+  };
+
   const today = dayjs().startOf('day');
   const customerName = (id: number) =>
     customers.find((c) => c.id === id)?.customer_name || `#${id}`;
@@ -493,7 +503,7 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
           },
           { title: '备注', dataIndex: 'notes', ellipsis: true },
           {
-            title: '操作', width: 200, fixed: 'right' as const,
+            title: '操作', width: 260, fixed: 'right' as const,
             render: (_, r) => (
               <Space size={0} wrap>
                 <Button size="small" type="link" icon={<EditOutlined />}
@@ -513,6 +523,18 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
                     </Button>
                   </Popconfirm>
                 )}
+                <Popconfirm
+                  title="删除该收款?"
+                  description="此操作不可恢复"
+                  okText="删除"
+                  okButtonProps={{ danger: true }}
+                  cancelText="取消"
+                  onConfirm={() => removePayment(r)}
+                >
+                  <Button size="small" type="link" danger icon={<DeleteOutlined />}>
+                    删除
+                  </Button>
+                </Popconfirm>
               </Space>
             ),
           },

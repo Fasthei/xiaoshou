@@ -68,13 +68,25 @@ def list_payments(
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ):
+    from sqlalchemy import or_, and_
     q = db.query(Payment)
     if customer_id is not None:
         q = q.filter(Payment.customer_id == customer_id)
     if status is not None:
         if status not in _STATUSES:
             raise HTTPException(400, f"status 必须是 {sorted(_STATUSES)}")
-        q = q.filter(Payment.status == status)
+        if status == "overdue":
+            # "超期" 是派生状态: status='overdue' 显式标记 ∪
+            # status='pending' 且 expected_date 已过期
+            today = date.today()
+            q = q.filter(
+                or_(
+                    Payment.status == "overdue",
+                    and_(Payment.status == "pending", Payment.expected_date < today),
+                )
+            )
+        else:
+            q = q.filter(Payment.status == status)
     if expected_month:
         # YYYY-MM → [first-of-month, first-of-next-month)
         y, m = int(expected_month[:4]), int(expected_month[5:7])
@@ -129,6 +141,24 @@ def patch_payment(
         setattr(row, k, v)
     db.add(row); db.commit(); db.refresh(row)
     return row
+
+
+@router.delete(
+    "/{payment_id}",
+    status_code=204,
+    summary="删除收款记录 (硬删, 不可恢复)",
+)
+def delete_payment(
+    payment_id: int,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_auth),
+):
+    row = db.query(Payment).filter(Payment.id == payment_id).first()
+    if not row:
+        raise HTTPException(404, "收款记录不存在")
+    db.delete(row)
+    db.commit()
+    return None
 
 
 @router.get("/overdue", response_model=List[PaymentResponse],
