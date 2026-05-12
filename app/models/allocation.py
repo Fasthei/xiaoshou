@@ -22,6 +22,8 @@ class Allocation(Base):
     profit_amount = Column(Numeric(15, 2), comment="毛利金额")
     profit_rate = Column(Numeric(5, 2), comment="毛利率")
     discount_rate = Column(Numeric(5, 2), nullable=True, comment="折扣率 % (可负表示加价)")
+    currency = Column(String(8), nullable=False, default="CNY",
+                      server_default="CNY", comment="ISO 4217: CNY/USD/...")
     unit_price_after_discount = Column(Numeric(15, 2), nullable=True, comment="折后单价")
     allocation_status = Column(String(20), nullable=False, comment="分配状态")
     allocated_by = Column(BigInteger, comment="分配人")

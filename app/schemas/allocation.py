@@ -41,6 +41,7 @@ class AllocationResponse(AllocationBase):
     profit_rate: Optional[Decimal]
     discount_rate: Optional[Decimal] = None
     unit_price_after_discount: Optional[Decimal] = None
+    currency: Optional[str] = Field("CNY", description="ISO 4217: CNY/USD/...")
     allocation_status: str
     allocated_by: Optional[int]
     allocated_at: Optional[datetime]
@@ -95,6 +96,7 @@ class AllocationBatchLine(BaseModel):
 class AllocationBatchCreate(BaseModel):
     customer_id: int
     contract_id: Optional[int] = None
+    currency: Optional[str] = Field("CNY", description="整单货币, 默认 CNY; 所有 line 共用")
     lines: list[AllocationBatchLine]
 
 

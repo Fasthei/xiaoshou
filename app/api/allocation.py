@@ -180,6 +180,7 @@ def create_allocations_batch(
             profit_amount=profit_data["profit_amount"],
             profit_rate=profit_data["profit_rate"],
             discount_rate=line.discount_rate,
+            currency=(payload.currency or "CNY").upper(),
             allocation_status="PENDING",
             allocated_by=sales_user_id,
             allocated_at=datetime.utcnow(),

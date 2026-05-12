@@ -10,6 +10,7 @@ import { api } from '../api/axios';
 import type { Allocation } from '../types';
 import { STAGE_META } from '../constants/stage';
 import { fmtTime } from '../utils/time';
+import { currencySymOf } from '../utils/currency';
 
 const { Title, Text } = Typography;
 
@@ -251,9 +252,9 @@ export default function ManagerApprovals() {
       render: (v: number) => resourceLabel(v) },
     { title: '数量', dataIndex: 'allocated_quantity', width: 80 },
     { title: '单价', dataIndex: 'unit_price', width: 110,
-      render: (v: any) => v == null ? '—' : `¥${v}` },
+      render: (v: any, r: Allocation) => v == null ? '—' : `${currencySymOf(r)}${v}` },
     { title: '总金额', dataIndex: 'total_price', width: 130,
-      render: (v: any) => v == null ? '—' : `¥${v}` },
+      render: (v: any, r: Allocation) => v == null ? '—' : `${currencySymOf(r)}${v}` },
     { title: '状态', dataIndex: 'allocation_status', width: 90,
       render: (s: string) => <Tag color="orange">{s || 'pending'}</Tag> },
     { title: '申请销售', dataIndex: 'allocated_by', width: 160, ellipsis: true,
@@ -461,12 +462,13 @@ export default function ManagerApprovals() {
               <Descriptions.Item label="状态">
                 <Tag color="orange">{d.allocation_status || 'pending'}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="折前单价">{d.unit_cost == null ? '—' : `¥ ${d.unit_cost}`}</Descriptions.Item>
+              <Descriptions.Item label="货币">{d.currency || 'CNY'}</Descriptions.Item>
               <Descriptions.Item label="折扣率">{d.discount_rate == null ? '—' : `${d.discount_rate} %`}</Descriptions.Item>
-              <Descriptions.Item label="折后单价">{d.unit_price == null ? '—' : `¥ ${d.unit_price}`}</Descriptions.Item>
-              <Descriptions.Item label="总成本">{d.total_cost == null ? '—' : `¥ ${d.total_cost}`}</Descriptions.Item>
-              <Descriptions.Item label="总售价">{d.total_price == null ? '—' : `¥ ${d.total_price}`}</Descriptions.Item>
-              <Descriptions.Item label="毛利">{d.profit_amount == null ? '—' : `¥ ${d.profit_amount}`}</Descriptions.Item>
+              <Descriptions.Item label="折前单价">{d.unit_cost == null ? '—' : `${currencySymOf(d)} ${d.unit_cost}`}</Descriptions.Item>
+              <Descriptions.Item label="折后单价">{d.unit_price == null ? '—' : `${currencySymOf(d)} ${d.unit_price}`}</Descriptions.Item>
+              <Descriptions.Item label="总成本">{d.total_cost == null ? '—' : `${currencySymOf(d)} ${d.total_cost}`}</Descriptions.Item>
+              <Descriptions.Item label="总售价">{d.total_price == null ? '—' : `${currencySymOf(d)} ${d.total_price}`}</Descriptions.Item>
+              <Descriptions.Item label="毛利" span={2}>{d.profit_amount == null ? '—' : `${currencySymOf(d)} ${d.profit_amount}`}</Descriptions.Item>
               <Descriptions.Item label="毛利率" span={2}>{d.profit_rate == null ? '—' : `${d.profit_rate} %`}</Descriptions.Item>
               <Descriptions.Item label="终端用户标签" span={2}>{d.end_user_label || '—'}</Descriptions.Item>
               <Descriptions.Item label="备注" span={2}>{d.remark || '—'}</Descriptions.Item>

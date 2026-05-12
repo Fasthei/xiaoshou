@@ -65,6 +65,7 @@ export interface Allocation {
   profit_amount?: string | number | null;
   profit_rate?: string | number | null;
   discount_rate?: string | number | null;
+  currency?: string | null;
   end_user_label?: string | null;
   remark?: string | null;
   allocation_status: string;

@@ -38,8 +38,11 @@ interface Step1Values {
 
 interface Step2Values {
   order_note?: string;
+  currency?: 'CNY' | 'USD';
   contract_files?: UploadFile[];
 }
+
+const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', USD: '$' };
 
 interface OrderLine {
   resource_id?: number;
@@ -247,10 +250,11 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         return;
       }
 
-      // 2) 批量创建订单明细（后付费字段可空）
+      // 2) 批量创建订单明细（后付费字段可空）; 整单货币
       await api.post('/api/allocations/batch', {
         customer_id: customerId,
         contract_id: null,
+        currency: orderVals.currency || 'CNY',
         lines: lines.map((l) => ({
           resource_id: l.resource_id,
           quantity: l.quantity,
@@ -300,6 +304,9 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
     }
   };
 
+  const selectedCurrency = (Form.useWatch('currency', step2Form) as 'CNY' | 'USD' | undefined) || 'CNY';
+  const currencySym = CURRENCY_SYMBOL[selectedCurrency] || '¥';
+
   const columns = [
     {
       title: '货源',
@@ -332,7 +339,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       ),
     },
     {
-      title: '原价 $',
+      title: `原价 ${currencySym}`,
       width: 110,
       render: (_: unknown, r: OrderLine, i: number) => (
         <InputNumber
@@ -359,7 +366,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       ),
     },
     {
-      title: '折后单价 $',
+      title: `折后单价 ${currencySym}`,
       width: 120,
       render: (_: unknown, r: OrderLine, i: number) => (
         <InputNumber
@@ -530,7 +537,23 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
 
       {/* Step 2: 订单详情 — 折扣明细表格 */}
       <div style={{ display: current === 1 ? 'block' : 'none' }}>
-        <Form<Step2Values> form={step2Form} layout="vertical">
+        <Form<Step2Values>
+          form={step2Form} layout="vertical"
+          initialValues={{ currency: 'CNY' }}
+        >
+          <Form.Item
+            name="currency"
+            label="订单货币"
+            tooltip="整单货币, 所有明细行共用; 提交后在审批中心 / 订单管理详情里按此货币展示符号"
+          >
+            <Select
+              style={{ width: 200 }}
+              options={[
+                { value: 'CNY', label: '¥ CNY 人民币' },
+                { value: 'USD', label: '$ USD 美元' },
+              ]}
+            />
+          </Form.Item>
           <Form.Item label="订单明细" required>
             <Table<OrderLine>
               dataSource={lines.map((l, i) => ({ ...l, __key: i })) as any}
@@ -543,7 +566,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
                   <Button icon={<PlusOutlined />} onClick={addLine}>
                     添加明细行
                   </Button>
-                  <Text strong>合计 $ {totalAmount.toFixed(2)}</Text>
+                  <Text strong>合计 {currencySym} {totalAmount.toFixed(2)}</Text>
                 </Space>
               )}
             />
