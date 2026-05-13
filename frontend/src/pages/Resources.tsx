@@ -204,7 +204,7 @@ export default function Resources() {
               placeholder="云厂商" allowClear style={{ width: 120 }}
               value={provider}
               onChange={(v) => { setProvider(v); setPage(1); }}
-              options={['AZURE', 'AWS', 'GCP', 'ALIYUN', 'TAIJI'].map((v) => ({ value: v, label: v }))}
+              options={['AZURE', 'AWS', 'GCP', 'TAIJI'].map((v) => ({ value: v, label: v }))}
             />
             <Select
               placeholder="状态" allowClear style={{ width: 150 }}

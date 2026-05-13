@@ -1622,7 +1622,7 @@ export default function CustomerDetailDrawer({
             style={{ width: 140 }}
             value={providerFilter}
             onChange={setProviderFilter}
-            options={['AZURE', 'AWS', 'GCP', 'TAIJI', 'ALIYUN'].map((v) => ({ value: v, label: v }))}
+            options={['AZURE', 'AWS', 'GCP', 'TAIJI'].map((v) => ({ value: v, label: v }))}
           />
         </Space>
         <Table
