@@ -15,6 +15,7 @@ const PROVIDER_COLOR: Record<string, string> = {
   AZURE: '#0078D4',   // Azure 主蓝
   GCP: '#A4262C',     // 克制红
   ALIYUN: '#107C10',  // 克制绿
+  TAIJI: '#6B46C1',   // 太极, 紫
   UNKNOWN: '#A19F9D',
 };
 
@@ -203,7 +204,7 @@ export default function Resources() {
               placeholder="云厂商" allowClear style={{ width: 120 }}
               value={provider}
               onChange={(v) => { setProvider(v); setPage(1); }}
-              options={['AZURE', 'AWS', 'GCP', 'ALIYUN'].map((v) => ({ value: v, label: v }))}
+              options={['AZURE', 'AWS', 'GCP', 'ALIYUN', 'TAIJI'].map((v) => ({ value: v, label: v }))}
             />
             <Select
               placeholder="状态" allowClear style={{ width: 150 }}
