@@ -502,7 +502,7 @@ def download_attachment(
     if not azure_blob.is_configured():
         raise HTTPException(status_code=503, detail="Azure Blob Storage 未配置")
     try:
-        url = azure_blob.sas_url(att.file_url)
+        url = azure_blob.sas_url(att.file_url, download_filename=att.file_name)
     except Exception as e:
         logger.exception("contract attachment download SAS failed: %s", e)
         raise HTTPException(status_code=502, detail=f"生成下载链接失败: {e}")

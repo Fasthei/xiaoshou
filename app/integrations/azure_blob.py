@@ -98,8 +98,19 @@ def delete_blob(blob_name_or_url: str) -> None:
         logger.warning("azure_blob: delete_blob(%s) failed: %s", blob_name, e)
 
 
-def sas_url(blob_name_or_url: str, *, ttl_minutes: int = SAS_TTL_MINUTES) -> str:
-    """Generate a short-lived read-only SAS URL for client download."""
+def sas_url(
+    blob_name_or_url: str,
+    *,
+    ttl_minutes: int = SAS_TTL_MINUTES,
+    download_filename: Optional[str] = None,
+) -> str:
+    """Generate a short-lived read-only SAS URL for client download.
+
+    若传 ``download_filename`` (例如 "合同.pdf"), 会在 SAS 上额外签入
+    ``Content-Disposition: attachment; filename="..."``, 让 Azure Blob 在
+    GET 时回 Content-Disposition 强制浏览器下载而不是在新标签页内嵌渲染
+    (修复前端 PDF/图片附件点 下载 后只是在新窗口预览不下载的问题).
+    """
     from azure.storage.blob import (  # type: ignore
         BlobSasPermissions,
         generate_blob_sas,
@@ -107,7 +118,7 @@ def sas_url(blob_name_or_url: str, *, ttl_minutes: int = SAS_TTL_MINUTES) -> str
     svc = _client()
     container = _container_name()
     blob_name = _name_from_url(blob_name_or_url, container)
-    sas = generate_blob_sas(
+    kwargs: dict = dict(
         account_name=svc.account_name,
         container_name=container,
         blob_name=blob_name,
@@ -115,6 +126,16 @@ def sas_url(blob_name_or_url: str, *, ttl_minutes: int = SAS_TTL_MINUTES) -> str
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes),
     )
+    if download_filename:
+        # 过滤非 ASCII / 双引号, 避免破坏 header 语法; RFC 5987 那套也可以但太重。
+        safe = (
+            download_filename.replace("\\", "_")
+            .replace('"', "_")
+            .replace("\r", "")
+            .replace("\n", "")
+        )
+        kwargs["content_disposition"] = f'attachment; filename="{safe}"'
+    sas = generate_blob_sas(**kwargs)
     base = svc.get_blob_client(container=container, blob=blob_name).url
     return f"{base}?{sas}"
 

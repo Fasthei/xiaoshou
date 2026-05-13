@@ -397,7 +397,17 @@ export default function CustomerDetailDrawer({
         `/api/contracts/${contractId}/attachments/${attachmentId}/download`,
       );
       if (data?.url) {
-        window.open(data.url, '_blank', 'noopener');
+        // 用临时 <a download> 触发, 比 window.open 更稳 (不易被弹窗拦截);
+        // 服务端 SAS 也带了 Content-Disposition: attachment, 浏览器会另存为
+        // 而不是在新窗口里预览 PDF/图片。
+        const a = document.createElement('a');
+        a.href = data.url;
+        a.rel = 'noopener';
+        a.target = '_blank';
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
       } else {
         antdMessage.error('下载链接不可用');
       }

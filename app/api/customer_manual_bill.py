@@ -249,7 +249,7 @@ def download_manual_bill_file(
     if not azure_blob.is_configured():
         raise HTTPException(503, "Azure Blob Storage 未配置")
     try:
-        url = azure_blob.sas_url(row.file_url)
+        url = azure_blob.sas_url(row.file_url, download_filename=row.file_name)
     except Exception as e:
         logger.exception("manual_bill download SAS failed: %s", e)
         raise HTTPException(502, f"生成下载链接失败: {e}")
