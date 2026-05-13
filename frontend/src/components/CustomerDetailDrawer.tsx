@@ -1604,7 +1604,7 @@ export default function CustomerDetailDrawer({
         open={addOpen}
         onOk={saveAddResources}
         onCancel={() => setAddOpen(false)}
-        width={720}
+        width={820}
         confirmLoading={adding}
         okText={`确认添加 (${picked.length})`}
         destroyOnClose
@@ -1645,7 +1645,15 @@ export default function CustomerDetailDrawer({
             { title: '标识', dataIndex: 'identifier_field', ellipsis: true,
               render: (v: string, r: any) => v || r.resource_code || '-' },
           ]}
-          pagination={{ pageSize: 10, size: 'small' }}
+          pagination={{
+            defaultPageSize: 10,
+            size: 'small',
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50', '100'],
+            showTotal: (t) => `共 ${t} 条`,
+            responsive: true,
+          }}
+          scroll={{ x: 'max-content', y: 360 }}
         />
       </Modal>
       <Modal
