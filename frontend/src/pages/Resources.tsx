@@ -39,6 +39,8 @@ interface TopAvailable {
   resource_code: string;
   account_name?: string | null;
   provider?: string | null;
+  total_cost?: number;
+  month?: string;
 }
 
 interface SummaryData {
@@ -176,6 +178,12 @@ export default function Resources() {
       title: '云厂商', dataIndex: 'provider', width: 100,
       render: (p?: string | null) => p ? <Tag color={PROVIDER_COLOR[p] || 'default'}>{p}</Tag> : '-',
     },
+    {
+      title: '当月消耗', dataIndex: 'total_cost', width: 140, align: 'right' as const,
+      render: (v?: number) => (
+        <Text strong>$ {(v ?? 0).toFixed(2)}</Text>
+      ),
+    },
   ];
 
   return (
@@ -311,7 +319,11 @@ export default function Resources() {
             </Col>
           </Row>
 
-          <Card size="small" title="Top 10 最近可用账号 (AVAILABLE)" loading={summaryLoading}>
+          <Card
+            size="small"
+            title={`用量消耗 Top 10 (AVAILABLE${summary?.top_available?.[0]?.month ? ` · ${summary.top_available[0].month}` : ''})`}
+            loading={summaryLoading}
+          >
             <Table<TopAvailable>
               rowKey="id"
               size="small"
