@@ -101,7 +101,9 @@ export default function CustomerDetailDrawer({
   const [picked, setPicked] = useState<React.Key[]>([]);
   const [resourceQ, setResourceQ] = useState('');
   const [providerFilter, setProviderFilter] = useState<string | undefined>(undefined);
-  // TAIJI 货源按 definition_name (= cloudcost supplier_name) 区分用户; 仅当 providerFilter==='TAIJI' 时启用
+  // TAIJI 货源按 account_name (= cloudcost service_account.name, 即 主体 如 "achock"/"ACZW") 区分用户。
+  // definition_name 是 supplier_name ("Taiji AI 聚合平台"), 对全部 TAIJI 账号都一样, 不适合做筛选维度。
+  // 仅当 providerFilter==='TAIJI' 时启用
   const [taijiUserFilter, setTaijiUserFilter] = useState<string | undefined>(undefined);
   const [health, setHealth] = useState<any>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
@@ -685,21 +687,22 @@ export default function CustomerDetailDrawer({
     return availableResources.filter((r) => {
       if (linkedIds.has(r.id)) return false;
       if (providerFilter && r.cloud_provider !== providerFilter) return false;
-      if (providerFilter === 'TAIJI' && taijiUserFilter && r.definition_name !== taijiUserFilter) return false;
+      if (providerFilter === 'TAIJI' && taijiUserFilter && r.account_name !== taijiUserFilter) return false;
       if (q) {
-        const hay = `${r.account_name || ''} ${r.identifier_field || ''} ${r.resource_code || ''} ${r.definition_name || ''}`.toLowerCase();
+        const hay = `${r.account_name || ''} ${r.identifier_field || ''} ${r.resource_code || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
   }, [availableResources, resources, resourceQ, providerFilter, taijiUserFilter]);
 
-  // TAIJI 用户下拉候选 (distinct definition_name from TAIJI-provider rows)
+  // TAIJI 用户下拉候选: distinct account_name from TAIJI-provider rows
+  // (= cloudcost service_account.name, 即 主体 "achock" / "ACZW" 这一级)
   const taijiUserOptions = useMemo(() => {
     const set = new Set<string>();
     availableResources.forEach((r) => {
-      if (r.cloud_provider === 'TAIJI' && r.definition_name) {
-        set.add(r.definition_name);
+      if (r.cloud_provider === 'TAIJI' && r.account_name) {
+        set.add(r.account_name);
       }
     });
     return Array.from(set).sort().map((v) => ({ value: v, label: v }));
@@ -1674,9 +1677,10 @@ export default function CustomerDetailDrawer({
                 <Tag color={PROVIDER_COLOR[p || ''] || 'default'}>{p || '-'}</Tag>
               ),
             },
-            { title: '用户', dataIndex: 'definition_name', width: 140, ellipsis: true,
-              render: (v: string) => v || '-' },
-            { title: '账号', dataIndex: 'account_name', render: (v: string) => v || '(未命名)' },
+            // 对 TAIJI 而言 account_name 就是主体 (如 "achock"/"ACZW"), 一个主体下面会有多个
+            // 行(靠 identifier_field 区分); 对其它厂商 account_name 通常本身就唯一
+            { title: '账号 / 用户', dataIndex: 'account_name', width: 160, ellipsis: true,
+              render: (v: string) => v || '(未命名)' },
             { title: '标识', dataIndex: 'identifier_field', ellipsis: true,
               render: (v: string, r: any) => v || r.resource_code || '-' },
           ]}
