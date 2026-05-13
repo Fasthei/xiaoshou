@@ -45,6 +45,7 @@ interface AvailableResource {
   cloud_provider?: string | null;
   account_name?: string | null;
   identifier_field?: string | null;
+  definition_name?: string | null;
 }
 
 const PROVIDER_COLOR: Record<string, string> = {
@@ -100,6 +101,8 @@ export default function CustomerDetailDrawer({
   const [picked, setPicked] = useState<React.Key[]>([]);
   const [resourceQ, setResourceQ] = useState('');
   const [providerFilter, setProviderFilter] = useState<string | undefined>(undefined);
+  // TAIJI 货源按 definition_name (= cloudcost supplier_name) 区分用户; 仅当 providerFilter==='TAIJI' 时启用
+  const [taijiUserFilter, setTaijiUserFilter] = useState<string | undefined>(undefined);
   const [health, setHealth] = useState<any>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
   const [salesUsers, setSalesUsers] = useState<any[]>([]);
@@ -636,6 +639,7 @@ export default function CustomerDetailDrawer({
     setPicked([]);
     setResourceQ('');
     setProviderFilter(undefined);
+    setTaijiUserFilter(undefined);
     setAddOpen(true);
     loadAvailableResources();
   };
@@ -674,20 +678,32 @@ export default function CustomerDetailDrawer({
     }
   };
 
-  // 过滤后的可选货源列表（已关联的剔除 + 搜索 + 厂商筛选）
+  // 过滤后的可选货源列表（已关联的剔除 + 搜索 + 厂商筛选 + TAIJI 用户筛选）
   const filteredAvailable = useMemo(() => {
     const linkedIds = new Set(resources.map((r) => r.resource_id));
     const q = resourceQ.trim().toLowerCase();
     return availableResources.filter((r) => {
       if (linkedIds.has(r.id)) return false;
       if (providerFilter && r.cloud_provider !== providerFilter) return false;
+      if (providerFilter === 'TAIJI' && taijiUserFilter && r.definition_name !== taijiUserFilter) return false;
       if (q) {
-        const hay = `${r.account_name || ''} ${r.identifier_field || ''} ${r.resource_code || ''}`.toLowerCase();
+        const hay = `${r.account_name || ''} ${r.identifier_field || ''} ${r.resource_code || ''} ${r.definition_name || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [availableResources, resources, resourceQ, providerFilter]);
+  }, [availableResources, resources, resourceQ, providerFilter, taijiUserFilter]);
+
+  // TAIJI 用户下拉候选 (distinct definition_name from TAIJI-provider rows)
+  const taijiUserOptions = useMemo(() => {
+    const set = new Set<string>();
+    availableResources.forEach((r) => {
+      if (r.cloud_provider === 'TAIJI' && r.definition_name) {
+        set.add(r.definition_name);
+      }
+    });
+    return Array.from(set).sort().map((v) => ({ value: v, label: v }));
+  }, [availableResources]);
 
   const loadAssign = async () => {
     if (!customer) return;
@@ -1621,9 +1637,26 @@ export default function CustomerDetailDrawer({
             allowClear
             style={{ width: 140 }}
             value={providerFilter}
-            onChange={setProviderFilter}
+            onChange={(v) => {
+              setProviderFilter(v);
+              // 切走 TAIJI 时清掉用户筛选, 避免遗留过滤导致列表空
+              if (v !== 'TAIJI') setTaijiUserFilter(undefined);
+            }}
             options={['AZURE', 'AWS', 'GCP', 'TAIJI'].map((v) => ({ value: v, label: v }))}
           />
+          {providerFilter === 'TAIJI' && (
+            <Select
+              placeholder="用户"
+              allowClear
+              showSearch
+              style={{ width: 200 }}
+              value={taijiUserFilter}
+              onChange={setTaijiUserFilter}
+              options={taijiUserOptions}
+              optionFilterProp="label"
+              notFoundContent={taijiUserOptions.length === 0 ? '暂无 TAIJI 用户' : null}
+            />
+          )}
         </Space>
         <Table
           rowKey="id"
@@ -1641,6 +1674,8 @@ export default function CustomerDetailDrawer({
                 <Tag color={PROVIDER_COLOR[p || ''] || 'default'}>{p || '-'}</Tag>
               ),
             },
+            { title: '用户', dataIndex: 'definition_name', width: 140, ellipsis: true,
+              render: (v: string) => v || '-' },
             { title: '账号', dataIndex: 'account_name', render: (v: string) => v || '(未命名)' },
             { title: '标识', dataIndex: 'identifier_field', ellipsis: true,
               render: (v: string, r: any) => v || r.resource_code || '-' },
