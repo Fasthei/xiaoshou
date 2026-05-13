@@ -12,6 +12,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -141,17 +142,27 @@ def sas_url(
 
 
 def _name_from_url(name_or_url: str, container: str) -> str:
-    """Accept either the bare blob name or the blob URL we stored."""
+    """Accept either the bare blob name or the blob URL we stored.
+
+    存进 DB 的 ``file_url`` 是 ``client.url`` (Azure SDK 已经把 blob name 做了
+    URL 编码, 比如中文文件名 "合同.pdf" 会变成 "%E5%90%88%E5%90%8C.pdf").
+    这里必须把它 unquote 回原始 blob name, 否则下游 ``get_blob_client(blob=...)``
+    会对 `%` 再编码一次 (→ `%25E5%2590...`), 导致 BlobNotFound。
+
+    顺手把 query string / fragment 剥掉, 容忍 ``file_url`` 里残留 SAS 的情况。
+    """
     if not name_or_url:
         return name_or_url
     if "://" not in name_or_url:
+        # 已经是裸 blob name (有可能是新代码或老脚本写进去的)
         return name_or_url
-    # Strip protocol/host and leading `container/`
-    tail = name_or_url.split("://", 1)[1].split("/", 1)[-1]
+    parsed = urlparse(name_or_url)
+    # path 形如 "/<container>/contract/123/uuid-%E5%90%88%E5%90%8C.pdf"
+    path = parsed.path.lstrip("/")
     prefix = f"{container}/"
-    if tail.startswith(prefix):
-        return tail[len(prefix):]
-    return tail
+    if path.startswith(prefix):
+        path = path[len(prefix):]
+    return unquote(path)
 
 
 def generate_upload_sas(
