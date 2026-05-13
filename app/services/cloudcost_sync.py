@@ -47,6 +47,31 @@ def _dec(v: Any, default: Any = 0) -> Optional[Decimal]:
         return Decimal(str(default)) if default is not None else None
 
 
+def _list_all_service_accounts(
+    client: CloudCostClient, page_size: int = 500, max_pages: int = 100,
+) -> List[Any]:
+    """分页遍历云管 service_account 列表, 跨页拼接成完整列表.
+
+    单次 list_service_accounts(page=N, page_size=500) 只拉一页; 当云管侧账户
+    数 > page_size 时, 老的 page=1 一次性调用会丢后面的页 (实测 taiji 636 个,
+    page_size=500 只能拿到前 500 个, 其中约 232 个是 taiji).
+
+    停止条件:
+        - 返回的元素数 < page_size: 已是最后一页
+        - 异常: 直接抛出 (由 caller 的 try/except 写入 SyncLog)
+        - 安全上限 max_pages: 50000 个账户已远超现实, 防御性兜底
+    """
+    out: List[Any] = []
+    for page in range(1, max_pages + 1):
+        batch = client.list_service_accounts(page=page, page_size=page_size)
+        if not batch:
+            break
+        out.extend(batch)
+        if len(batch) < page_size:
+            break
+    return out
+
+
 def build_cloud_client(bearer_token: Optional[str] = None) -> CloudCostClient:
     """构造 CloudCostClient.
 
@@ -118,7 +143,7 @@ def do_sync_bills(
         # external_project_id；必须经 service_account 反查。
         account_to_project: Dict[str, str] = {}
         try:
-            accounts = client.list_service_accounts(page=1, page_size=500)
+            accounts = _list_all_service_accounts(client)
             for a in accounts:
                 if a.id is not None and a.external_project_id:
                     account_to_project[str(a.id)] = str(a.external_project_id)
@@ -345,7 +370,7 @@ def do_sync_usage_for_customer(
             }
 
         # 2) 云管 service_account 列表 → 按 external_project_id 过滤出需要拉的 account
-        accounts = client.list_service_accounts(page=1, page_size=500)
+        accounts = _list_all_service_accounts(client)
         identifier_set = set(identifiers)
         matched = [
             a for a in accounts
@@ -667,7 +692,7 @@ def do_sync_resources(
     error_msg: Optional[str] = None
 
     try:
-        accounts = client.list_service_accounts(page=1, page_size=500)
+        accounts = _list_all_service_accounts(client)
         pulled = len(accounts)
         remote_codes = {f"cc-{a.id}" for a in accounts}
 
