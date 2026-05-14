@@ -12,7 +12,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -128,14 +128,23 @@ def sas_url(
         expiry=datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes),
     )
     if download_filename:
-        # 过滤非 ASCII / 双引号, 避免破坏 header 语法; RFC 5987 那套也可以但太重。
-        safe = (
+        # HTTP header 默认按 Latin-1 解码, 直接塞中文文件名会乱码 (例如下载下来变
+        # "C骵EO_docx")。走 RFC 5987:
+        #   Content-Disposition: attachment; filename="<ascii-fallback>"; filename*=UTF-8''<pct>
+        # 现代浏览器 (Chrome/FF/Edge/Safari) 优先认 filename*= 那段, 老浏览器回退
+        # 到 ASCII filename。
+        raw = (
             download_filename.replace("\\", "_")
             .replace('"', "_")
             .replace("\r", "")
             .replace("\n", "")
         )
-        kwargs["content_disposition"] = f'attachment; filename="{safe}"'
+        # ASCII fallback: 把非 ASCII 字符替换成 "_", 避免破坏 header 语法
+        ascii_fallback = "".join(c if ord(c) < 128 else "_" for c in raw) or "download"
+        pct = quote(raw, safe="")  # 全部百分号编码 UTF-8 字节
+        kwargs["content_disposition"] = (
+            f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{pct}'
+        )
     sas = generate_blob_sas(**kwargs)
     base = svc.get_blob_client(container=container, blob=blob_name).url
     return f"{base}?{sas}"
