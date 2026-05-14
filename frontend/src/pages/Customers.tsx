@@ -419,6 +419,7 @@ export default function Customers() {
 
       <CustomerDetailDrawer
         open={!!detail} customer={detail} onClose={() => setDetail(null)}
+        onUpdated={(c) => { setDetail(c as any); load(); }}
       />
 
       <CustomerOrderWizardModal

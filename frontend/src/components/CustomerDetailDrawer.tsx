@@ -15,7 +15,7 @@ import {
   ZoomInOutlined, ZoomOutOutlined, CloseOutlined,
   UploadOutlined, DownloadOutlined,
   PaperClipOutlined,
-  PlusOutlined, DeleteOutlined,
+  PlusOutlined, DeleteOutlined, EditOutlined,
 } from '@ant-design/icons';
 import { STAGE_META, STAGE_ORDER } from '../constants/stage';
 import dayjs, { Dayjs } from 'dayjs';
@@ -54,11 +54,12 @@ const PROVIDER_COLOR: Record<string, string> = {
 };
 
 export default function CustomerDetailDrawer({
-  open, customer, onClose,
+  open, customer, onClose, onUpdated,
 }: {
   open: boolean;
   customer: Customer | null;
   onClose: () => void;
+  onUpdated?: (c: Customer) => void;
 }) {
   // 抽屉尺寸 / 全屏 控制
   const DEFAULT_W = 640;
@@ -111,6 +112,11 @@ export default function CustomerDetailDrawer({
   const [assignLog, setAssignLog] = useState<any[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignForm] = Form.useForm<{ sales_user_id?: number | null; reason?: string }>();
+
+  // 编辑客户基本资料 Modal
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm] = Form.useForm();
+  const [editSaving, setEditSaving] = useState(false);
 
   // --- Milestone 2: 4 new tabs state ---
   const [contracts, setContracts] = useState<any[]>([]);
@@ -782,6 +788,81 @@ export default function CustomerDetailDrawer({
   const salesUserById = (id?: number | null) => salesUsers.find((u) => u.id === id);
   const currentSalesUser = salesUserById(customer?.sales_user_id);
 
+  // ---- 编辑客户基本资料 ----
+  const primaryContact = useMemo(() => {
+    const list = (customer as any)?.contacts || [];
+    return list.find((c: any) => c.is_primary) || list[0] || null;
+  }, [customer]);
+
+  const openEditModal = () => {
+    if (!customer) return;
+    editForm.resetFields();
+    editForm.setFieldsValue({
+      customer_name: customer.customer_name,
+      customer_short_name: (customer as any).customer_short_name ?? undefined,
+      industry: customer.industry ?? undefined,
+      region: customer.region ?? undefined,
+      customer_level: (customer as any).customer_level ?? undefined,
+      customer_type: (customer as any).customer_type ?? 'direct',
+      source_label: (customer as any).source_label ?? undefined,
+      sales_user_id: customer.sales_user_id ?? undefined,
+      employee_size: (customer as any).employee_size ?? undefined,
+      annual_revenue: (customer as any).annual_revenue ?? undefined,
+      website: (customer as any).website ?? undefined,
+      linkedin_url: (customer as any).linkedin_url ?? undefined,
+      note: (customer as any).note ?? undefined,
+      contact_name: primaryContact?.contact_name ?? undefined,
+      contact_phone: primaryContact?.contact_phone ?? undefined,
+      contact_email: primaryContact?.contact_email ?? undefined,
+    });
+    setEditOpen(true);
+  };
+
+  const submitEdit = async () => {
+    if (!customer) return;
+    const v = await editForm.validateFields();
+    setEditSaving(true);
+    try {
+      // 1) 客户字段
+      const {
+        contact_name, contact_phone, contact_email, ...customerPayload
+      } = v;
+      // 空串转 null, 否则后端 schema 把 "" 当成有效值存进 DB
+      Object.keys(customerPayload).forEach((k) => {
+        if (customerPayload[k] === '') customerPayload[k] = null;
+      });
+      await api.put(`/api/customers/${customer.id}`, customerPayload);
+
+      // 2) 主联系人: 若有填且客户暂无任何联系人, 创建一条 is_primary=true
+      const hasContactInput = !!(contact_name || contact_phone || contact_email);
+      const contactsExist = ((customer as any).contacts || []).length > 0;
+      if (hasContactInput && !contactsExist) {
+        try {
+          await api.post(`/api/customers/${customer.id}/contacts`, {
+            contact_name: contact_name || '主联系人',
+            contact_phone: contact_phone || null,
+            contact_email: contact_email || null,
+            is_primary: true,
+          });
+        } catch (e: any) {
+          antdMessage.warning(`客户已保存, 但联系人创建失败: ${e?.response?.data?.detail || e?.message || ''}`);
+        }
+      } else if (hasContactInput && contactsExist) {
+        antdMessage.info('该客户已有联系人, 联系人编辑暂不支持在此处操作');
+      }
+
+      // 3) 拉一次最新值, 通知父组件刷新列表 / 抽屉
+      const { data: fresh } = await api.get(`/api/customers/${customer.id}`);
+      antdMessage.success('客户资料已更新');
+      setEditOpen(false);
+      onUpdated?.(fresh);
+    } catch (e: any) {
+      antdMessage.error(e?.response?.data?.detail || '保存失败');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const filteredHistoryBills = useMemo(() => {
     const dayFilter = historyDate ? historyDate.format('YYYY-MM-DD') : null;
     return historyBills.filter((b: any) => {
@@ -863,12 +944,50 @@ export default function CustomerDetailDrawer({
               key: 'info',
               label: '基本信息',
               children: (
-                <Descriptions column={1} bordered size="small">
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                    <Button
+                      type="primary" size="small" icon={<EditOutlined />}
+                      onClick={openEditModal}
+                    >编辑</Button>
+                  </Space>
+                  <Descriptions column={1} bordered size="small">
                   <Descriptions.Item label="客户编号">{customer.customer_code}</Descriptions.Item>
                   <Descriptions.Item label="客户名称">{customer.customer_name}</Descriptions.Item>
                   <Descriptions.Item label="简称">{customer.customer_short_name || '-'}</Descriptions.Item>
                   <Descriptions.Item label="行业">{customer.industry || '-'}</Descriptions.Item>
                   <Descriptions.Item label="地区">{customer.region || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="客户级别">{(customer as any).customer_level || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="所属销售">
+                    {currentSalesUser?.name || (customer.sales_user_id ? `#${customer.sales_user_id}` : '未分配')}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="员工规模">{(customer as any).employee_size ?? '-'}</Descriptions.Item>
+                  <Descriptions.Item label="年营收">
+                    {(customer as any).annual_revenue != null ? `¥ ${(customer as any).annual_revenue}` : '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="公司官网">
+                    {(customer as any).website ? (
+                      <a href={(customer as any).website} target="_blank" rel="noopener">{(customer as any).website}</a>
+                    ) : '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="主联系人">
+                    {primaryContact ? (
+                      <Space size={6} wrap>
+                        <Text>{primaryContact.contact_name}</Text>
+                        {primaryContact.contact_phone ? (
+                          <Text type="secondary">📞 {primaryContact.contact_phone}</Text>
+                        ) : null}
+                        {primaryContact.contact_email ? (
+                          <Text type="secondary">✉ {primaryContact.contact_email}</Text>
+                        ) : null}
+                      </Space>
+                    ) : '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="最近跟进">
+                    {(customer as any).last_follow_time
+                      ? dayjs((customer as any).last_follow_time).format('YYYY-MM-DD HH:mm')
+                      : '-'}
+                  </Descriptions.Item>
                   <Descriptions.Item label="状态">
                     {(() => {
                       const s = customer.customer_status;
@@ -916,6 +1035,7 @@ export default function CustomerDetailDrawer({
                   <Descriptions.Item label="当月消耗">{customer.current_month_consumption ?? 0}</Descriptions.Item>
                   <Descriptions.Item label="创建时间">{customer.created_at ? dayjs(customer.created_at).format('YYYY-MM-DD HH:mm:ss') : '-'}</Descriptions.Item>
                 </Descriptions>
+                </Space>
               ),
             },
             {
@@ -1728,6 +1848,132 @@ export default function CustomerDetailDrawer({
           }}
           scroll={{ x: 'max-content', y: 360 }}
         />
+      </Modal>
+      <Modal
+        title="编辑客户基本资料"
+        open={editOpen}
+        onOk={submitEdit}
+        onCancel={() => setEditOpen(false)}
+        confirmLoading={editSaving}
+        width={720}
+        destroyOnClose
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={editForm} layout="vertical">
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="customer_name" label="客户名称" rules={[{ required: true, message: '必填' }]}>
+                <Input placeholder="客户名称" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="customer_short_name" label="简称">
+                <Input placeholder="简称" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="industry" label="行业">
+                <Input placeholder="例: 互联网 / 金融" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="region" label="地区">
+                <Input placeholder="例: 华东" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="customer_level" label="客户级别">
+                <Select
+                  allowClear
+                  options={[
+                    { value: 'A', label: 'A · 重点' },
+                    { value: 'B', label: 'B · 一般' },
+                    { value: 'C', label: 'C · 普通' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="customer_type" label="客户类型">
+                <Select
+                  options={[
+                    { value: 'direct', label: '直客 (direct)' },
+                    { value: 'channel', label: '渠道 (channel)' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="source_label" label="来源">
+                <Input placeholder="例: 老客户转介绍 / 合作伙伴推荐" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="sales_user_id" label="所属销售">
+                <Select
+                  allowClear showSearch optionFilterProp="label"
+                  placeholder="选择销售"
+                  options={salesUsers.filter((u: any) => u.is_active).map((u: any) => ({
+                    value: u.id, label: u.name,
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="employee_size" label="员工规模">
+                <InputNumber style={{ width: '100%' }} min={0} placeholder="人数" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="annual_revenue" label="年营收 (¥)">
+                <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="金额" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="website" label="公司官网">
+                <Input placeholder="https://example.com" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="linkedin_url" label="LinkedIn">
+                <Input placeholder="https://linkedin.com/company/..." />
+              </Form.Item>
+            </Col>
+            <Col span={24}>
+              <Form.Item name="note" label="备注">
+                <Input.TextArea rows={2} placeholder="客户备注" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Alert
+            type="info" showIcon style={{ marginBottom: 12 }}
+            message={primaryContact
+              ? `当前主联系人: ${primaryContact.contact_name}${primaryContact.contact_phone ? ` · ${primaryContact.contact_phone}` : ''}${primaryContact.contact_email ? ` · ${primaryContact.contact_email}` : ''}. 这里只支持在客户尚无联系人时新建主联系人; 编辑/替换暂走数据库`
+              : '客户尚无主联系人, 在下方填写后保存会自动创建为主联系人'}
+          />
+          <Row gutter={12}>
+            <Col span={8}>
+              <Form.Item name="contact_name" label="主联系人姓名">
+                <Input placeholder="姓名" disabled={!!primaryContact} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="contact_phone" label="电话">
+                <Input placeholder="电话" disabled={!!primaryContact} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="contact_email" label="邮箱">
+                <Input placeholder="邮箱" disabled={!!primaryContact} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Alert
+            type="warning" showIcon
+            message="提示: 最近跟进 由系统从「跟进日志」自动派生, 不在此处编辑"
+          />
+        </Form>
       </Modal>
       <Modal
         title={editingContractId ? '编辑合同' : '新建合同'}
