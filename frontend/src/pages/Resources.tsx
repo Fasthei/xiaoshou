@@ -15,7 +15,6 @@ const PROVIDER_COLOR: Record<string, string> = {
   AZURE: '#0078D4',   // Azure 主蓝
   GCP: '#A4262C',     // 克制红
   ALIYUN: '#107C10',  // 克制绿
-  TAIJI: '#6B46C1',   // 太极, 紫
   UNKNOWN: '#A19F9D',
 };
 
@@ -39,8 +38,6 @@ interface TopAvailable {
   resource_code: string;
   account_name?: string | null;
   provider?: string | null;
-  total_cost?: number;
-  month?: string;
 }
 
 interface SummaryData {
@@ -107,7 +104,6 @@ export default function Resources() {
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [provider, setProvider] = useState<string | undefined>();
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [availOnly, setAvailOnly] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -123,7 +119,6 @@ export default function Resources() {
           page, page_size: pageSize,
           keyword: keyword || undefined,
           cloud_provider: provider,
-          resource_status: statusFilter,
           available_only: availOnly || undefined,
         },
       });
@@ -147,7 +142,7 @@ export default function Resources() {
     if (view === '列表') load();
     else loadSummary();
     /* eslint-disable-next-line */
-  }, [view, page, pageSize, availOnly, statusFilter, provider]);
+  }, [view, page, pageSize, availOnly]);
 
   const stats = useMemo(() => {
     if (!summary) return { total: 0, available: 0, standby: 0, abnormal: 0 };
@@ -178,12 +173,6 @@ export default function Resources() {
       title: '云厂商', dataIndex: 'provider', width: 100,
       render: (p?: string | null) => p ? <Tag color={PROVIDER_COLOR[p] || 'default'}>{p}</Tag> : '-',
     },
-    {
-      title: '当月消耗', dataIndex: 'total_cost', width: 140, align: 'right' as const,
-      render: (v?: number) => (
-        <Text strong>$ {(v ?? 0).toFixed(2)}</Text>
-      ),
-    },
   ];
 
   return (
@@ -211,22 +200,8 @@ export default function Resources() {
             <Select
               placeholder="云厂商" allowClear style={{ width: 120 }}
               value={provider}
-              onChange={(v) => { setProvider(v); setPage(1); }}
-              options={['AZURE', 'AWS', 'GCP', 'TAIJI'].map((v) => ({ value: v, label: v }))}
-            />
-            <Select
-              placeholder="状态" allowClear style={{ width: 150 }}
-              value={statusFilter}
-              onChange={(v) => { setStatusFilter(v); setPage(1); }}
-              options={[
-                { value: 'AVAILABLE', label: 'AVAILABLE 可用' },
-                { value: 'STANDBY', label: 'STANDBY 停用' },
-                { value: 'ALLOCATED', label: 'ALLOCATED 已分配' },
-                { value: 'EXPIRED', label: 'EXPIRED 过期' },
-                { value: 'FROZEN', label: 'FROZEN 冻结' },
-                { value: 'EXHAUSTED', label: 'EXHAUSTED 用尽' },
-                { value: 'DECOMMISSIONED', label: 'DECOMMISSIONED 下线' },
-              ]}
+              onChange={(v) => { setProvider(v); setPage(1); load(); }}
+              options={['AZURE', 'AWS', 'GCP', 'ALIYUN'].map((v) => ({ value: v, label: v }))}
             />
             <Select
               style={{ width: 140 }}
@@ -319,11 +294,7 @@ export default function Resources() {
             </Col>
           </Row>
 
-          <Card
-            size="small"
-            title={`用量消耗 Top 10 (AVAILABLE${summary?.top_available?.[0]?.month ? ` · ${summary.top_available[0].month}` : ''})`}
-            loading={summaryLoading}
-          >
+          <Card size="small" title="Top 10 最近可用账号 (AVAILABLE)" loading={summaryLoading}>
             <Table<TopAvailable>
               rowKey="id"
               size="small"

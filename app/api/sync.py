@@ -209,20 +209,114 @@ def sync_resources_from_cloudcost(
     """议题 B: 云管侧消失的货源 → 本地软删 (is_deleted=true, deleted_at)；
     customer_resource 关联保留以便审计 / 手工解绑。
     本地已软删的同 resource_code → skip（墓碑不复活）。
+    """
+    s = get_settings()
+    if not s.CLOUDCOST_ENDPOINT:
+        raise HTTPException(400, "CLOUDCOST_ENDPOINT not configured")
 
-    业务逻辑放在 app.services.cloudcost_sync.do_sync_resources; 该函数也被
-    /api/internal/cron/sync-cloudcost-resources 复用。"""
-    from app.services.cloudcost_sync import build_cloud_client, do_sync_resources
-    try:
-        client = build_cloud_client()
-    except RuntimeError as exc:
-        raise HTTPException(400, str(exc))
-    result = do_sync_resources(
-        db, client, triggered_by=f"{user.sub}:{user.name}", dry_run=dry_run,
+    log = SyncLog(
+        source_system="cloudcost", sync_type="resources",
+        triggered_by=f"{user.sub}:{user.name}", status="running",
     )
-    if result.get("error"):
-        raise HTTPException(502, f"云管同步失败: {result['error']}")
-    return result
+    db.add(log); db.commit(); db.refresh(log)
+
+    client = CloudCostClient(s.CLOUDCOST_ENDPOINT)
+    created = updated = skipped = errors = soft_deleted = tombstoned = 0
+    try:
+        accounts = client.list_service_accounts(page=1, page_size=500)
+        log.pulled_count = len(accounts)
+        remote_codes = {f"cc-{a.id}" for a in accounts}
+
+        for a in accounts:
+            try:
+                code = f"cc-{a.id}"          # stable canonical 货源编号
+                # 墓碑：同 code 已被软删 → skip（不复活）
+                tomb = db.query(Resource).filter(
+                    Resource.resource_code == code,
+                    Resource.is_deleted == True,  # noqa: E712
+                ).first()
+                if tomb is not None:
+                    tombstoned += 1
+                    skipped += 1
+                    continue
+
+                existing = db.query(Resource).filter(
+                    Resource.resource_code == code, Resource.is_deleted == False,  # noqa: E712
+                ).first()
+                payload = dict(
+                    resource_code=code,
+                    resource_type="cloud",
+                    cloud_provider=(a.provider or "").upper() or None,
+                    account_name=a.name,
+                    definition_name=a.supplier_name,
+                    identifier_field=a.external_project_id,
+                    resource_status="AVAILABLE" if (a.status or "active") == "active" else (a.status or "UNKNOWN").upper(),
+                    source_system="cloudcost",
+                    source_id=str(a.id),
+                    last_sync_time=datetime.utcnow(),
+                )
+                if existing:
+                    changed = False
+                    for k, v in payload.items():
+                        if getattr(existing, k, None) != v:
+                            setattr(existing, k, v); changed = True
+                    if changed:
+                        updated += 1
+                        if not dry_run: db.add(existing)
+                    else:
+                        skipped += 1
+                else:
+                    created += 1
+                    if not dry_run: db.add(Resource(**payload))
+            except Exception as e:
+                logger.exception("sync resource %s failed: %s", a.id, e)
+                errors += 1
+
+        # === 软删云管消失的资源 ===
+        absent_locals = db.query(Resource).filter(
+            Resource.source_system == "cloudcost",
+            Resource.is_deleted == False,  # noqa: E712
+        ).all()
+        for r in absent_locals:
+            if r.resource_code in remote_codes:
+                continue
+            soft_deleted += 1
+            if not dry_run:
+                r.is_deleted = True
+                r.deleted_at = datetime.utcnow()
+                r.resource_status = "DECOMMISSIONED"
+                db.add(r)
+
+        if not dry_run:
+            db.commit()
+
+        log.created_count = created
+        log.updated_count = updated
+        log.skipped_count = skipped
+        log.error_count = errors
+        log.status = "success" if errors == 0 else "failed"
+        log.finished_at = datetime.utcnow()
+        notes: list[str] = []
+        if soft_deleted:
+            notes.append(f"[soft_deleted] {soft_deleted} 个云管侧消失的货源已软删")
+        if tombstoned:
+            notes.append(f"[tombstoned] {tombstoned} 个同 resource_code 命中墓碑, 未复活")
+        if notes:
+            log.last_error = "\n".join(notes)[:2000]
+        db.add(log); db.commit()
+    except Exception as e:
+        log.status = "failed"; log.last_error = str(e)[:2000]
+        log.finished_at = datetime.utcnow()
+        db.add(log); db.commit()
+        raise HTTPException(502, f"云管同步失败: {e}")
+
+    return {
+        "dry_run": dry_run, "pulled": log.pulled_count,
+        "created": created, "updated": updated, "skipped": skipped, "errors": errors,
+        "soft_deleted": soft_deleted,
+        "tombstoned": tombstoned,
+        "sync_log_id": log.id,
+    }
 
 
 @router.get("/logs", summary="同步历史")

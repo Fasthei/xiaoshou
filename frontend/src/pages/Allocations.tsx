@@ -1,24 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert, Button, Card, Space, Table, Tag, Typography, Tabs, Drawer, Timeline, Empty,
-  Popconfirm, Modal, Input, Descriptions, message as antdMessage,
+  Popconfirm, Modal, Input, message as antdMessage,
 } from 'antd';
 import {
-  ReloadOutlined, HistoryOutlined, StopOutlined, EyeOutlined,
+  ReloadOutlined, HistoryOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/axios';
 import type { Allocation, Pagination } from '../types';
-import { fmtTime } from '../utils/time';
-import { currencySymOf } from '../utils/currency';
-
-interface CustomerLite { id: number; customer_name: string; customer_code?: string }
-interface ResourceLite {
-  id: number;
-  resource_code?: string | null;
-  cloud_provider?: string | null;
-  account_name?: string | null;
-}
-interface SalesUserLite { id: number; name: string; email?: string | null }
 
 const { Title, Text } = Typography;
 
@@ -51,31 +40,6 @@ export default function Allocations() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [cancelFor, setCancelFor] = useState<Allocation | null>(null);
   const [cancelReason, setCancelReason] = useState('');
-  // 订单详情 (只读 Modal)
-  const [orderDetail, setOrderDetail] = useState<Allocation | null>(null);
-  // 客户 / 货源 / 销售 lookup —— 列里把 id 渲染成 名称
-  const [customers, setCustomers] = useState<CustomerLite[]>([]);
-  const [resources, setResources] = useState<ResourceLite[]>([]);
-  const [salesUsers, setSalesUsers] = useState<SalesUserLite[]>([]);
-  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
-  const resourceMap = useMemo(() => new Map(resources.map((r) => [r.id, r])), [resources]);
-  const salesMap = useMemo(() => new Map(salesUsers.map((s) => [s.id, s])), [salesUsers]);
-  const customerLabel = (id: number) => {
-    const c = customerMap.get(id);
-    return c ? `${c.customer_name}${c.customer_code ? ` · ${c.customer_code}` : ''}` : `#${id}`;
-  };
-  const resourceLabel = (id: number) => {
-    const r = resourceMap.get(id);
-    if (!r) return `#${id}`;
-    const bits = [r.resource_code || `#${id}`, r.account_name || '-'];
-    if (r.cloud_provider) bits.push(r.cloud_provider);
-    return bits.join(' · ');
-  };
-  const salesLabel = (id?: number | null) => {
-    if (id == null) return '—';
-    const s = salesMap.get(id);
-    return s ? `${s.name}${s.email ? ` · ${s.email}` : ''}` : `#${id}`;
-  };
 
   const load = async () => {
     setLoading(true);
@@ -95,25 +59,6 @@ export default function Allocations() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, pageSize, tab]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await api.get('/api/customers', { params: { page: 1, page_size: 100 } });
-        const items: CustomerLite[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        setCustomers(items.map((c) => ({ id: c.id, customer_name: c.customer_name, customer_code: c.customer_code })));
-      } catch { /* ignore */ }
-      try {
-        const { data } = await api.get('/api/resources', { params: { page: 1, page_size: 100 } });
-        const items: ResourceLite[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        setResources(items);
-      } catch { /* ignore */ }
-      try {
-        const { data } = await api.get<SalesUserLite[]>('/api/sales/users', { params: { active_only: false } });
-        setSalesUsers(Array.isArray(data) ? data : []);
-      } catch { /* ignore */ }
-    })();
-  }, []);
 
   const openHistory = async (a: Allocation) => {
     setHistoryAllocation(a);
@@ -140,27 +85,18 @@ export default function Allocations() {
   };
 
   const baseCols: any[] = [
-    { title: '订单编号', dataIndex: 'allocation_code', width: 180,
-      render: (v: string, r: Allocation) => (
-        <a onClick={() => setOrderDetail(r)}><code style={{ color: '#0078D4' }}>{v}</code></a>
-      ) },
-    { title: '客户', dataIndex: 'customer_id', width: 200, ellipsis: true,
-      render: (v: number) => customerLabel(v) },
-    { title: '货源', dataIndex: 'resource_id', width: 220, ellipsis: true,
-      render: (v: number) => resourceLabel(v) },
-    { title: '订单数量', dataIndex: 'allocated_quantity', width: 80 },
-    { title: '货币', dataIndex: 'currency', width: 70,
-      render: (v: string) => v || 'CNY' },
-    { title: '总售价', dataIndex: 'total_price', width: 120,
-      render: (v: any, r: Allocation) => v == null ? '-' : `${currencySymOf(r)} ${v}` },
-    { title: '毛利', dataIndex: 'profit_amount', width: 120,
-      render: (v: any, r: Allocation) => v == null ? '-' : `${currencySymOf(r)} ${v}` },
+    { title: '订单编号', dataIndex: 'allocation_code', width: 180 },
+    { title: '客户 ID', dataIndex: 'customer_id', width: 80 },
+    { title: '货源 ID', dataIndex: 'resource_id', width: 80 },
+    { title: '订单数量', dataIndex: 'allocated_quantity', width: 90 },
+    { title: '总售价', dataIndex: 'total_price', width: 110 },
+    { title: '毛利', dataIndex: 'profit_amount', width: 110 },
     {
       title: '毛利率(%)', dataIndex: 'profit_rate', width: 100,
       render: (v: any) => v != null ? `${v}%` : '-',
     },
     {
-      title: '状态', dataIndex: 'allocation_status', width: 100,
+      title: '状态', dataIndex: 'allocation_status', width: 110,
       render: (s: string) => <Tag color={STATUS_COLOR[s] || 'default'}>{s}</Tag>,
     },
     {
@@ -172,21 +108,19 @@ export default function Allocations() {
       },
     },
     {
-      title: '申请销售', dataIndex: 'allocated_by', width: 140, ellipsis: true,
-      render: (v?: number | null) => salesLabel(v),
+      title: '发起人', dataIndex: 'allocated_by', width: 90,
+      render: (v: any) => v ?? '-',
     },
-    { title: '创建时间', dataIndex: 'created_at', width: 170,
-      render: (v?: string) => fmtTime(v) },
     {
-      title: '操作', width: 240, fixed: 'right',
+      title: '审批人', dataIndex: 'approver_id', width: 90,
+      render: (v: any) => v ?? '-',
+    },
+    { title: '创建时间', dataIndex: 'created_at', width: 170 },
+    {
+      title: '操作', width: 200, fixed: 'right',
       render: (_: any, r: any) => (
-        <Space size={0} wrap>
-          <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => setOrderDetail(r)}>
-            详情
-          </Button>
-          <Button size="small" type="link" icon={<HistoryOutlined />} onClick={() => openHistory(r)}>
-            历史
-          </Button>
+        <Space size={4}>
+          <Button size="small" icon={<HistoryOutlined />} onClick={() => openHistory(r)}>历史</Button>
           {r.allocation_status !== 'CANCELLED' && (
             <Popconfirm
               title="取消这笔订单？"
@@ -194,7 +128,7 @@ export default function Allocations() {
               onConfirm={() => { setCancelFor(r); setCancelReason(''); }}
               okText="确认"
             >
-              <Button size="small" type="link" danger icon={<StopOutlined />}>取消</Button>
+              <Button size="small" danger icon={<StopOutlined />}>取消</Button>
             </Popconfirm>
           )}
         </Space>
@@ -271,56 +205,6 @@ export default function Allocations() {
           />
         )}
       </Drawer>
-
-      {/* 订单详情 Modal */}
-      <Modal
-        title={orderDetail ? `订单详情 — ${orderDetail.allocation_code}` : '订单详情'}
-        open={!!orderDetail}
-        onCancel={() => setOrderDetail(null)}
-        width={780}
-        destroyOnClose
-        footer={<Button onClick={() => setOrderDetail(null)}>关闭</Button>}
-      >
-        {orderDetail && (() => {
-          const d = orderDetail as any;
-          const approval = (d.approval_status || 'pending') as 'pending' | 'approved' | 'rejected';
-          const approvalMeta = {
-            pending: { color: 'orange', label: '待审批' },
-            approved: { color: 'green', label: '已通过' },
-            rejected: { color: 'red', label: '已驳回' },
-          }[approval] || { color: 'default', label: approval };
-          return (
-            <Descriptions column={2} size="small" bordered>
-              <Descriptions.Item label="订单号" span={2}>
-                <code style={{ color: '#0078D4' }}>{d.allocation_code}</code>
-              </Descriptions.Item>
-              <Descriptions.Item label="申请销售" span={2}>{salesLabel(d.allocated_by)}</Descriptions.Item>
-              <Descriptions.Item label="客户" span={2}>{customerLabel(d.customer_id)}</Descriptions.Item>
-              <Descriptions.Item label="货源" span={2}>{resourceLabel(d.resource_id)}</Descriptions.Item>
-              <Descriptions.Item label="数量">{d.allocated_quantity ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="状态">
-                <Tag color={STATUS_COLOR[d.allocation_status] || 'default'}>{d.allocation_status || 'pending'}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="货币">{d.currency || 'CNY'}</Descriptions.Item>
-              <Descriptions.Item label="折扣率">{d.discount_rate == null ? '—' : `${d.discount_rate} %`}</Descriptions.Item>
-              <Descriptions.Item label="折前单价">{d.unit_cost == null ? '—' : `${currencySymOf(d)} ${d.unit_cost}`}</Descriptions.Item>
-              <Descriptions.Item label="折后单价">{d.unit_price == null ? '—' : `${currencySymOf(d)} ${d.unit_price}`}</Descriptions.Item>
-              <Descriptions.Item label="总成本">{d.total_cost == null ? '—' : `${currencySymOf(d)} ${d.total_cost}`}</Descriptions.Item>
-              <Descriptions.Item label="总售价">{d.total_price == null ? '—' : `${currencySymOf(d)} ${d.total_price}`}</Descriptions.Item>
-              <Descriptions.Item label="毛利" span={2}>{d.profit_amount == null ? '—' : `${currencySymOf(d)} ${d.profit_amount}`}</Descriptions.Item>
-              <Descriptions.Item label="毛利率" span={2}>{d.profit_rate == null ? '—' : `${d.profit_rate} %`}</Descriptions.Item>
-              <Descriptions.Item label="终端用户标签" span={2}>{d.end_user_label || '—'}</Descriptions.Item>
-              <Descriptions.Item label="备注" span={2}>{d.remark || '—'}</Descriptions.Item>
-              <Descriptions.Item label="审批状态">
-                <Tag color={approvalMeta.color}>{approvalMeta.label}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="审批备注">{d.approval_note || '—'}</Descriptions.Item>
-              <Descriptions.Item label="创建时间">{fmtTime(d.created_at)}</Descriptions.Item>
-              <Descriptions.Item label="分配时间">{fmtTime(d.allocated_at)}</Descriptions.Item>
-            </Descriptions>
-          );
-        })()}
-      </Modal>
 
       {/* 取消原因 Modal */}
       <Modal

@@ -22,7 +22,6 @@ class PaymentBase(BaseModel):
     customer_id: int
     contract_id: Optional[int] = None
     amount: Decimal
-    currency: Optional[str] = Field("CNY", description="ISO 4217: CNY/USD/HKD/EUR/JPY/GBP/...")
     expected_date: date
     received_date: Optional[date] = None
     status: Optional[str] = "pending"
@@ -34,10 +33,8 @@ class PaymentCreate(PaymentBase):
 
 
 class PaymentPatch(BaseModel):
-    customer_id: Optional[int] = None
     contract_id: Optional[int] = None
     amount: Optional[Decimal] = None
-    currency: Optional[str] = None
     expected_date: Optional[date] = None
     received_date: Optional[date] = None
     status: Optional[str] = None
@@ -61,38 +58,16 @@ router = APIRouter(prefix="/api/payments", tags=["收款"])
 def list_payments(
     customer_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
-    expected_month: Optional[str] = Query(
-        None, description="按预期收款日期所在月过滤, 格式 YYYY-MM",
-        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
-    ),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ):
-    from sqlalchemy import or_, and_
     q = db.query(Payment)
     if customer_id is not None:
         q = q.filter(Payment.customer_id == customer_id)
     if status is not None:
         if status not in _STATUSES:
             raise HTTPException(400, f"status 必须是 {sorted(_STATUSES)}")
-        if status == "overdue":
-            # "超期" 是派生状态: status='overdue' 显式标记 ∪
-            # status='pending' 且 expected_date 已过期
-            today = date.today()
-            q = q.filter(
-                or_(
-                    Payment.status == "overdue",
-                    and_(Payment.status == "pending", Payment.expected_date < today),
-                )
-            )
-        else:
-            q = q.filter(Payment.status == status)
-    if expected_month:
-        # YYYY-MM → [first-of-month, first-of-next-month)
-        y, m = int(expected_month[:4]), int(expected_month[5:7])
-        start = date(y, m, 1)
-        end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-        q = q.filter(Payment.expected_date >= start, Payment.expected_date < end)
+        q = q.filter(Payment.status == status)
     return q.order_by(Payment.expected_date.desc(), Payment.id.desc()).all()
 
 
@@ -141,24 +116,6 @@ def patch_payment(
         setattr(row, k, v)
     db.add(row); db.commit(); db.refresh(row)
     return row
-
-
-@router.delete(
-    "/{payment_id}",
-    status_code=204,
-    summary="删除收款记录 (硬删, 不可恢复)",
-)
-def delete_payment(
-    payment_id: int,
-    db: Session = Depends(get_db),
-    _: CurrentUser = Depends(require_auth),
-):
-    row = db.query(Payment).filter(Payment.id == payment_id).first()
-    if not row:
-        raise HTTPException(404, "收款记录不存在")
-    db.delete(row)
-    db.commit()
-    return None
 
 
 @router.get("/overdue", response_model=List[PaymentResponse],

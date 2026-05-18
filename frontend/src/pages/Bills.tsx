@@ -256,7 +256,7 @@ export default function Bills() {
       render: (v: number) => <Tag color={v > 0 ? 'blue' : 'default'}>{v}</Tag> },
     { title: '原价合计', dataIndex: 'total_original_cost', width: 140,
       render: (v: number, r: CustomerBill) =>
-        <Text type="secondary">${Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
+        <Text type="secondary">¥{Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
     { title: '折扣率', dataIndex: 'total_discount_rate', width: 100,
       render: (v: number) => {
         const pct = Number(v ?? 0) * 100;
@@ -266,7 +266,7 @@ export default function Bills() {
       } },
     { title: '折后合计', dataIndex: 'total_final_cost', width: 160,
       render: (v: number, r: CustomerBill) =>
-        <Text strong>${Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
+        <Text strong>¥{Number(v ?? r.total_cost ?? 0).toFixed(2)}</Text> },
     { title: '操作', width: 120, render: (_: any, r: CustomerBill) => (
       <Button size="small" type="link"
         onClick={() => loadDayDrill(r.customer_id, r.customer_name)}>
@@ -293,7 +293,7 @@ export default function Bills() {
           render: (v: string | null) => v ? <Tag>{v}</Tag> : <Text type="secondary">—</Text> },
         { title: '原价 (用量)', dataIndex: 'original_cost', width: 110,
           render: (v: number, r: ResourceBill) =>
-            <Text type="secondary">${Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
+            <Text type="secondary">¥{Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
         {
           title: '折扣率',
           width: 130,
@@ -318,13 +318,13 @@ export default function Bills() {
         },
         { title: '手续费', dataIndex: 'surcharge', width: 100,
           render: (v: number) => (
-            v ? <Text style={{ color: v > 0 ? '#f59e0b' : '#16a34a' }}>${Number(v).toFixed(2)}</Text>
+            v ? <Text style={{ color: v > 0 ? '#f59e0b' : '#16a34a' }}>¥{Number(v).toFixed(2)}</Text>
               : <Text type="secondary">—</Text>
           ),
         },
         { title: '折后价', dataIndex: 'final_cost', width: 120,
           render: (v: number, r: ResourceBill) =>
-            <Text strong>${Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
+            <Text strong>¥{Number(v ?? r.cost ?? 0).toFixed(2)}</Text> },
         {
           title: '操作',
           width: 100,
@@ -378,7 +378,7 @@ export default function Bills() {
               valueStyle={{ color: '#1F2937', fontWeight: 600 }} />
           </Col>
           <Col xs={12} md={3}>
-            <Statistic title="原价合计" value={totalOriginalAll} precision={2} prefix="$"
+            <Statistic title="原价合计" value={totalOriginalAll} precision={2} prefix="¥"
               valueStyle={{ color: '#1F2937', fontWeight: 600 }} />
           </Col>
           <Col xs={12} md={3}>
@@ -386,7 +386,7 @@ export default function Bills() {
               valueStyle={{ color: '#0078D4', fontWeight: 600 }} />
           </Col>
           <Col xs={24} md={3}>
-            <Statistic title="折后合计" value={totalFinalAll} precision={2} prefix="$"
+            <Statistic title="折后合计" value={totalFinalAll} precision={2} prefix="¥"
               valueStyle={{ color: '#0078D4', fontWeight: 600 }} />
           </Col>
         </Row>
@@ -475,7 +475,7 @@ export default function Bills() {
             columns={[
               { title: '日期', dataIndex: 'date', width: 140 },
               { title: '当日费用', dataIndex: 'total_cost', width: 140,
-                render: (v: number) => <Text strong>${Number(v).toFixed(2)}</Text> },
+                render: (v: number) => <Text strong>¥{Number(v).toFixed(2)}</Text> },
               { title: '当日用量', dataIndex: 'total_usage', width: 140,
                 render: (v: number) => Number(v).toFixed(4) },
               { title: '明细条数', dataIndex: 'record_count', width: 120 },

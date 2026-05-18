@@ -38,11 +38,8 @@ interface Step1Values {
 
 interface Step2Values {
   order_note?: string;
-  currency?: 'CNY' | 'USD';
-  contract_files?: UploadFile[];
+  contract_file?: UploadFile | null;
 }
-
-const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', USD: '$' };
 
 interface OrderLine {
   resource_id?: number;
@@ -68,7 +65,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const [step1Form] = Form.useForm<Step1Values>();
   const [step2Form] = Form.useForm<Step2Values>();
   const [step1Values, setStep1Values] = useState<Step1Values | null>(null);
-  const [contractFiles, setContractFiles] = useState<UploadFile[]>([]);
+  const [contractFile, setContractFile] = useState<UploadFile | null>(null);
   const [lines, setLines] = useState<OrderLine[]>([
     // 后付费：原价 / 折后单价 可空，销售只需定折扣率；账单中心按 cc_usage × 折扣率 算折后
     { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
@@ -116,7 +113,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
   const reset = () => {
     setCurrent(initialCustomer ? 1 : 0);
     setStep1Values(null);
-    setContractFiles([]);
+    setContractFile(null);
     setLines([
       { quantity: 1, pre_unit_price: undefined, discount_rate: 0, post_unit_price: undefined },
     ]);
@@ -216,17 +213,8 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         antdMessage.error(lineErr);
         return;
       }
-      if (contractFiles.length === 0) {
-        antdMessage.error('新建订单必须上传至少一份合同文件');
-        return;
-      }
-      const MAX = 100 * 1024 * 1024;
-      const oversize = contractFiles.find((f) => {
-        const raw = f.originFileObj as File | undefined;
-        return raw && raw.size > MAX;
-      });
-      if (oversize) {
-        antdMessage.error(`文件 ${oversize.name} 超过 100MB`);
+      if (!contractFile) {
+        antdMessage.error('新建订单必须上传合同文件');
         return;
       }
       setSubmitting(true);
@@ -250,11 +238,10 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         return;
       }
 
-      // 2) 批量创建订单明细（后付费字段可空）; 整单货币
+      // 2) 批量创建订单明细（后付费字段可空）
       await api.post('/api/allocations/batch', {
         customer_id: customerId,
         contract_id: null,
-        currency: orderVals.currency || 'CNY',
         lines: lines.map((l) => ({
           resource_id: l.resource_id,
           quantity: l.quantity,
@@ -264,29 +251,25 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
         })),
       });
 
-      // 3) 创建合同记录, 然后批量上传所有附件 (一份合同 N 个 attachment)
+      // 3) 创建合同记录，然后 multipart 直传到后端
       try {
         const contract_code = 'XM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 4).toUpperCase();
-        const firstName = contractFiles[0]?.name || '合同';
-        const titleSuffix = contractFiles.length > 1 ? ` 等 ${contractFiles.length} 份` : '';
         const { data: contract } = await api.post('/api/contracts', {
           customer_id: customerId,
           contract_code,
-          title: firstName + titleSuffix,
+          title: contractFile!.name,
           notes: orderVals.order_note ?? null,
         });
 
+        const rawFile = contractFile!.originFileObj as File;
         const formData = new FormData();
-        for (const f of contractFiles) {
-          const raw = f.originFileObj as File;
-          formData.append('files', raw, raw.name);
-        }
+        formData.append('file', rawFile, rawFile.name);
 
-        await api.post(`/api/contracts/${contract.id}/uploads`, formData, {
+        await api.post(`/api/contracts/${contract.id}/upload`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
-        antdMessage.success(`订单已创建 + ${contractFiles.length} 份合同已上传，等待审批`);
+        antdMessage.success('订单已创建 + 合同已上传，等待审批');
       } catch (contractErr: any) {
         antdMessage.warning(
           '订单已建，但合同上传失败：' +
@@ -303,9 +286,6 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       setSubmitting(false);
     }
   };
-
-  const selectedCurrency = (Form.useWatch('currency', step2Form) as 'CNY' | 'USD' | undefined) || 'CNY';
-  const currencySym = CURRENCY_SYMBOL[selectedCurrency] || '¥';
 
   const columns = [
     {
@@ -339,7 +319,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       ),
     },
     {
-      title: `原价 ${currencySym}`,
+      title: '原价 ¥',
       width: 110,
       render: (_: unknown, r: OrderLine, i: number) => (
         <InputNumber
@@ -366,7 +346,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
       ),
     },
     {
-      title: `折后单价 ${currencySym}`,
+      title: '折后单价 ¥',
       width: 120,
       render: (_: unknown, r: OrderLine, i: number) => (
         <InputNumber
@@ -537,23 +517,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
 
       {/* Step 2: 订单详情 — 折扣明细表格 */}
       <div style={{ display: current === 1 ? 'block' : 'none' }}>
-        <Form<Step2Values>
-          form={step2Form} layout="vertical"
-          initialValues={{ currency: 'CNY' }}
-        >
-          <Form.Item
-            name="currency"
-            label="订单货币"
-            tooltip="整单货币, 所有明细行共用; 提交后在审批中心 / 订单管理详情里按此货币展示符号"
-          >
-            <Select
-              style={{ width: 200 }}
-              options={[
-                { value: 'CNY', label: '¥ CNY 人民币' },
-                { value: 'USD', label: '$ USD 美元' },
-              ]}
-            />
-          </Form.Item>
+        <Form<Step2Values> form={step2Form} layout="vertical">
           <Form.Item label="订单明细" required>
             <Table<OrderLine>
               dataSource={lines.map((l, i) => ({ ...l, __key: i })) as any}
@@ -566,7 +530,7 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
                   <Button icon={<PlusOutlined />} onClick={addLine}>
                     添加明细行
                   </Button>
-                  <Text strong>合计 {currencySym} {totalAmount.toFixed(2)}</Text>
+                  <Text strong>合计 ¥ {totalAmount.toFixed(2)}</Text>
                 </Space>
               )}
             />
@@ -579,31 +543,28 @@ export default function CustomerOrderWizardModal({ open, onClose, onSuccess, ini
           <Form.Item
             label="合同文件"
             required
-            tooltip="新建订单必须至少上传一份合同（PDF / Word / 图片），可一次上传多份"
-            extra="支持 .pdf / .doc / .docx / .jpg / .jpeg / .png；单文件 ≤ 100MB；可多选，新文件追加而不会替换已有文件"
+            tooltip="新建订单必须上传合同（PDF / Word / 图片）"
+            extra="支持 .pdf / .doc / .docx / .jpg / .png；合同将落到 Azure Blob，同时挂到该客户的合同列表下"
           >
             <Upload
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              multiple
+              maxCount={1}
               beforeUpload={(file) => {
-                setContractFiles((prev) => [
-                  ...prev,
-                  {
-                    uid: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                    name: file.name,
-                    status: 'done',
-                    originFileObj: file as any,
-                  },
-                ]);
+                setContractFile({
+                  uid: String(Date.now()),
+                  name: file.name,
+                  status: 'done',
+                  originFileObj: file as any,
+                });
                 return false;
               }}
-              onRemove={(file) => {
-                setContractFiles((prev) => prev.filter((f) => f.uid !== file.uid));
+              onRemove={() => {
+                setContractFile(null);
                 return true;
               }}
-              fileList={contractFiles}
+              fileList={contractFile ? [contractFile] : []}
             >
-              <Button icon={<UploadOutlined />}>选择合同文件（可多选）</Button>
+              <Button icon={<UploadOutlined />}>选择合同文件</Button>
             </Upload>
           </Form.Item>
 

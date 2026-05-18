@@ -21,19 +21,18 @@ class Contract(Base):
     contract_code = Column(String(80), unique=True, nullable=False, comment="合同编号")
     title = Column(String(200), comment="合同标题")
     amount = Column(Numeric(15, 2), comment="合同金额")
+    currency = Column(String(10), default="USD", server_default="USD", comment="货币类型: USD/CNY/EUR/GBP")
     start_date = Column(Date, comment="开始日期")
     end_date = Column(Date, comment="结束日期")
     status = Column(String(20), default="active", comment="状态: active/expired/terminated")
     notes = Column(Text, comment="备注")
+    # File upload fields (合同 PDF/Word/图片, 存 Azure Blob Storage)
+    file_url = Column(String(500), comment="Blob URL")
+    file_name = Column(String(200), comment="原始文件名")
+    file_size = Column(Integer, comment="文件大小(字节)")
+    mime_type = Column(String(80), comment="MIME 类型")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    attachments = relationship(
-        "ContractAttachment",
-        back_populates="contract",
-        cascade="all, delete-orphan",
-        order_by="ContractAttachment.created_at",
-    )
 
     __table_args__ = (
         Index("ix_contract_customer", "customer_id"),

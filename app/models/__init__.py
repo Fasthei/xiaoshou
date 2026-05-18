@@ -9,7 +9,6 @@ from app.models.sales_plan import SalesPlan
 from app.models.allocation_history import AllocationHistory
 from app.models.follow_up import CustomerFollowUp
 from app.models.contract import Contract
-from app.models.contract_attachment import ContractAttachment
 from app.models.ticket import Ticket
 from app.models.alert_rule import AlertRule
 from app.models.alert_event import AlertEvent
@@ -20,18 +19,16 @@ from app.models.cc_bill import CCBill
 from app.models.customer_resource import CustomerResource
 from app.models.customer_stage_request import CustomerStageRequest
 from app.models.bill_adjustment import BillAdjustment
-from app.models.customer_manual_bill import CustomerManualBill
 
 __all__ = [
     "Customer", "CustomerContact", "Resource", "Allocation", "UsageRecord", "SyncLog",
     "CustomerInsightRun", "CustomerInsightFact",
     "SalesUser", "LeadAssignmentRule", "LeadAssignmentLog", "SalesPlan",
     "AllocationHistory", "CustomerFollowUp",
-    "Contract", "ContractAttachment", "Ticket",
+    "Contract", "Ticket",
     "AlertRule", "AlertEvent", "Payment",
     "CCUsage", "CCAlert", "CCBill",
     "CustomerResource",
     "CustomerStageRequest",
     "BillAdjustment",
-    "CustomerManualBill",
 ]

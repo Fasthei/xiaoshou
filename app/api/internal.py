@@ -23,7 +23,6 @@ from app.services.cloudcost_sync import (
     build_cloud_client,
     do_sync_alerts,
     do_sync_bills,
-    do_sync_resources,
     do_sync_usage_all,
 )
 from app.services.usage_surge_trigger import evaluate_usage_surge_rules
@@ -245,40 +244,5 @@ def cron_sync_cloudcost_alerts(
         "cron_sync_alerts month=%s pulled=%s created=%s updated=%s errors=%s",
         result.get("month"), result.get("pulled"),
         result.get("created"), result.get("updated"), result.get("errors"),
-    )
-    return result
-
-
-@router.post(
-    "/cron/sync-cloudcost-resources",
-    summary="云管货源镜像 cron（拉 service_account → resource）",
-    description=(
-        "把云管 service_account 列表镜像到本地 resource 表。\n\n"
-        "Auth: 与 /api/internal/* 同——接受 X-Internal-Api-Key 或 M2M Bearer JWT。\n\n"
-        "推荐调度频率：**每个整点一次** (hourly)。\n"
-        "Azure Container Apps 用法：建 Scheduled Job, cron `0 * * * *`,\n"
-        "Command 为 `curl -sf -X POST $API_BASE/api/internal/cron/sync-cloudcost-resources "
-        "-H 'X-Internal-Api-Key: $XIAOSHOU_INTERNAL_API_KEY'`。"
-    ),
-)
-def cron_sync_cloudcost_resources(
-    _auth_dep: None = Depends(_auth),
-    db: Session = Depends(get_db),
-):
-    try:
-        client = build_cloud_client()
-    except RuntimeError as exc:
-        raise HTTPException(400, str(exc))
-
-    try:
-        result = do_sync_resources(db, client, triggered_by="cron:internal")
-    except Exception as exc:
-        logger.exception("cron_sync_resources failed: %s", exc)
-        raise HTTPException(500, f"sync resources error: {exc}") from exc
-
-    logger.info(
-        "cron_sync_resources pulled=%s created=%s updated=%s soft_deleted=%s errors=%s",
-        result.get("pulled"), result.get("created"), result.get("updated"),
-        result.get("soft_deleted"), result.get("errors"),
     )
     return result

@@ -52,8 +52,6 @@ export default function Customers() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [group, setGroup] = useState<GroupKey>('active');
   const [salesFilter, setSalesFilter] = useState<string[]>([]);
-  // 当月消耗: customer_id → 折后 $ (云管来源, USD 计价)
-  const [monthlyConsumption, setMonthlyConsumption] = useState<Record<number, number>>({});
 
   const load = async () => {
     setLoading(true);
@@ -72,27 +70,8 @@ export default function Customers() {
     }
   };
 
-  const loadMonthlyConsumption = async () => {
-    try {
-      // /api/bills/by-customer 当月按 (客户 × 货源) 聚合, 每个客户 total_final_cost
-      // 就是该客户所有"关联货源"的本月消耗总和。
-      const { data } = await api.get('/api/bills/by-customer');
-      const list: any[] = Array.isArray(data) ? data : [];
-      const map: Record<number, number> = {};
-      for (const row of list) {
-        if (row?.customer_id != null) {
-          map[Number(row.customer_id)] = Number(row.total_final_cost) || 0;
-        }
-      }
-      setMonthlyConsumption(map);
-    } catch {
-      setMonthlyConsumption({});
-    }
-  };
-
   useEffect(() => {
     load();
-    loadMonthlyConsumption();
     /* eslint-disable-next-line */
   }, []);
 
@@ -191,14 +170,7 @@ export default function Customers() {
         </Space>
       ),
     },
-    {
-      title: '当月消耗', dataIndex: 'current_month_consumption', width: 130,
-      render: (_: unknown, r: Customer) => {
-        const v = monthlyConsumption[r.id];
-        if (v == null) return <span style={{ color: '#9CA3AF' }}>—</span>;
-        return <span>$ {v.toFixed(2)}</span>;
-      },
-    },
+    { title: '当月消耗', dataIndex: 'current_month_consumption', width: 110 },
     {
       title: '销售', dataIndex: 'sales_user_name', width: 110,
       render: (v: string | null | undefined) => v
@@ -303,7 +275,7 @@ export default function Customers() {
             >
               {onlyUnassigned ? '✓ 只看未分配' : '只看未分配'}
             </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => { load(); loadMonthlyConsumption(); }}>刷新</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => load()}>刷新</Button>
             <Button icon={<DownloadOutlined />} onClick={async () => {
               const resp = await fetch(`${apiBase}/api/customers/bulk/export.csv`, {
                 headers: {
@@ -419,7 +391,6 @@ export default function Customers() {
 
       <CustomerDetailDrawer
         open={!!detail} customer={detail} onClose={() => setDetail(null)}
-        onUpdated={(c) => { setDetail(c as any); load(); }}
       />
 
       <CustomerOrderWizardModal

@@ -117,15 +117,9 @@ def create_allocation(allocation: AllocationCreate, db: Session = Depends(get_db
 
 @router.post("/batch", response_model=AllocationBatchResponse, summary="批量创建分配（折扣明细）",
              dependencies=[Depends(require_roles("sales", "sales-manager", "admin"))])
-def create_allocations_batch(
-    payload: AllocationBatchCreate,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_auth),
-):
+def create_allocations_batch(payload: AllocationBatchCreate, db: Session = Depends(get_db)):
     """批量创建订单明细。每个 line 写入一条 allocation 记录，
-    共享相同的 batch 前缀 allocation_code，便于按批次聚合。
-    allocated_by 通过 SalesUser.casdoor_user_id == user.sub 反查本地销售 id 写入,
-    审批中心展示"申请销售"用。"""
+    共享相同的 batch 前缀 allocation_code，便于按批次聚合。"""
     if not payload.lines:
         raise HTTPException(status_code=400, detail="lines 不能为空")
 
@@ -135,13 +129,6 @@ def create_allocations_batch(
     ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
-
-    # 反查申请人本地销售 id (没建档则留 None, 不阻断)
-    sales_user_id: Optional[int] = None
-    if user and getattr(user, "sub", None):
-        su = db.query(SalesUser).filter(SalesUser.casdoor_user_id == user.sub).first()
-        if su:
-            sales_user_id = su.id
 
     batch_suffix = secrets.token_hex(2).upper()
     batch_code = f"BATCH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{batch_suffix}"
@@ -180,10 +167,8 @@ def create_allocations_batch(
             profit_amount=profit_data["profit_amount"],
             profit_rate=profit_data["profit_rate"],
             discount_rate=line.discount_rate,
-            currency=(payload.currency or "CNY").upper(),
             allocation_status="PENDING",
-            allocated_by=sales_user_id,
-            allocated_at=datetime.utcnow(),
+            allocated_at=datetime.now(),
             remark=line.remark,
             approval_status="pending",
             end_user_label=line.end_user_label,

@@ -25,7 +25,6 @@ from app.auth import CurrentUser, require_auth, require_roles
 from app.database import get_db
 from app.models.customer import Customer
 from app.models.customer_stage_request import CustomerStageRequest
-from app.models.sales import SalesUser
 
 logger = logging.getLogger(__name__)
 
@@ -67,20 +66,6 @@ class StageRequestOut(BaseModel):
         from_attributes = True
 
 
-def _resolve_user_label(db: Session, raw: Optional[str]) -> Optional[str]:
-    """把 requested_by/decided_by 里残存的 Casdoor UUID 解析成销售姓名。
-
-    历史数据里 requested_by 写的是 user.sub (UUID 形态); 新数据已经直接写 name。
-    这里做兜底: 若 raw 命中某个 SalesUser.casdoor_user_id, 返回该销售的 name。
-    """
-    if not raw or raw == "system":
-        return raw
-    su = db.query(SalesUser.name).filter(SalesUser.casdoor_user_id == raw).first()
-    if su and su[0]:
-        return su[0]
-    return raw
-
-
 def _to_out(req: "CustomerStageRequest", db: Session) -> dict:
     """Serialize a stage_request with joined customer_name + requester_name alias."""
     cust_name: Optional[str] = None
@@ -88,8 +73,6 @@ def _to_out(req: "CustomerStageRequest", db: Session) -> dict:
         c = db.query(Customer.customer_name).filter(Customer.id == req.customer_id).first()
         if c:
             cust_name = c[0]
-    requester_label = _resolve_user_label(db, req.requested_by)
-    decider_label = _resolve_user_label(db, req.decided_by)
     return {
         "id": req.id,
         "customer_id": req.customer_id,
@@ -98,9 +81,9 @@ def _to_out(req: "CustomerStageRequest", db: Session) -> dict:
         "to_stage": req.to_stage,
         "reason": req.reason,
         "status": req.status,
-        "requested_by": requester_label,
-        "requester_name": requester_label,
-        "decided_by": decider_label,
+        "requested_by": req.requested_by,
+        "requester_name": req.requested_by,
+        "decided_by": req.decided_by,
         "decision_comment": req.decision_comment,
         "created_at": req.created_at,
         "decided_at": req.decided_at,
@@ -168,16 +151,10 @@ def _get_customer(db: Session, customer_id: int) -> Customer:
     return c
 
 
-def _requester_label(user: Optional[CurrentUser], db: Optional[Session] = None) -> Optional[str]:
-    """优先取本地 SalesUser.name (按 casdoor_user_id 关联), 退而其次 token name, 最后 sub。"""
+def _requester_label(user: Optional[CurrentUser]) -> Optional[str]:
     if not user:
         return None
-    sub = getattr(user, "sub", None)
-    if db is not None and sub:
-        su = db.query(SalesUser.name).filter(SalesUser.casdoor_user_id == sub).first()
-        if su and su[0]:
-            return su[0]
-    return getattr(user, "name", None) or sub
+    return getattr(user, "sub", None) or getattr(user, "name", None)
 
 
 @customer_router.post("/{customer_id}/stage/request", response_model=StageRequestOut,
@@ -197,12 +174,12 @@ def request_stage_change(
         to_stage=body.to_stage,
         reason=body.reason,
         status="pending",
-        requested_by=_requester_label(user, db),
+        requested_by=_requester_label(user),
     )
     db.add(req)
     db.commit()
     db.refresh(req)
-    return _to_out(req, db)
+    return req
 
 
 @customer_router.post("/{customer_id}/recycle", response_model=StageRequestOut,
@@ -222,12 +199,12 @@ def request_recycle(
         to_stage="lead",
         reason=body.reason,
         status="pending",
-        requested_by=_requester_label(user, db),
+        requested_by=_requester_label(user),
     )
     db.add(req)
     db.commit()
     db.refresh(req)
-    return _to_out(req, db)
+    return req
 
 
 @customer_router.get("/{customer_id}/stage-history", response_model=List[StageRequestOut],
@@ -237,13 +214,12 @@ def stage_history(
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require_auth),
 ):
-    rows = (
+    return (
         db.query(CustomerStageRequest)
         .filter(CustomerStageRequest.customer_id == customer_id)
         .order_by(CustomerStageRequest.id.desc())
         .all()
     )
-    return [_to_out(r, db) for r in rows]
 
 
 @request_router.get("", response_model=List[StageRequestOut], summary="待审批列表")
@@ -297,7 +273,7 @@ def approve_stage_request(
         db.add(customer)
 
     req.status = "approved"
-    req.decided_by = _requester_label(user, db)
+    req.decided_by = _requester_label(user)
     req.decided_at = now
     db.add(req)
     db.commit()
@@ -321,7 +297,7 @@ def reject_stage_request(
         raise HTTPException(400, f"申请已处理: {req.status}")
 
     req.status = "rejected"
-    req.decided_by = _requester_label(user, db)
+    req.decided_by = _requester_label(user)
     req.decision_comment = body.comment
     req.decided_at = datetime.utcnow()
     db.add(req)

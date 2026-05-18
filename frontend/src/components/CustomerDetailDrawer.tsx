@@ -299,6 +299,7 @@ export default function CustomerDetailDrawer({
     contractForm.setFieldsValue({
       title: row.title ?? undefined,
       amount: row.amount ?? undefined,
+      currency: row.currency || 'USD',
       status: row.status || 'active',
       notes: row.notes ?? undefined,
       start_date: row.start_date ? dayjs(row.start_date) : null,
@@ -317,6 +318,7 @@ export default function CustomerDetailDrawer({
         const patch: any = {
           title: v.title || null,
           amount: v.amount ?? null,
+          currency: v.currency || 'USD',
           status: v.status || 'active',
           notes: v.notes || null,
           start_date: v.start_date ? dayjs(v.start_date).format('YYYY-MM-DD') : null,
@@ -336,6 +338,7 @@ export default function CustomerDetailDrawer({
         contract_code: 'XM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 4).toUpperCase(),
         title: v.title || null,
         amount: v.amount ?? null,
+        currency: v.currency || 'USD',
         status: v.status || 'active',
         notes: v.notes || null,
         start_date: v.start_date ? dayjs(v.start_date).format('YYYY-MM-DD') : null,
@@ -1357,8 +1360,12 @@ export default function CustomerDetailDrawer({
                                   </a>
                                 ) },
                               { title: '标题', dataIndex: 'title', ellipsis: true },
-                              { title: '金额', dataIndex: 'amount', width: 100,
-                                render: (v: any) => v ? `$ ${v}` : '—' },
+                              { title: '金额', dataIndex: 'amount', width: 120,
+                                render: (v: any, r: any) => {
+                                  if (!v) return '—';
+                                  const sym = r.currency === 'CNY' ? '¥' : r.currency === 'EUR' ? '€' : r.currency === 'GBP' ? '£' : '$';
+                                  return `${sym} ${v} ${r.currency || 'USD'}`;
+                                } },
                               { title: '起止', width: 180,
                                 render: (_: any, r: any) =>
                                   `${r.start_date || '—'} ~ ${r.end_date || '—'}` },
@@ -1991,13 +1998,21 @@ export default function CustomerDetailDrawer({
         okText={editingContractId ? '保存' : '创建'}
         cancelText="取消"
       >
-        <Form form={contractForm} layout="vertical" initialValues={{ status: 'active' }}>
+        <Form form={contractForm} layout="vertical" initialValues={{ status: 'active', currency: 'USD' }}>
           <Form.Item name="title" label="标题">
             <Input placeholder="合同标题" />
           </Form.Item>
           <Space style={{ display: 'flex', width: '100%' }} align="start">
+            <Form.Item name="currency" label="货币" style={{ width: 110 }}>
+              <Select options={[
+                { value: 'USD', label: 'USD $' },
+                { value: 'CNY', label: 'CNY ¥' },
+                { value: 'EUR', label: 'EUR €' },
+                { value: 'GBP', label: 'GBP £' },
+              ]} />
+            </Form.Item>
             <Form.Item name="amount" label="金额" style={{ flex: 1 }}>
-              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="$" prefix="$" />
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="0.00" />
             </Form.Item>
             <Form.Item name="status" label="状态" style={{ flex: 1 }}>
               <Select options={[

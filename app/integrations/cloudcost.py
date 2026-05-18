@@ -436,20 +436,14 @@ class CloudCostClient:
     def resources_for_customer(self, customer_code: str) -> List[ServiceAccount]:
         """Return 货源 entries whose `match_field` equals the given customer_code.
 
-        分页遍历云管 service_account 列表 (单页 500 撑不住, 实测 taiji 一家就
-        636 个), 拉完后本地按 match_field 过滤。云管未来若支持
-        ?external_project_id=xxx 的服务端过滤, 这里可以改成单调用。
+        Cached across the call: we pull the full list once (≤ 500 accounts) and filter locally.
+        Good enough for the volumes we expect; can be replaced with a server-side filter
+        if cloudcost later adds `?external_project_id=` to its query params.
         """
+        all_accounts = self.list_service_accounts(page=1, page_size=500)
         out: List[ServiceAccount] = []
-        page_size = 500
-        for page in range(1, 101):  # 50k 上限兜底
-            batch = self.list_service_accounts(page=page, page_size=page_size)
-            if not batch:
-                break
-            for a in batch:
-                val = getattr(a, self.match_field, None)
-                if val and str(val) == str(customer_code):
-                    out.append(a)
-            if len(batch) < page_size:
-                break
+        for a in all_accounts:
+            val = getattr(a, self.match_field, None)
+            if val and str(val) == str(customer_code):
+                out.append(a)
         return out

@@ -1,11 +1,8 @@
-from datetime import date as date_cls
-from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.database import get_db
-from app.models.cc_usage import CCUsage
 from app.models.resource import Resource
 from app.schemas.resource import (
     ResourceCreate,
@@ -57,47 +54,18 @@ def get_resource_summary(db: Session = Depends(get_db)):
 
     by_provider = sorted(prov_map.values(), key=lambda r: r["total"], reverse=True)
 
-    # Top 10 按用量消耗 (AVAILABLE) ——
-    # cc_usage.customer_code = resource.identifier_field (= service_account.external_project_id),
-    # 当月聚合 SUM(total_cost), 关联到 AVAILABLE 货源, 按消耗 desc 取前 10.
-    today = date_cls.today()
-    month_start = today.replace(day=1)
-    available_items = [it for it in all_items if it.resource_status == "AVAILABLE"]
-    identifier_to_resource = {
-        it.identifier_field: it for it in available_items if it.identifier_field
-    }
-    if identifier_to_resource:
-        cost_rows = (
-            db.query(
-                CCUsage.customer_code,
-                sa_func.sum(CCUsage.total_cost).label("cost"),
-            )
-            .filter(
-                CCUsage.date >= month_start,
-                CCUsage.date <= today,
-                CCUsage.customer_code.in_(list(identifier_to_resource.keys())),
-            )
-            .group_by(CCUsage.customer_code)
-            .all()
-        )
-    else:
-        cost_rows = []
-    cost_map: dict[str, Decimal] = {
-        row.customer_code: (row.cost or Decimal("0")) for row in cost_rows
-    }
-    ranked = sorted(
-        available_items,
-        key=lambda it: cost_map.get(it.identifier_field or "", Decimal("0")),
-        reverse=True,
+    # Top 10 最新同步的 AVAILABLE 账号 (仅作下拉/参考用途, 不返回 available_quantity
+    # 因为云管没这个字段, 本地凑的值没意义).
+    top_items = sorted(
+        [it for it in all_items if it.resource_status == "AVAILABLE"],
+        key=lambda it: it.last_sync_time or it.created_at, reverse=True,
     )[:10]
     top_available = [{
         "id": it.id,
         "resource_code": it.resource_code,
         "account_name": it.account_name,
         "provider": it.cloud_provider,
-        "total_cost": float(cost_map.get(it.identifier_field or "", Decimal("0"))),
-        "month": month_start.strftime("%Y-%m"),
-    } for it in ranked]
+    } for it in top_items]
 
     # CLAUDE.md §3.2: 只展示 status 维度聚合，不暴露本地凑的 quantity 列
     # (total_quantity/allocated_quantity/available_quantity). 顶层 `total` /
@@ -232,12 +200,7 @@ def list_resources(
         )
 
     total = query.count()
-    items = (
-        query.order_by(Resource.id.desc())  # 新同步进来的排前面, 翻页稳定
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
+    items = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return {"total": total, "items": items}
 

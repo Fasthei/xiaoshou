@@ -146,7 +146,7 @@ export default function BillAdjustmentDrawer(props: Props) {
           {identifier_field ? <Tag>{identifier_field}</Tag> : null}
         </Descriptions.Item>
         <Descriptions.Item label="原价 (cc_usage)">
-          $ {original_cost.toFixed(2)}
+          ¥ {original_cost.toFixed(2)}
         </Descriptions.Item>
         <Descriptions.Item label="订单折扣率">
           {discount_rate_pct.toFixed(2)}%
@@ -167,7 +167,7 @@ export default function BillAdjustmentDrawer(props: Props) {
         </Form.Item>
         <Form.Item
           name="surcharge"
-          label="附加手续费 $"
+          label="附加手续费 ¥"
           tooltip="可正可负；叠加在折后价之上"
         >
           <InputNumber
@@ -187,7 +187,7 @@ export default function BillAdjustmentDrawer(props: Props) {
             return (
               <Alert
                 type="success" showIcon
-                message={`预览折后: $ ${preview.toFixed(2)}`}
+                message={`预览折后: ¥ ${preview.toFixed(2)}`}
                 description={
                   `= 原价 ${original_cost.toFixed(2)} × (1 − ${(ov ?? discount_rate_pct).toFixed(2)}% )`
                   + ` + 手续费 ${(su ?? 0).toFixed(2)}`

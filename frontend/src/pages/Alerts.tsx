@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Card, Table, Tag, Typography, Space, DatePicker, Button, Statistic, Row, Col, Alert, Empty,
   Tooltip as AntTooltip, Tabs, Modal, Form, Input, InputNumber, Select, Switch, Slider,
-  Popconfirm,
   message as antdMessage,
 } from 'antd';
 import {
   ReloadOutlined, AlertOutlined, PlusOutlined, CheckOutlined, BellOutlined,
-  BarChartOutlined, EditOutlined, DeleteOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import {
@@ -49,7 +48,6 @@ interface Payment {
   customer_id: number;
   contract_id?: number | null;
   amount: number;
-  currency?: string | null;
   expected_date: string;
   received_date?: string | null;
   status: 'pending' | 'received' | 'overdue' | 'cancelled';
@@ -58,19 +56,6 @@ interface Payment {
 }
 
 interface CustomerLite { id: number; customer_name: string }
-
-// 货币代码 → 符号 (与下拉 + 列渲染共用)
-const CURRENCY_OPTIONS: Array<{ value: string; symbol: string; label: string }> = [
-  { value: 'CNY', symbol: '¥',   label: 'CNY 人民币 (¥)' },
-  { value: 'USD', symbol: '$',   label: 'USD 美元 ($)' },
-  { value: 'HKD', symbol: 'HK$', label: 'HKD 港币 (HK$)' },
-  { value: 'EUR', symbol: '€',   label: 'EUR 欧元 (€)' },
-  { value: 'JPY', symbol: '¥',   label: 'JPY 日元 (¥)' },
-  { value: 'GBP', symbol: '£',   label: 'GBP 英镑 (£)' },
-  { value: 'SGD', symbol: 'S$',  label: 'SGD 新加坡元 (S$)' },
-];
-const currencySymbol = (code?: string | null) =>
-  CURRENCY_OPTIONS.find((c) => c.value === (code || 'CNY'))?.symbol ?? (code || '');
 
 const RULE_TYPE_OPTIONS = [
   { label: '费用上限', value: 'cost_upper' },
@@ -340,88 +325,41 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
   const [rows, setRows] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
-  const [customerFilter, setCustomerFilter] = useState<number | undefined>(undefined);
-  const [monthFilter, setMonthFilter] = useState<Dayjs | null>(null);
   const [form] = Form.useForm();
 
   const load = async () => {
     setLoading(true);
     try {
-      const params: Record<string, string | number> = {};
-      if (statusFilter) params.status = statusFilter;
-      if (customerFilter) params.customer_id = customerFilter;
-      if (monthFilter) params.expected_month = monthFilter.format('YYYY-MM');
-      const { data } = await api.get<Payment[]>('/api/payments', { params });
+      const { data } = await api.get<Payment[]>('/api/payments', {
+        params: statusFilter ? { status: statusFilter } : {},
+      });
       setRows(data);
     } catch { /* handled globally */ }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter, customerFilter, monthFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
 
-  const openCreate = () => {
-    setEditingId(null);
-    form.resetFields();
-    setModalOpen(true);
-  };
-
-  const openEdit = (row: Payment) => {
-    setEditingId(row.id);
-    form.resetFields();
-    form.setFieldsValue({
-      customer_id: row.customer_id,
-      contract_id: row.contract_id ?? undefined,
-      amount: row.amount,
-      currency: row.currency || 'CNY',
-      expected_date: row.expected_date ? dayjs(row.expected_date) : null,
-      received_date: row.received_date ? dayjs(row.received_date) : null,
-      status: row.status,
-      notes: row.notes ?? undefined,
-    });
-    setModalOpen(true);
-  };
-
-  const onSubmit = async () => {
+  const onCreate = async () => {
     try {
       const values = await form.validateFields();
       const payload = {
         ...values,
         expected_date: values.expected_date?.format('YYYY-MM-DD'),
-        received_date: values.received_date?.format('YYYY-MM-DD') ?? null,
+        received_date: values.received_date?.format('YYYY-MM-DD'),
       };
-      if (editingId) {
-        await api.patch(`/api/payments/${editingId}`, payload);
-        antdMessage.success('已更新');
-      } else {
-        await api.post('/api/payments', payload);
-        antdMessage.success('收款已登记');
-      }
-      setModalOpen(false); setEditingId(null); form.resetFields(); load();
+      await api.post('/api/payments', payload);
+      antdMessage.success('收款已登记');
+      setModalOpen(false); form.resetFields(); load();
     } catch (err) {
       if ((err as { errorFields?: unknown }).errorFields) return;
-      antdMessage.error((err as any)?.response?.data?.detail || '提交失败');
     }
   };
 
   const markReceived = async (row: Payment) => {
-    try {
-      await api.patch(`/api/payments/${row.id}`, { mark_received: true });
-      antdMessage.success('已登记收款');
-      load();
-    } catch (e: any) {
-      antdMessage.error(e?.response?.data?.detail || '登记失败');
-    }
-  };
-
-  const removePayment = async (row: Payment) => {
-    try {
-      await api.delete(`/api/payments/${row.id}`);
-      antdMessage.success('已删除');
-      load();
-    } catch (e: any) {
-      antdMessage.error(e?.response?.data?.detail || '删除失败');
-    }
+    await api.patch(`/api/payments/${row.id}`, { mark_received: true });
+    antdMessage.success('已登记收款');
+    load();
   };
 
   const today = dayjs().startOf('day');
@@ -430,22 +368,9 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
 
   return (
     <>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }} wrap>
+      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
         <Title level={5} style={{ margin: 0 }}>收款与超期管理</Title>
-        <Space wrap>
-          <Select
-            showSearch allowClear
-            placeholder="客户筛选" style={{ width: 200 }}
-            value={customerFilter} onChange={setCustomerFilter}
-            optionFilterProp="label"
-            options={customers.map((c) => ({ label: c.customer_name, value: c.id }))}
-          />
-          <DatePicker
-            picker="month" placeholder="预期月份"
-            value={monthFilter} onChange={setMonthFilter}
-            format="YYYY-MM" allowClear
-            style={{ width: 140 }}
-          />
+        <Space>
           <Select
             placeholder="状态过滤" allowClear style={{ width: 140 }}
             value={statusFilter} onChange={setStatusFilter}
@@ -457,7 +382,7 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
             登记收款
           </Button>
         </Space>
@@ -471,13 +396,8 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
         }}
         columns={[
           { title: '客户', dataIndex: 'customer_id', width: 180, render: (v: number) => customerName(v) },
-          { title: '合同', dataIndex: 'contract_id', width: 80, render: (v) => v ?? '-' },
-          { title: '币种', dataIndex: 'currency', width: 80,
-            render: (v: string | null) => v || 'CNY' },
-          { title: '金额', dataIndex: 'amount', width: 140,
-            render: (v: number, r) => (
-              <Text strong>{currencySymbol(r.currency)} {v}</Text>
-            ) },
+          { title: '合同', dataIndex: 'contract_id', width: 100, render: (v) => v ?? '-' },
+          { title: '金额', dataIndex: 'amount', width: 120, render: (v: number) => <Text strong>{v}</Text> },
           {
             title: '预期日期', dataIndex: 'expected_date', width: 130,
             render: (v: string, r) => {
@@ -485,7 +405,7 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
               return overdue ? <Text style={{ color: '#A4262C' }}>{v}（超期）</Text> : v;
             },
           },
-          { title: '实收日期', dataIndex: 'received_date', width: 120, render: (v: string | null) => v || '-' },
+          { title: '实收日期', dataIndex: 'received_date', width: 130, render: (v: string | null) => v || '-' },
           {
             title: '状态', dataIndex: 'status', width: 110,
             render: (v: Payment['status'], r) => {
@@ -503,40 +423,13 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
           },
           { title: '备注', dataIndex: 'notes', ellipsis: true },
           {
-            title: '操作', width: 260, fixed: 'right' as const,
-            render: (_, r) => (
-              <Space size={0} wrap>
-                <Button size="small" type="link" icon={<EditOutlined />}
-                  onClick={() => openEdit(r)}>
-                  编辑
-                </Button>
-                {r.status !== 'received' && (
-                  <Popconfirm
-                    title="登记收款?"
-                    description={`确认 ${customerName(r.customer_id)} ${currencySymbol(r.currency)} ${r.amount} 已到账?`}
-                    okText="确认到账"
-                    cancelText="取消"
-                    onConfirm={() => markReceived(r)}
-                  >
-                    <Button size="small" type="link" icon={<CheckOutlined />}>
-                      登记收款
-                    </Button>
-                  </Popconfirm>
-                )}
-                <Popconfirm
-                  title="删除该收款?"
-                  description="此操作不可恢复"
-                  okText="删除"
-                  okButtonProps={{ danger: true }}
-                  cancelText="取消"
-                  onConfirm={() => removePayment(r)}
-                >
-                  <Button size="small" type="link" danger icon={<DeleteOutlined />}>
-                    删除
-                  </Button>
-                </Popconfirm>
-              </Space>
-            ),
+            title: '操作', width: 120,
+            render: (_, r) => r.status !== 'received' ? (
+              <Button size="small" type="link" icon={<CheckOutlined />}
+                onClick={() => markReceived(r)}>
+                登记收款
+              </Button>
+            ) : null,
           },
         ]}
       />
@@ -544,14 +437,11 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
       <style>{`.xs-payment-overdue td { background: #fef2f2 !important; }`}</style>
 
       <Modal
-        title={editingId ? '编辑收款' : '登记收款'}
-        open={modalOpen}
-        onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields(); }}
-        onOk={onSubmit}
-        okText={editingId ? '保存' : '登记'}
-        destroyOnClose
+        title="登记收款" open={modalOpen}
+        onCancel={() => { setModalOpen(false); form.resetFields(); }}
+        onOk={onCreate} okText="登记"
       >
-        <Form form={form} layout="vertical" initialValues={{ status: 'pending', currency: 'CNY' }}>
+        <Form form={form} layout="vertical" initialValues={{ status: 'pending' }}>
           <Form.Item name="customer_id" label="客户" rules={[{ required: true }]}>
             <Select
               showSearch optionFilterProp="label"
@@ -561,29 +451,9 @@ function PaymentsTab({ customers }: { customers: CustomerLite[] }) {
           <Form.Item name="contract_id" label="合同 ID (可选)">
             <InputNumber style={{ width: '100%' }} min={1} />
           </Form.Item>
-          <Row gutter={8}>
-            <Col span={9}>
-              <Form.Item name="currency" label="币种">
-                <Select
-                  options={CURRENCY_OPTIONS.map((c) => ({ label: c.label, value: c.value }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={15}>
-              <Form.Item shouldUpdate={(p, c) => p.currency !== c.currency} noStyle>
-                {({ getFieldValue }) => (
-                  <Form.Item name="amount" label="金额" rules={[{ required: true }]}>
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={0}
-                      step={100}
-                      prefix={currencySymbol(getFieldValue('currency'))}
-                    />
-                  </Form.Item>
-                )}
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item name="amount" label="金额" rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} min={0} step={100} />
+          </Form.Item>
           <Form.Item name="expected_date" label="预期收款日期" rules={[{ required: true }]}>
             <DatePicker style={{ width: '100%' }} />
           </Form.Item>
@@ -846,7 +716,7 @@ function UsageBreakdownTab() {
           <b>货源</b>：{d.resource || '-'}
         </div>
         <div style={{ marginTop: 6, fontSize: 13 }}>
-          <b>$ {d.cost.toFixed(2)}</b>
+          <b>¥ {d.cost.toFixed(2)}</b>
           {d.usage > 0 && (
             <span style={{ color: '#6B7280', marginLeft: 8 }}>
               用量 {d.usage.toFixed(4)} {d.unit}
@@ -865,7 +735,7 @@ function UsageBreakdownTab() {
           <Card bordered size="small">
             <Statistic
               title={<Text type="secondary">当月总费用</Text>}
-              value={resp?.total_cost ?? 0} precision={2} prefix="$"
+              value={resp?.total_cost ?? 0} precision={2} prefix="¥"
               valueStyle={{ fontWeight: 600 }}
             />
           </Card>
@@ -905,8 +775,8 @@ function UsageBreakdownTab() {
               return top.map(([name, v]) => {
                 const pct = total > 0 ? (v / total) * 100 : 0;
                 return (
-                  <AntTooltip key={name} title={`$${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
-                    <Tag>{trimProduct(name)}: ${v.toFixed(2)}（{pct.toFixed(1)}%）</Tag>
+                  <AntTooltip key={name} title={`¥${v.toFixed(2)} · ${pct.toFixed(1)}%`}>
+                    <Tag>{trimProduct(name)}: ¥{v.toFixed(2)}（{pct.toFixed(1)}%）</Tag>
                   </AntTooltip>
                 );
               });
@@ -1000,7 +870,7 @@ function UsageBreakdownTab() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis
                   type="number"
-                  tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
+                  tickFormatter={(v) => `¥${Number(v).toFixed(0)}`}
                 />
                 <YAxis
                   type="category"
@@ -1031,12 +901,8 @@ export default function Alerts() {
   useEffect(() => {
     (async () => {
       try {
-        // /api/customers 是分页接口, 返回 {total, items}; page_size 后端 cap=100
-        const { data } = await api.get<{ items: Array<CustomerLite & Record<string, unknown>> }>(
-          '/api/customers', { params: { page: 1, page_size: 100 } },
-        );
-        const items = Array.isArray(data?.items) ? data.items : [];
-        setCustomers(items.map((c) => ({ id: c.id, customer_name: c.customer_name })));
+        const { data } = await api.get<Array<CustomerLite & Record<string, unknown>>>('/api/customers');
+        setCustomers(data.map((c) => ({ id: c.id, customer_name: c.customer_name })));
       } catch { /* handled globally */ }
     })();
   }, []);

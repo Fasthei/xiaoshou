@@ -19,8 +19,6 @@ class Payment(Base):
     customer_id = Column(BigInteger, ForeignKey("customer.id", ondelete="CASCADE"),
                          nullable=False, index=True)
     amount = Column(Numeric(15, 2), nullable=False, comment="金额")
-    currency = Column(String(8), nullable=False, default="CNY",
-                      server_default="CNY", comment="ISO 4217 货币代码: CNY/USD/HKD/EUR/JPY/GBP/...")
     expected_date = Column(Date, nullable=False, comment="预期收款日期")
     received_date = Column(Date, nullable=True, comment="实际收款日期")
     status = Column(String(20), default="pending", nullable=False,

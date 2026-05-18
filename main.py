@@ -10,7 +10,6 @@ from app.api import (
     customer_insight_agent, sales, external, follow_up, contract, ticket,
     alert_rule, payment, cc_sync, bills_export, bills_local, bill_adjustment,
     manager, orders, customer_stage, manager_metrics, reports, usage_breakdown,
-    customer_manual_bill,
 )
 from app.auth.dependencies import require_auth
 from app.config import get_settings
@@ -114,8 +113,6 @@ app.include_router(follow_up.router, dependencies=protected_deps)
 app.include_router(follow_up.global_router, dependencies=protected_deps)
 app.include_router(contract.router, dependencies=protected_deps)
 app.include_router(contract.customer_scoped, dependencies=protected_deps)
-app.include_router(customer_manual_bill.router, dependencies=protected_deps)
-app.include_router(customer_manual_bill.customer_scoped, dependencies=protected_deps)
 app.include_router(ticket.sync_router, dependencies=protected_deps)
 app.include_router(ticket.customer_scoped, dependencies=protected_deps)
 app.include_router(alert_rule.router, dependencies=protected_deps)

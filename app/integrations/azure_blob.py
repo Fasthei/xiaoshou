@@ -12,7 +12,6 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from urllib.parse import quote, unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -99,19 +98,8 @@ def delete_blob(blob_name_or_url: str) -> None:
         logger.warning("azure_blob: delete_blob(%s) failed: %s", blob_name, e)
 
 
-def sas_url(
-    blob_name_or_url: str,
-    *,
-    ttl_minutes: int = SAS_TTL_MINUTES,
-    download_filename: Optional[str] = None,
-) -> str:
-    """Generate a short-lived read-only SAS URL for client download.
-
-    若传 ``download_filename`` (例如 "合同.pdf"), 会在 SAS 上额外签入
-    ``Content-Disposition: attachment; filename="..."``, 让 Azure Blob 在
-    GET 时回 Content-Disposition 强制浏览器下载而不是在新标签页内嵌渲染
-    (修复前端 PDF/图片附件点 下载 后只是在新窗口预览不下载的问题).
-    """
+def sas_url(blob_name_or_url: str, *, ttl_minutes: int = SAS_TTL_MINUTES) -> str:
+    """Generate a short-lived read-only SAS URL for client download."""
     from azure.storage.blob import (  # type: ignore
         BlobSasPermissions,
         generate_blob_sas,
@@ -119,7 +107,7 @@ def sas_url(
     svc = _client()
     container = _container_name()
     blob_name = _name_from_url(blob_name_or_url, container)
-    kwargs: dict = dict(
+    sas = generate_blob_sas(
         account_name=svc.account_name,
         container_name=container,
         blob_name=blob_name,
@@ -127,51 +115,22 @@ def sas_url(
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes),
     )
-    if download_filename:
-        # HTTP header 默认按 Latin-1 解码, 直接塞中文文件名会乱码 (例如下载下来变
-        # "C骵EO_docx")。走 RFC 5987:
-        #   Content-Disposition: attachment; filename="<ascii-fallback>"; filename*=UTF-8''<pct>
-        # 现代浏览器 (Chrome/FF/Edge/Safari) 优先认 filename*= 那段, 老浏览器回退
-        # 到 ASCII filename。
-        raw = (
-            download_filename.replace("\\", "_")
-            .replace('"', "_")
-            .replace("\r", "")
-            .replace("\n", "")
-        )
-        # ASCII fallback: 把非 ASCII 字符替换成 "_", 避免破坏 header 语法
-        ascii_fallback = "".join(c if ord(c) < 128 else "_" for c in raw) or "download"
-        pct = quote(raw, safe="")  # 全部百分号编码 UTF-8 字节
-        kwargs["content_disposition"] = (
-            f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{pct}'
-        )
-    sas = generate_blob_sas(**kwargs)
     base = svc.get_blob_client(container=container, blob=blob_name).url
     return f"{base}?{sas}"
 
 
 def _name_from_url(name_or_url: str, container: str) -> str:
-    """Accept either the bare blob name or the blob URL we stored.
-
-    存进 DB 的 ``file_url`` 是 ``client.url`` (Azure SDK 已经把 blob name 做了
-    URL 编码, 比如中文文件名 "合同.pdf" 会变成 "%E5%90%88%E5%90%8C.pdf").
-    这里必须把它 unquote 回原始 blob name, 否则下游 ``get_blob_client(blob=...)``
-    会对 `%` 再编码一次 (→ `%25E5%2590...`), 导致 BlobNotFound。
-
-    顺手把 query string / fragment 剥掉, 容忍 ``file_url`` 里残留 SAS 的情况。
-    """
+    """Accept either the bare blob name or the blob URL we stored."""
     if not name_or_url:
         return name_or_url
     if "://" not in name_or_url:
-        # 已经是裸 blob name (有可能是新代码或老脚本写进去的)
         return name_or_url
-    parsed = urlparse(name_or_url)
-    # path 形如 "/<container>/contract/123/uuid-%E5%90%88%E5%90%8C.pdf"
-    path = parsed.path.lstrip("/")
+    # Strip protocol/host and leading `container/`
+    tail = name_or_url.split("://", 1)[1].split("/", 1)[-1]
     prefix = f"{container}/"
-    if path.startswith(prefix):
-        path = path[len(prefix):]
-    return unquote(path)
+    if tail.startswith(prefix):
+        return tail[len(prefix):]
+    return tail
 
 
 def generate_upload_sas(
