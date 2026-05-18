@@ -901,8 +901,9 @@ export default function Alerts() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get<Array<CustomerLite & Record<string, unknown>>>('/api/customers');
-        setCustomers(data.map((c) => ({ id: c.id, customer_name: c.customer_name })));
+        const { data } = await api.get<{ items: Array<CustomerLite & Record<string, unknown>> }>('/api/customers', { params: { page_size: 500 } });
+        const list = Array.isArray(data) ? data : (data?.items ?? []);
+        setCustomers(list.map((c) => ({ id: c.id, customer_name: c.customer_name })));
       } catch { /* handled globally */ }
     })();
   }, []);
