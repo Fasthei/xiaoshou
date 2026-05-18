@@ -493,6 +493,7 @@ export default function CustomerDetailDrawer({
     manualBillForm.setFieldsValue({
       title: row.title ?? undefined,
       amount: row.amount ?? undefined,
+      currency: row.currency ?? 'USD',
       bill_date: row.bill_date ? dayjs(row.bill_date) : null,
       notes: row.notes ?? undefined,
     });
@@ -507,6 +508,7 @@ export default function CustomerDetailDrawer({
       const payload: any = {
         title: v.title || null,
         amount: v.amount ?? null,
+        currency: v.currency || 'USD',
         bill_date: v.bill_date ? dayjs(v.bill_date).format('YYYY-MM-DD') : null,
         notes: v.notes || null,
       };
@@ -1575,7 +1577,11 @@ export default function CustomerDetailDrawer({
                                       <Space wrap size={6}>
                                         <Tag color="purple">手工</Tag>
                                         <Text strong>{b.title || '(未填标题)'}</Text>
-                                        {b.amount != null && <Text>$ {b.amount}</Text>}
+                                        {b.amount != null && (
+                                          <Text>
+                                            {b.currency === 'CNY' ? '¥' : b.currency === 'EUR' ? '€' : b.currency === 'GBP' ? '£' : '$'} {b.amount} {b.currency || 'USD'}
+                                          </Text>
+                                        )}
                                         <Text type="secondary" style={{ fontSize: 12 }}>
                                           {b.bill_date || '—'}
                                         </Text>
@@ -2053,8 +2059,21 @@ export default function CustomerDetailDrawer({
             <Input placeholder="账单标题, 可空" />
           </Form.Item>
           <Space style={{ display: 'flex', width: '100%' }} align="start">
-            <Form.Item name="amount" label="金额 $" style={{ flex: 1 }}>
-              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="可空" prefix="$" />
+            <Form.Item name="amount" label="金额" style={{ flex: 1 }}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="可空" />
+            </Form.Item>
+            <Form.Item name="currency" label="货币" style={{ width: 100 }} initialValue="USD">
+              <Select
+                placeholder="货币"
+                options={[
+                  { value: 'USD', label: 'USD $' },
+                  { value: 'CNY', label: 'CNY ¥' },
+                  { value: 'EUR', label: 'EUR €' },
+                  { value: 'GBP', label: 'GBP £' },
+                  { value: 'JPY', label: 'JPY ¥' },
+                  { value: 'HKD', label: 'HKD $' },
+                ]}
+              />
             </Form.Item>
             <Form.Item name="bill_date" label="账单时间" style={{ flex: 1 }}>
               <DatePicker style={{ width: '100%' }} placeholder="可空" />

@@ -21,6 +21,7 @@ class CustomerManualBill(Base):
     )
     title = Column(String(200), comment="标题")
     amount = Column(Numeric(15, 2), comment="金额")
+    currency = Column(String(10), default="USD", comment="货币类型 (USD/CNY/EUR等)")
     bill_date = Column(Date, comment="账单时间")
     notes = Column(Text, comment="备注")
     # 单附件 (PDF/Word/图片)

@@ -38,6 +38,7 @@ ALLOWED_EXT = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg"
 class ManualBillCreate(BaseModel):
     title: Optional[str] = None
     amount: Optional[Decimal] = None
+    currency: Optional[str] = "USD"
     bill_date: Optional[date] = None
     notes: Optional[str] = None
 
@@ -45,6 +46,7 @@ class ManualBillCreate(BaseModel):
 class ManualBillUpdate(BaseModel):
     title: Optional[str] = None
     amount: Optional[Decimal] = None
+    currency: Optional[str] = None
     bill_date: Optional[date] = None
     notes: Optional[str] = None
 
@@ -54,6 +56,7 @@ class ManualBillResponse(BaseModel):
     customer_id: int
     title: Optional[str] = None
     amount: Optional[Decimal] = None
+    currency: Optional[str] = None
     bill_date: Optional[date] = None
     notes: Optional[str] = None
     file_url: Optional[str] = None
